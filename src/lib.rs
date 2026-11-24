@@ -11,5 +11,6 @@ pub mod domain;
 pub mod logging;
 pub mod markdown;
 pub mod paths;
+pub mod runtime;
 pub mod storage;
 pub mod ui;

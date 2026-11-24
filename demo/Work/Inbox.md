@@ -1,0 +1,3 @@
+- [ ] Answer the email about the offsite [due:: 2026-11-24] [priority:: highest]
+- [ ] Review the quarterly report #work/finance [due:: 2026-11-28]
+- [x] Update the team calendar [completion:: 2026-11-21]

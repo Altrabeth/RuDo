@@ -2,7 +2,7 @@
 //! the [`Effect`]s to perform.
 
 use crate::app::effect::Effect;
-use crate::app::state::{App, Focus};
+use crate::app::state::{App, Focus, Mode};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::resolver::Resolution;
@@ -19,6 +19,20 @@ impl App {
         match self.resolver.feed(&self.keymap, self.context(), chord) {
             Resolution::Action(action) => self.update(action),
             Resolution::Pending | Resolution::Cancelled | Resolution::NoMatch => Vec::new(),
+        }
+    }
+
+    /// Handles text pasted into the terminal.
+    ///
+    /// Pasted text is never interpreted as key presses: in [`Mode::Normal`] it is ignored, so
+    /// that pasting by mistake cannot trigger a burst of commands.
+    #[must_use]
+    pub fn handle_paste(&mut self, text: &str) -> Vec<Effect> {
+        match self.mode {
+            Mode::Normal => {
+                tracing::debug!(length = text.len(), "pasted text ignored in normal mode");
+                Vec::new()
+            }
         }
     }
 
@@ -147,6 +161,19 @@ mod tests {
 
         assert_eq!(system_under_test, []);
         assert_eq!(app.focus(), Focus::Tasks);
+    }
+
+    #[test]
+    fn paste_in_normal_mode_is_not_interpreted_as_keys() {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_in(directory.path());
+        let text = "q\t";
+
+        let system_under_test = app.handle_paste(text);
+
+        assert_eq!(system_under_test, []);
+        assert_eq!(app.focus(), Focus::Lists);
+        assert!(!app.should_quit());
     }
 
     #[test]

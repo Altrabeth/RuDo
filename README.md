@@ -383,6 +383,7 @@ all recipes.
 | `just install-tools` | install `cargo-deny` and `cargo-llvm-cov`                      |
 | `just install`       | install the `rudo` binary into `~/.cargo/bin`                  |
 | `just run <args>`    | run RuDo from source, e.g. `just run --root /tmp/todo`         |
+| `just demo`          | run RuDo on a fresh copy of the sample workspace in `demo/`    |
 | `just test`          | run all tests including doctests                               |
 | `just lint`          | clippy with warnings denied                                    |
 | `just cov`           | test coverage (`just cov --open` for the HTML report)          |

@@ -1,5 +1,6 @@
 //! The `rudo` binary: parses the command line, sets up logging, loads the configuration and
-//! the keymap and either runs a `config` subcommand or chooses the workspace folder.
+//! the keymap and either runs a `config` subcommand or runs the terminal interface on the
+//! workspace folder.
 
 use std::env;
 use std::fmt;
@@ -9,6 +10,8 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::Parser;
+use jiff::ZonedDateTime;
+use rudo::app::App;
 use rudo::cli::{Cli, Command, ConfigCommand};
 use rudo::config::root::WorkspaceRoot;
 use rudo::config::settings::Settings;
@@ -16,6 +19,8 @@ use rudo::config::theme::ColourMode;
 use rudo::config::{self, CONFIG_FILE_NAMES, DEFAULT_CONFIG_YAML};
 use rudo::logging::{self, LOG_FILE_NAME};
 use rudo::paths::{self, BaseDir};
+use rudo::runtime;
+use rudo::storage::workspace::Workspace;
 
 fn main() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
@@ -52,7 +57,7 @@ fn main() -> anyhow::Result<ExitCode> {
     }
 }
 
-/// Starts RuDo on the workspace folder.
+/// Runs the terminal interface on the workspace folder until the user quits.
 fn run(
     cli: &Cli,
     config_file: Option<&Path>,
@@ -75,6 +80,13 @@ fn run(
     root.ensure_exists()
         .context("cannot open the workspace folder")?;
     tracing::info!(?root, "workspace root resolved");
+
+    let (config, _theme, keymap) = settings.into_parts();
+    let workspace = Workspace::scan(root.path(), config.tasks().indent())
+        .context("cannot read the workspace folder")?;
+    let mut app = App::new(workspace, config, keymap, ZonedDateTime::now().date());
+    runtime::run(&mut app)?;
+    tracing::info!("rudo stopped");
     Ok(())
 }
 

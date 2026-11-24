@@ -85,6 +85,12 @@ impl Settings {
     pub fn keymap(&self) -> &Keymap {
         &self.keymap
     }
+
+    /// Splits the settings into the configuration, the theme and the keymap.
+    #[must_use]
+    pub fn into_parts(self) -> (Config, Theme, Keymap) {
+        (self.config, self.theme, self.keymap)
+    }
 }
 
 #[cfg(test)]
@@ -115,6 +121,20 @@ mod tests {
         assert_eq!(*system_under_test.config(), expected_config);
         assert_eq!(*system_under_test.keymap(), expected_keymap);
         assert_eq!(*system_under_test.theme(), expected_theme);
+    }
+
+    #[test]
+    fn into_parts_returns_config_theme_and_keymap() {
+        let settings = Settings::load(None, Path::new(HOME), ColourMode::Colour).unwrap();
+        let expected = (
+            settings.config().clone(),
+            settings.theme().clone(),
+            settings.keymap().clone(),
+        );
+
+        let system_under_test = settings.into_parts();
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[test]

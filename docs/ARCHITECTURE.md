@@ -117,7 +117,11 @@ keep the names above unless there is a reason to deviate.
 - Events are read on a dedicated thread and sent over a `std::sync::mpsc` channel. RuDo has
   no async runtime; the work is a single interactive loop plus blocking file I/O.
 - The loop blocks on the channel, drains all queued events, then draws once. There is no busy
-  loop; a tick is only scheduled while a timed message is visible.
+  loop; it only wakes up without an event at the start of the next day, to update today's
+  date, and a tick is only scheduled while a timed message is visible.
+- The input thread polls with a short timeout and stops when its `InputThread` handle is
+  dropped, so the terminal can be handed to an external editor and input resumed afterwards
+  by spawning a new one.
 - Only `KeyEventKind::Press` and `Repeat` are handled; `Release` events (Windows, kitty
   keyboard protocol) are dropped at the boundary.
 - `ratatui::init` and `ratatui::restore` manage the terminal, including restoring it on panic.

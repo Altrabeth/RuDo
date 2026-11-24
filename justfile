@@ -47,6 +47,13 @@ install:
 run *args:
     cargo run -- "$@"
 
+# Run RuDo on a fresh copy of the sample workspace in `demo/`
+demo:
+    rm -rf target/demo-workspace
+    mkdir -p target
+    cp -r demo target/demo-workspace
+    cargo run -- --root target/demo-workspace
+
 # Format all code
 fmt *args:
     cargo fmt "$@"

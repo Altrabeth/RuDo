@@ -473,11 +473,22 @@ pub(crate) fn display_width(text: &str) -> usize {
 
 /// Returns `text` cut to at most `width` cells, ending in an ellipsis if it was cut.
 pub(crate) fn truncated(text: &str, width: usize) -> Cow<'_, str> {
+    match fitted(text, width) {
+        (kept, "") => Cow::Borrowed(kept),
+        (kept, ellipsis) => Cow::Owned(format!("{kept}{ellipsis}")),
+    }
+}
+
+/// Splits [`truncated`] into the longest prefix of `text` that is shown in `width` cells and
+/// the ellipsis that follows it, which is empty if `text` fits or no cell is left for it.
+///
+/// Callers that style parts of `text` style the prefix and append the ellipsis.
+pub(crate) fn fitted(text: &str, width: usize) -> (&str, &'static str) {
     if display_width(text) <= width {
-        return Cow::Borrowed(text);
+        return (text, "");
     }
     let Some(text_width) = width.checked_sub(display_width(ELLIPSIS)) else {
-        return Cow::Borrowed("");
+        return ("", "");
     };
     let mut used_width = 0;
     let end = text
@@ -488,7 +499,7 @@ pub(crate) fn truncated(text: &str, width: usize) -> Cow<'_, str> {
         })
         .last()
         .map_or(0, |(start, grapheme)| start + grapheme.len());
-    Cow::Owned(format!("{}{ELLIPSIS}", &text[..end]))
+    (&text[..end], ELLIPSIS)
 }
 
 #[cfg(test)]
@@ -824,6 +835,21 @@ mod tests {
         #[case] expected: &str,
     ) {
         let system_under_test = truncated(text, width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::fits("close", 5, ("close", ""))]
+    #[case::cut("close the help", 8, ("close t", "\u{2026}"))]
+    #[case::only_the_ellipsis("close", 1, ("", "\u{2026}"))]
+    #[case::nothing("close", 0, ("", ""))]
+    fn fitted_splits_the_kept_prefix_from_the_ellipsis(
+        #[case] text: &str,
+        #[case] width: usize,
+        #[case] expected: (&str, &str),
+    ) {
+        let system_under_test = fitted(text, width);
 
         assert_eq!(system_under_test, expected);
     }

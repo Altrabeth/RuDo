@@ -1,7 +1,7 @@
 //! The tasks pane: the task tree of the active list.
 //!
 //! Every row shows the tree guides of its ancestors, a fold marker, the checkbox and the
-//! description, styled by the status of the task. [`TaskRow`] builds the content of a row
+//! description, styled by the status of the task with its tags highlighted. [`TaskRow`] builds the content of a row
 //! from its task alone, so every part a task shows is added in one place.
 
 use std::borrow::Cow;
@@ -16,11 +16,12 @@ use crate::app::{App, Focus};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::{Slot, Theme};
+use crate::domain::tags;
 use crate::markdown::document::TaskId;
 use crate::markdown::task_line::TaskStatus;
 use crate::ui::outline::{Fold, Outline, OutlineItem, OutlineRow};
 use crate::ui::pane_message::{key_sentence, render_message};
-use crate::ui::text_input::{display_width, truncated};
+use crate::ui::text_input::{display_width, fitted};
 
 /// Title of the tasks pane while no list is open; otherwise the title is the list's name and
 /// its `done/total` counter, see [`title`].
@@ -159,7 +160,7 @@ pub struct TaskRow<'a> {
     /// Spans that are always shown in full: fold marker, checkbox and separator.
     lead: Vec<Span<'a>>,
     /// The description without inline fields; cut if the row is too narrow.
-    description: Span<'a>,
+    description: Description<'a>,
 }
 
 impl<'a> TaskRow<'a> {
@@ -182,7 +183,11 @@ impl<'a> TaskRow<'a> {
                 Span::styled(checkbox(task.status()), status_style),
                 Span::raw(" "),
             ],
-            description: Span::styled(task.description(), status_style),
+            description: Description {
+                text: task.description(),
+                style: status_style,
+                tag_style: theme.style(Slot::Tag),
+            },
         }
     }
 
@@ -204,15 +209,38 @@ impl<'a> TaskRow<'a> {
                 .map(|span| display_width(&span.content))
                 .sum::<usize>();
         let description_width = width.saturating_sub(lead_width);
-        let description = match truncated(&self.description.content, description_width) {
-            Cow::Borrowed(text) if text.len() == self.description.content.len() => self.description,
-            cut => Span::styled(cut.into_owned(), self.description.style),
-        };
         let mut spans = Vec::with_capacity(self.lead.len() + 2);
         spans.push(Span::styled(TREE_GUIDE.repeat(guides), self.guide_style));
         spans.extend(self.lead);
-        spans.push(description);
+        self.description.push_spans(description_width, &mut spans);
         Line::from(spans)
+    }
+}
+
+/// The description of a task, styled by its status with its tags highlighted.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Description<'a> {
+    text: &'a str,
+    style: Style,
+    tag_style: Style,
+}
+
+impl<'a> Description<'a> {
+    /// Appends the description cut to `width` cells to `spans`.
+    ///
+    /// The text is cut first and the tags of the whole text are styled where they remain
+    /// visible, so a tag that is cut keeps its style up to the ellipsis.
+    fn push_spans(self, width: usize, spans: &mut Vec<Span<'a>>) {
+        let (shown, ellipsis) = fitted(self.text, width);
+        let mut position = 0;
+        for tag in tags::spans(self.text).take_while(|tag| tag.start < shown.len()) {
+            let end = tag.end.min(shown.len());
+            spans.push(Span::styled(&shown[position..tag.start], self.style));
+            spans.push(Span::styled(&shown[tag.start..end], self.tag_style));
+            position = end;
+        }
+        spans.push(Span::styled(&shown[position..], self.style));
+        spans.push(Span::styled(ellipsis, self.style));
     }
 }
 
@@ -305,6 +333,59 @@ mod tests {
         let document = "- [ ] a\n\t- [ ] b\n\t\t- [ ] cccc\n";
 
         let system_under_test = row_text(document, &[], 2, width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    /// Returns the text and style of every non-empty span of the description of the only
+    /// task of `document`, fitted into `width` cells.
+    fn description_spans(document: &str, width: usize) -> Vec<(String, Style)> {
+        let document = TodoDocument::parse(document);
+        let items = task_items(&document);
+        let mut outline = Outline::new();
+        outline.refresh(&items, HEIGHT);
+        let rows = outline.visible_rows(&items);
+        let line = TaskRow::new(&rows[0], &Theme::default()).into_line(width);
+        line.spans[4..]
+            .iter()
+            .filter(|span| !span.content.is_empty())
+            .map(|span| (span.content.to_string(), span.style))
+            .collect()
+    }
+
+    const TAG: Style = Style::new().fg(Color::Magenta);
+    const DONE: Style = Style::new().fg(Color::DarkGray);
+
+    #[rstest]
+    #[case::no_tag("- [ ] a b\n", 40, &[("a b", Style::new())])]
+    #[case::tag_between_text(
+        "- [ ] a #b, c\n",
+        40,
+        &[("a ", Style::new()), ("#b", TAG), (", c", Style::new())]
+    )]
+    #[case::status_styles_the_rest("- [x] #a b\n", 40, &[("#a", TAG), (" b", DONE)])]
+    #[case::code_span_is_not_a_tag("- [ ] `#a`\n", 40, &[("`#a`", Style::new())])]
+    #[case::cut_tag_keeps_its_style(
+        "- [ ] a #long\n",
+        11,
+        &[("a ", Style::new()), ("#l", TAG), ("\u{2026}", Style::new())]
+    )]
+    #[case::cut_before_the_tag(
+        "- [ ] abc #tag\n",
+        9,
+        &[("ab", Style::new()), ("\u{2026}", Style::new())]
+    )]
+    fn description_highlights_tags_after_cutting(
+        #[case] document: &str,
+        #[case] width: usize,
+        #[case] expected: &[(&str, Style)],
+    ) {
+        let expected: Vec<(String, Style)> = expected
+            .iter()
+            .map(|&(text, style)| (text.to_owned(), style))
+            .collect();
+
+        let system_under_test = description_spans(document, width);
 
         assert_eq!(system_under_test, expected);
     }

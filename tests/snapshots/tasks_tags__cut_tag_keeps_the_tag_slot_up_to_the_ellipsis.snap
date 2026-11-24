@@ -1,0 +1,13 @@
+---
+source: tests/tasks_tags.rs
+assertion_line: 77
+expression: system_under_test
+---
+"╭ Tags  1/5 ───── 1 lists  2 tasks ╮"
+"│   [ ] Buy milk #shopping, #home… │"
+"│   [ ] Learn C# and #123          │"
+"│   [ ] Run `#code` see [docs](#a… │"
+"│   [x] Clean #Küche               │"
+"│   [ ] Plan a trip #travel-plans  │"
+"╰──────────────────────────────────╯"
+" o new task  a subtask       ? help "

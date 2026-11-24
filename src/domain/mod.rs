@@ -5,3 +5,4 @@
 
 pub mod date;
 pub mod recurrence;
+pub mod tags;

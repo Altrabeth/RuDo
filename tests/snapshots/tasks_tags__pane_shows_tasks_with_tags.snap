@@ -1,0 +1,13 @@
+---
+source: tests/tasks_tags.rs
+assertion_line: 46
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Tags  1/5 ───────────────────────────────────────────╮"
+"│ • Tags           1/5 ││   [ ] Buy milk #shopping, #home/kitchen              │"
+"│                      ││   [ ] Learn C# and #123                              │"
+"│                      ││   [ ] Run `#code` see [docs](#anchor)                │"
+"│                      ││   [x] Clean #Küche                                   │"
+"│                      ││   [ ] Plan a trip #travel-plans                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

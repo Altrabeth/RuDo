@@ -8,10 +8,12 @@ use std::fmt::Write;
 use std::iter;
 use std::path::{Path, PathBuf};
 
-use crate::app::lists::EntryKey;
+use crate::app::lists::{EntryChange, EntryKey};
 use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
-use crate::storage::entries::{EntryError, EntryName, create_folder, create_list};
+use crate::storage::entries::{
+    EntryError, EntryName, create_folder, create_list, delete_folder, delete_list, rename,
+};
 use crate::storage::fingerprint::Fingerprint;
 use crate::storage::save::{SaveError, save};
 use crate::storage::workspace::{EntryKind, List, ListPath};
@@ -32,6 +34,20 @@ pub enum Effect {
         /// The name of the new entry, without the `.md` extension of list files.
         name: EntryName,
     },
+    /// Rename the list file or folder at `path` to `name` in the same folder.
+    RenameEntry {
+        /// The entry to rename, relative to the workspace root.
+        path: PathBuf,
+        /// The new name, without the `.md` extension of list files.
+        name: EntryName,
+    },
+    /// Delete the list file or empty folder at `path`; folders are never deleted recursively.
+    DeleteEntry {
+        /// Whether the entry is a list file or a folder.
+        kind: EntryKind,
+        /// The entry to delete, relative to the workspace root.
+        path: PathBuf,
+    },
 }
 
 /// Performs `effect` and reports its result to `app`.
@@ -41,6 +57,8 @@ pub fn execute(app: &mut App, effect: Effect) {
     match effect {
         Effect::Save(list) => save_list(app, &list),
         Effect::CreateEntry { kind, parent, name } => create_entry(app, kind, &parent, &name),
+        Effect::RenameEntry { path, name } => rename_entry(app, &path, &name),
+        Effect::DeleteEntry { kind, path } => delete_entry(app, kind, &path),
     }
 }
 
@@ -66,7 +84,28 @@ fn create_entry(app: &mut App, kind: EntryKind, parent: &Path, name: &EntryName)
     };
     match created {
         Ok(_) => app.entry_created(kind, parent, name),
-        Err(error) => app.create_failed(&error),
+        Err(error) => app.entry_failed(&error),
+    }
+}
+
+/// Renames the list file or folder at `path` to `name` on disk.
+fn rename_entry(app: &mut App, path: &Path, name: &EntryName) {
+    match rename(&app.workspace().root().join(path), name) {
+        Ok(_) => app.entry_renamed(path, name),
+        Err(error) => app.entry_failed(&error),
+    }
+}
+
+/// Deletes the list file or empty folder at `path` on disk.
+fn delete_entry(app: &mut App, kind: EntryKind, path: &Path) {
+    let absolute = app.workspace().root().join(path);
+    let deleted = match kind {
+        EntryKind::Folder => delete_folder(&absolute),
+        EntryKind::List => delete_list(&absolute),
+    };
+    match deleted {
+        Ok(()) => app.entry_deleted(path),
+        Err(error) => app.entry_failed(&error),
     }
 }
 
@@ -98,10 +137,35 @@ impl App {
         self.lists.select(&self.workspace, &key, viewport_height);
     }
 
-    /// Reports that creating a list or folder failed with `error`.
-    fn create_failed(&mut self, error: &EntryError) {
+    /// Renames the folder or list at `path`, just renamed to `name` on disk, in the workspace
+    /// and keeps it selected; state that remembers its lists follows them.
+    fn entry_renamed(&mut self, path: &Path, name: &EntryName) {
+        let Some(entry) = self.workspace.rename(path, name) else {
+            tracing::warn!(path = %path.display(), %name, "renamed entry is gone");
+            return;
+        };
+        let key = EntryKey::from(entry);
+        self.apply_entry_change(EntryChange::Renamed {
+            from: path,
+            to: key.path(),
+        });
+        let viewport_height = self.viewport_height(Focus::Lists);
+        self.lists.select(&self.workspace, &key, viewport_height);
+    }
+
+    /// Removes the folder or list at `path`, just deleted on disk, from the workspace; the
+    /// selection moves to a neighbour and state that remembers the list forgets it.
+    fn entry_deleted(&mut self, path: &Path) {
+        if self.workspace.remove(path).is_none() {
+            tracing::warn!(path = %path.display(), "deleted entry was not in the workspace");
+        }
+        self.apply_entry_change(EntryChange::Removed(path));
+    }
+
+    /// Reports that creating, renaming or deleting a list or folder failed with `error`.
+    fn entry_failed(&mut self, error: &EntryError) {
         let report = error_report(error);
-        tracing::warn!(%report, "cannot create entry");
+        tracing::warn!(%report, "cannot change entry");
         self.show_message(StatusMessage::error(report));
     }
 }

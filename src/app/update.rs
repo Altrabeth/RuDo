@@ -10,6 +10,7 @@ use crate::config::keymap::resolver::Resolution;
 use crate::markdown::document::{EditOutcome, TodoDocument};
 use crate::storage::workspace::ListPath;
 use crate::ui::outline::OutlineCommand;
+use crate::ui::text_input::TextInput;
 
 impl App {
     /// Handles a key press: resolves `chord` in the current [`App::context`] and performs the
@@ -37,8 +38,11 @@ impl App {
     #[must_use]
     pub fn handle_paste(&mut self, text: &str) -> Vec<Effect> {
         match &mut self.mode {
-            Mode::Normal => {
-                tracing::debug!(length = text.len(), "pasted text ignored in normal mode");
+            Mode::Normal | Mode::Confirm(_) => {
+                tracing::debug!(
+                    length = text.len(),
+                    "pasted text ignored without a text input"
+                );
             }
             Mode::Help(help) => help.paste(text, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.paste(text),
@@ -74,12 +78,25 @@ impl App {
             Action::Cancel => self.cancel(),
             Action::Help => self.open_help(),
             Action::CloseHelp => self.close_help(),
-            Action::NewList => self.open_prompt(PromptKind::NewList {
-                parent: self.lists.target_folder(),
-            }),
-            Action::NewFolder => self.open_prompt(PromptKind::NewFolder {
-                parent: self.lists.target_folder(),
-            }),
+            Action::NewList => self.open_prompt(
+                PromptKind::NewList {
+                    parent: self.lists.target_folder(),
+                },
+                TextInput::new(),
+            ),
+            Action::NewFolder => self.open_prompt(
+                PromptKind::NewFolder {
+                    parent: self.lists.target_folder(),
+                },
+                TextInput::new(),
+            ),
+            Action::Rename => self.rename_selected_entry(),
+            Action::Delete => match self.focus {
+                Focus::Lists => self.delete_selected_entry(),
+                Focus::Tasks => {}
+            },
+            Action::ConfirmYes => return self.confirm(),
+            Action::ConfirmNo => self.close_confirm(),
             Action::Indent => return self.indent_task(),
             Action::MoveTaskDown => return self.move_task_down(),
             Action::MoveTaskUp => return self.move_task_up(),
@@ -90,8 +107,6 @@ impl App {
             | Action::Redo
             | Action::ToggleCompleted
             | Action::OpenInEditor
-            | Action::Rename
-            | Action::Delete
             | Action::NewTaskBelow
             | Action::NewTaskAbove
             | Action::NewSubtask
@@ -106,9 +121,7 @@ impl App {
             | Action::SortByPriority
             | Action::SortByDueDate
             | Action::SortAlphabetically
-            | Action::SortByStatus
-            | Action::ConfirmYes
-            | Action::ConfirmNo => {}
+            | Action::SortByStatus => {}
         }
         Vec::new()
     }
@@ -126,7 +139,7 @@ impl App {
                 Focus::Lists => self.update_lists(action),
                 Focus::Tasks => self.update_tasks(action),
             },
-            Mode::Prompt(_) => {}
+            Mode::Prompt(_) | Mode::Confirm(_) => {}
         }
     }
 
@@ -134,7 +147,7 @@ impl App {
     fn search(&mut self) {
         match &mut self.mode {
             Mode::Help(help) => help.open_filter(self.screen_size),
-            Mode::Normal | Mode::Prompt(_) => {}
+            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) => {}
         }
     }
 
@@ -143,7 +156,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.submit_filter(self.screen_size),
             Mode::Prompt(_) => return self.submit_prompt(),
-            Mode::Normal => {}
+            Mode::Normal | Mode::Confirm(_) => {}
         }
         Vec::new()
     }
@@ -153,7 +166,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.cancel_filter(&self.keymap, self.screen_size),
             Mode::Prompt(_) => self.close_prompt(),
-            Mode::Normal => {}
+            Mode::Normal | Mode::Confirm(_) => {}
         }
     }
 
@@ -162,7 +175,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.press(chord, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.press(chord),
-            Mode::Normal => {}
+            Mode::Normal | Mode::Confirm(_) => {}
         }
     }
 

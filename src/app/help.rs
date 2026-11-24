@@ -209,7 +209,7 @@ impl App {
     pub(super) fn close_help(&mut self) {
         match self.mode {
             Mode::Help(_) => self.mode = Mode::Normal,
-            Mode::Normal | Mode::Prompt(_) => {}
+            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) => {}
         }
     }
 }
@@ -242,7 +242,9 @@ mod tests {
     fn help_of(app: &App) -> &HelpOverlay {
         match app.mode() {
             Mode::Help(help) => help,
-            Mode::Normal | Mode::Prompt(_) => panic!("the help screen is not open"),
+            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) => {
+                panic!("the help screen is not open")
+            }
         }
     }
 

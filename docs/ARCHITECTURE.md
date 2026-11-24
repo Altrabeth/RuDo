@@ -78,6 +78,7 @@ src/
     state.rs               App, Focus, Mode
     lists.rs               lists pane state: workspace tree navigation, active list
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
+    confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
     tasks.rs               tasks pane state: task tree navigation per list
     task_reorder.rs        moving, indenting and outdenting the selected task
     status.rs              StatusMessage, Severity and when messages expire

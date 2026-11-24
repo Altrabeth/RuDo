@@ -31,6 +31,13 @@ pub enum PromptKind {
         /// The folder that receives the folder.
         parent: PathBuf,
     },
+    /// The new name of the list file or folder at `path`, relative to the workspace root.
+    Rename {
+        /// Whether the entry is a list file or a folder.
+        kind: EntryKind,
+        /// The entry to rename.
+        path: PathBuf,
+    },
 }
 
 impl PromptKind {
@@ -39,32 +46,48 @@ impl PromptKind {
         match self {
             Self::NewList { .. } => "New list",
             Self::NewFolder { .. } => "New folder",
+            Self::Rename {
+                kind: EntryKind::List,
+                ..
+            } => "Rename list",
+            Self::Rename {
+                kind: EntryKind::Folder,
+                ..
+            } => "Rename folder",
         }
     }
 
-    /// Returns the hint below the input: where the new entry is created.
+    /// Returns the hint below the input: the folder of the new or renamed entry.
     fn hint(&self) -> Cow<'static, str> {
         match self {
             Self::NewList { parent } | Self::NewFolder { parent } => location_hint(parent),
+            Self::Rename { path, .. } => location_hint(path.parent().unwrap_or(Path::new(""))),
         }
     }
 
     /// Parses `text` and returns the effect that performs what the prompt asks for.
     fn submit(&self, text: &str) -> Result<Effect, Cow<'static, str>> {
-        let (kind, parent) = match self {
-            Self::NewList { parent } => (EntryKind::List, parent),
-            Self::NewFolder { parent } => (EntryKind::Folder, parent),
-        };
         let name = EntryName::try_from(text).map_err(|error| error.to_string())?;
-        Ok(Effect::CreateEntry {
-            kind,
-            parent: parent.clone(),
-            name,
+        Ok(match self {
+            Self::NewList { parent } => Effect::CreateEntry {
+                kind: EntryKind::List,
+                parent: parent.clone(),
+                name,
+            },
+            Self::NewFolder { parent } => Effect::CreateEntry {
+                kind: EntryKind::Folder,
+                parent: parent.clone(),
+                name,
+            },
+            Self::Rename { path, .. } => Effect::RenameEntry {
+                path: path.clone(),
+                name,
+            },
         })
     }
 }
 
-/// Describes the folder `parent` a new entry is created in.
+/// Describes the folder `parent` of a new or renamed entry.
 fn location_hint(parent: &Path) -> Cow<'static, str> {
     if parent.as_os_str().is_empty() {
         Cow::Borrowed("in the workspace folder")
@@ -81,9 +104,9 @@ pub struct PromptOverlay {
 }
 
 impl PromptOverlay {
-    /// Opens an empty prompt for `kind`.
-    fn open(kind: PromptKind) -> Self {
-        let prompt = Prompt::new(kind.title(), TextInput::new()).with_hint(kind.hint());
+    /// Opens a prompt for `kind` that edits `input`.
+    fn open(kind: PromptKind, input: TextInput) -> Self {
+        let prompt = Prompt::new(kind.title(), input).with_hint(kind.hint());
         Self { kind, prompt }
     }
 
@@ -121,10 +144,11 @@ impl PromptOverlay {
 }
 
 impl App {
-    /// Opens a prompt for `kind` and discards a pending key sequence.
-    pub(super) fn open_prompt(&mut self, kind: PromptKind) {
+    /// Opens a prompt for `kind` that edits `input`, such as the current name of an entry to
+    /// rename, and discards a pending key sequence.
+    pub(super) fn open_prompt(&mut self, kind: PromptKind, input: TextInput) {
         self.resolver.reset();
-        self.mode = Mode::Prompt(PromptOverlay::open(kind));
+        self.mode = Mode::Prompt(PromptOverlay::open(kind, input));
     }
 
     /// Closes the open prompt and returns the effect of its text; an invalid text keeps the
@@ -147,7 +171,7 @@ impl App {
                 self.resolver.reset();
                 self.mode = Mode::Normal;
             }
-            Mode::Normal | Mode::Help(_) => {}
+            Mode::Normal | Mode::Help(_) | Mode::Confirm(_) => {}
         }
     }
 }
@@ -174,6 +198,13 @@ mod tests {
         }
     }
 
+    fn rename(kind: EntryKind, path: &str) -> PromptKind {
+        PromptKind::Rename {
+            kind,
+            path: PathBuf::from(path),
+        }
+    }
+
     fn prompt_of(app: &App) -> &PromptOverlay {
         match app.mode() {
             Mode::Prompt(prompt) => prompt,
@@ -192,6 +223,12 @@ mod tests {
     #[case::list_at_the_top_level(new_list(""), "New list", "in the workspace folder")]
     #[case::list_in_a_folder(new_list("Home/Garden"), "New list", "in Home/Garden")]
     #[case::folder_in_a_folder(new_folder("Home"), "New folder", "in Home")]
+    #[case::rename_list(rename(EntryKind::List, "Home/Chores.md"), "Rename list", "in Home")]
+    #[case::rename_folder(
+        rename(EntryKind::Folder, "Work"),
+        "Rename folder",
+        "in the workspace folder"
+    )]
     fn open_shows_the_title_and_the_target_folder(
         #[case] kind: PromptKind,
         #[case] expected_title: &str,
@@ -200,7 +237,7 @@ mod tests {
         let expected = Prompt::new(expected_title.to_owned(), TextInput::new())
             .with_hint(expected_hint.to_owned());
 
-        let system_under_test = PromptOverlay::open(kind);
+        let system_under_test = PromptOverlay::open(kind, TextInput::new());
 
         assert_eq!(system_under_test.prompt(), &expected);
     }
@@ -221,6 +258,19 @@ mod tests {
     }
 
     #[test]
+    fn valid_name_becomes_a_rename_effect() {
+        let kind = rename(EntryKind::List, "Home/Chores.md");
+        let expected = Effect::RenameEntry {
+            path: PathBuf::from("Home/Chores.md"),
+            name: EntryName::try_from("Tasks").unwrap(),
+        };
+
+        let system_under_test = kind.submit("Tasks");
+
+        assert_eq!(system_under_test, Ok(expected));
+    }
+
+    #[test]
     fn invalid_name_becomes_its_reason() {
         let kind = new_list("");
         let expected = "names must not contain ':'";
@@ -235,7 +285,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         let mut app = app_in(directory.path());
         start_key_sequence(&mut app);
-        app.open_prompt(new_list(""));
+        app.open_prompt(new_list(""), TextInput::new());
 
         let system_under_test = app.pending_keys();
 
@@ -248,7 +298,7 @@ mod tests {
     fn closing_a_prompt_discards_a_pending_key_sequence(#[case] action: Action) {
         let directory = TempDir::new().unwrap();
         let mut app = app_in(directory.path());
-        app.open_prompt(new_folder(""));
+        app.open_prompt(new_folder(""), TextInput::new());
         let Mode::Prompt(prompt) = &mut app.mode else {
             unreachable!("the prompt was just opened");
         };
@@ -266,7 +316,7 @@ mod tests {
     fn invalid_submit_keeps_the_prompt_open_without_effect() {
         let directory = TempDir::new().unwrap();
         let mut app = app_in(directory.path());
-        app.open_prompt(new_list(""));
+        app.open_prompt(new_list(""), TextInput::new());
 
         let system_under_test = app.update(Action::Submit);
 
@@ -278,7 +328,7 @@ mod tests {
     fn unchanged_text_keeps_the_error() {
         let directory = TempDir::new().unwrap();
         let mut app = app_in(directory.path());
-        app.open_prompt(new_list(""));
+        app.open_prompt(new_list(""), TextInput::new());
         let _effects = app.update(Action::Submit);
         let Mode::Prompt(prompt) = &mut app.mode else {
             unreachable!("an invalid name keeps the prompt open");

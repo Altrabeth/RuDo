@@ -3,6 +3,7 @@
 use jiff::civil::Date;
 use ratatui::layout::{Rect, Size};
 
+use crate::app::confirm::ConfirmOverlay;
 use crate::app::help::HelpOverlay;
 use crate::app::lists::ListsPane;
 use crate::app::prompt::PromptOverlay;
@@ -127,6 +128,7 @@ impl App {
             Mode::Normal => self.focus.context(),
             Mode::Help(help) => help.context(),
             Mode::Prompt(_) => Context::Input,
+            Mode::Confirm(_) => Context::Dialog,
         }
     }
 
@@ -146,7 +148,7 @@ impl App {
             .refresh(&self.workspace, self.viewport_height(Focus::Lists));
         self.refresh_tasks();
         match &mut self.mode {
-            Mode::Normal | Mode::Prompt(_) => {}
+            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) => {}
             Mode::Help(help) => help.refresh(screen_size),
         }
     }
@@ -226,6 +228,9 @@ pub enum Mode {
     Help(HelpOverlay),
     /// An input popup asks for text, such as the name of a new list, and takes the keys.
     Prompt(PromptOverlay),
+    /// A confirmation dialog asks yes or no, such as before deleting a list, and takes the
+    /// keys.
+    Confirm(ConfirmOverlay),
 }
 
 #[cfg(test)]

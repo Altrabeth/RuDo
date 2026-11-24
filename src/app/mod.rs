@@ -5,6 +5,7 @@
 //! Nothing in this module reads the terminal, the clock or the environment; only [`execute`]
 //! touches the file system.
 
+pub mod confirm;
 pub mod effect;
 pub mod filter;
 pub mod help;

@@ -1,0 +1,16 @@
+---
+source: tests/lists_manage.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Chores  0/2 ─────────────────────────────────────────╮"
+"│ ▾ Home               ││   [ ] Vacuum                                         │"
+"│   • Chores       0/2 ││   [ ] Dust                                           │"
+"│     Groceries    2/7 ││                                                      │"
+"│   Inbox       ╭ Confirm ─────────────────────────────────────╮               │"
+"│               │ Delete list "Groceries" with 7 tasks?        │               │"
+"│               │                                              │               │"
+"│               │ y/enter yes  n/esc no                        │               │"
+"│               ╰──────────────────────────────────────────────╯               │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" y yes  n no                                                                    "

@@ -128,12 +128,91 @@ impl Workspace {
                 }),
             }),
         };
-        let index = entries.partition_point(|existing| {
-            display_order((existing.kind(), existing.name()), (kind, name.as_str()))
-                == Ordering::Less
-        });
-        entries.insert(index, entry);
-        Some(&entries[index])
+        Some(insert_in_display_order(entries, entry))
+    }
+
+    /// Renames the folder or list at `path` to `name` and moves it to its place in display
+    /// order, after it was renamed on disk, and returns it.
+    ///
+    /// `path` is relative to the workspace root. The paths of all folders and lists inside a
+    /// renamed folder change with it; their documents stay loaded. A list is renamed to
+    /// `<name>.md`, as on disk. Returns `None` if the workspace has no entry at `path`.
+    pub fn rename(&mut self, path: &Path, name: &EntryName) -> Option<&Entry> {
+        let (entries, index) = entry_position(&mut self.entries, path)?;
+        let mut entry = entries.remove(index);
+        let file_name = match &mut entry {
+            Entry::Folder(folder) => {
+                name.as_str().clone_into(&mut folder.name);
+                name.as_str().to_owned()
+            }
+            Entry::List(list) => {
+                name.as_str().clone_into(&mut list.name);
+                name.list_file_name()
+            }
+        };
+        move_entry(&mut entry, path.with_file_name(file_name));
+        Some(insert_in_display_order(entries, entry))
+    }
+
+    /// Removes the folder or list at `path` with everything inside it, after it was deleted
+    /// on disk, and returns it.
+    ///
+    /// `path` is relative to the workspace root. Returns `None` if the workspace has no entry
+    /// at `path`.
+    pub fn remove(&mut self, path: &Path) -> Option<Entry> {
+        let (entries, index) = entry_position(&mut self.entries, path)?;
+        Some(entries.remove(index))
+    }
+}
+
+/// Returns the entries of the folder that contains the entry at `path` and its index there.
+fn entry_position<'workspace>(
+    entries: &'workspace mut Vec<Entry>,
+    path: &Path,
+) -> Option<(&'workspace mut Vec<Entry>, usize)> {
+    let siblings = folder_entries_mut(entries, path.parent()?)?;
+    let index = siblings.iter().position(|entry| entry.path() == path)?;
+    Some((siblings, index))
+}
+
+/// Inserts `entry` into `entries`, which are in display order, and returns it.
+fn insert_in_display_order(entries: &mut Vec<Entry>, entry: Entry) -> &Entry {
+    let index = entries.partition_point(|existing| {
+        display_order(
+            (existing.kind(), existing.name()),
+            (entry.kind(), entry.name()),
+        ) == Ordering::Less
+    });
+    entries.insert(index, entry);
+    &entries[index]
+}
+
+/// Moves `entry` to the relative path `to`, together with everything inside it.
+fn move_entry(entry: &mut Entry, to: PathBuf) {
+    match entry {
+        Entry::Folder(folder) => {
+            for child in &mut folder.entries {
+                let file_name = child
+                    .path()
+                    .file_name()
+                    .expect("the path of an entry ends with its file name");
+                let child_to = to.join(file_name);
+                move_entry(child, child_to);
+            }
+            folder.path = to;
+        }
+        Entry::List(list) => list.path = ListPath(to),
+    }
+}
+
+/// Returns where `path` is after the entry at `from` was moved to `to`, or `None` if `path` is
+/// neither `from` nor inside it. All paths are relative to the workspace root.
+pub(crate) fn moved_path(path: &Path, from: &Path, to: &Path) -> Option<PathBuf> {
+    let inside = path.strip_prefix(from).ok()?;
+    if inside.as_os_str().is_empty() {
+        Some(to.to_path_buf())
+    } else {
+        Some(to.join(inside))
     }
 }
 
@@ -146,6 +225,12 @@ impl ListPath {
     #[must_use]
     pub fn as_path(&self) -> &Path {
         &self.0
+    }
+
+    /// Returns the path of this list after the folder or list at `from` was renamed to `to`,
+    /// or `None` if the list is neither `from` nor inside it.
+    pub(crate) fn moved(&self, from: &Path, to: &Path) -> Option<Self> {
+        moved_path(&self.0, from, to).map(Self)
     }
 }
 
@@ -171,6 +256,15 @@ impl Entry {
         match self {
             Self::Folder(folder) => folder.name(),
             Self::List(list) => list.name(),
+        }
+    }
+
+    /// Returns the path of the directory or list file relative to the workspace root.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Folder(folder) => folder.path(),
+            Self::List(list) => list.path().as_path(),
         }
     }
 
@@ -887,6 +981,105 @@ mod tests {
 
         assert_eq!(system_under_test, [false, false]);
         assert_eq!(outline(workspace.entries()), expected);
+    }
+
+    #[rstest]
+    #[case::list_moves_into_display_order("c.md", "0", &["home/", "home/garden/", "home/kitchen.md", "0.md", "A.md"])]
+    #[case::nested_list("home/kitchen.md", "pantry", &["home/", "home/garden/", "home/pantry.md", "A.md", "c.md"])]
+    #[case::folder_moves_its_entries("home", "house", &["house/", "house/garden/", "house/kitchen.md", "A.md", "c.md"])]
+    fn rename_moves_the_entry_and_everything_inside(
+        #[case] path: &str,
+        #[case] name: &str,
+        #[case] expected: &[&str],
+    ) {
+        let root = TempDir::new().unwrap();
+        create_dir(root.path(), "home/garden");
+        write_file(root.path(), "home/kitchen.md", b"- [ ] a\n");
+        write_file(root.path(), "c.md", b"");
+        write_file(root.path(), "A.md", b"");
+        let mut workspace = scan(&root);
+
+        let system_under_test = workspace.rename(Path::new(path), &entry_name(name));
+
+        assert_eq!(system_under_test.map(Entry::name), Some(name));
+        assert_eq!(outline(workspace.entries()), expected);
+    }
+
+    #[test]
+    fn renamed_folder_keeps_the_documents_inside() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/kitchen.md", b"- [ ] a\n");
+        let mut workspace = scan(&root);
+        let _: Option<&Entry> = workspace.rename(Path::new("home"), &entry_name("house"));
+        let expected = TodoDocument::parse("- [ ] a\n");
+
+        let system_under_test = workspace.list(&list_path("house/kitchen.md"));
+
+        assert_eq!(
+            system_under_test.unwrap().content().unwrap().document(),
+            &expected
+        );
+    }
+
+    #[test]
+    fn remove_takes_the_entry_out_of_its_folder() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/kitchen.md", b"");
+        write_file(root.path(), "home/garden.md", b"");
+        let mut workspace = scan(&root);
+        let expected = vec!["home/".to_owned(), "home/garden.md".to_owned()];
+
+        let system_under_test = workspace.remove(Path::new("home/kitchen.md"));
+
+        assert_eq!(
+            system_under_test.as_ref().map(Entry::path),
+            Some(Path::new("home/kitchen.md"))
+        );
+        assert_eq!(outline(workspace.entries()), expected);
+    }
+
+    #[rstest]
+    #[case::missing_entry("home/missing.md")]
+    #[case::missing_folder("missing/kitchen.md")]
+    #[case::empty_path("")]
+    fn rename_and_remove_of_a_missing_entry_change_nothing(#[case] path: &str) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/kitchen.md", b"");
+        let mut workspace = scan(&root);
+        let expected = vec!["home/".to_owned(), "home/kitchen.md".to_owned()];
+
+        let system_under_test = (
+            workspace
+                .rename(Path::new(path), &entry_name("a"))
+                .is_some(),
+            workspace.remove(Path::new(path)).is_some(),
+        );
+
+        assert_eq!(system_under_test, (false, false));
+        assert_eq!(outline(workspace.entries()), expected);
+    }
+
+    #[rstest]
+    #[case::the_entry_itself("home", Some("house"))]
+    #[case::inside("home/garden/roses.md", Some("house/garden/roses.md"))]
+    #[case::same_prefix_but_other_name("homework.md", None)]
+    #[case::elsewhere("work/home.md", None)]
+    fn moved_path_replaces_the_moved_prefix(#[case] path: &str, #[case] expected: Option<&str>) {
+        let expected = expected.map(PathBuf::from);
+
+        let system_under_test = moved_path(Path::new(path), Path::new("home"), Path::new("house"));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn list_path_moves_with_its_folder() {
+        let path = list_path("home/kitchen.md");
+        let expected = list_path("house/kitchen.md");
+
+        let system_under_test = path.moved(Path::new("home"), Path::new("house"));
+
+        assert_eq!(system_under_test, Some(expected));
     }
 
     #[cfg(unix)]

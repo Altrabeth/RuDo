@@ -1,0 +1,12 @@
+---
+source: tests/lists_manage.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Chores  0/2 ─────────────────────────────────────────╮"
+"│ ▾ Work               ││   [ ] Vacuum                                         │"
+"│ ▸ Zoo                ││   [ ] Dust                                           │"
+"│   Inbox          0/1 ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new list  O new folder  enter open  r rename  dd delete               ? help "

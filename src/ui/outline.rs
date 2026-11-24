@@ -331,6 +331,22 @@ impl<K: Clone + Eq + Hash> Outline<K> {
         changed_if(revealed || moved)
     }
 
+    /// Replaces the selected and the folded keys for which `rename` returns a new key, after
+    /// items changed their keys, so that they stay selected and folded.
+    ///
+    /// Keys for which `rename` returns `None` are kept; a selected key whose item was removed
+    /// hands the selection to a neighbour at the next refresh.
+    pub fn rename_keys(&mut self, mut rename: impl FnMut(&K) -> Option<K>) {
+        if let Some(renamed) = self.selected.as_ref().and_then(&mut rename) {
+            self.selected = Some(renamed);
+        }
+        self.collapsed = self
+            .collapsed
+            .drain()
+            .map(|key| rename(&key).unwrap_or(key))
+            .collect();
+    }
+
     fn refreshed_rows<'a, I: OutlineItem<Key = K>>(
         &mut self,
         items: &'a [I],
@@ -920,6 +936,30 @@ mod tests {
         assert_eq!(system_under_test.selected, Some(expected_selected));
         assert_eq!(system_under_test.visible, expected_visible);
         assert_eq!(system_under_test.outcome, expected_outcome);
+    }
+
+    #[test]
+    fn renamed_keys_stay_selected_and_folded() {
+        let renamed = nodes("x:0 b:1 c:2 d:1 y:0 f:1 g:0");
+        let mut outline = outline('a', "ae", &tree(), HEIGHT);
+        outline.rename_keys(|key| match key {
+            'a' => Some('x'),
+            'e' => Some('y'),
+            _ => None,
+        });
+        let expected = Observed {
+            outcome: Outcome::Unchanged,
+            selected: Some('x'),
+            visible: "xyg".to_owned(),
+            offset: 0,
+        };
+
+        let system_under_test = {
+            outline.refresh(&renamed, HEIGHT);
+            Observed::of(&outline, &renamed, Outcome::Unchanged)
+        };
+
+        assert_eq!(system_under_test, expected);
     }
 
     /// A change a user or the file system can make between two frames.

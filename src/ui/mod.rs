@@ -3,7 +3,7 @@
 //!
 //! [`view`] divides the terminal with [`layout::Screen`] and lets every region render itself:
 //! [`lists_pane`] and [`tasks_pane`] inside their borders and [`status_bar`] below them.
-//! Overlays such as [`help_overlay`] and the [`popup`] of an open prompt are drawn last, over
+//! Overlays such as [`help_overlay`] and the [`popup`] of an open prompt or dialog are drawn last, over
 //! the panes. All styles come from [`App::theme`].
 
 pub mod help;
@@ -26,7 +26,7 @@ use ratatui::widgets::{Paragraph, Wrap};
 use crate::app::{App, Focus, Mode};
 use crate::config::theme::Slot;
 use crate::ui::layout::{PaneBorder, PaneSwitchHint, Screen, render_pane_border};
-use crate::ui::popup::InputPopup;
+use crate::ui::popup::{ConfirmDialog, InputPopup};
 
 /// Shown instead of the panes if the terminal is too small for them.
 const TOO_SMALL: &str = "terminal too small";
@@ -57,15 +57,20 @@ pub fn view(app: &App, frame: &mut Frame) {
         }
     }
     help_overlay::render(app, frame);
-    render_prompt(app, frame);
+    render_popup(app, frame);
 }
 
-/// Draws the input popup over the rest of the interface if `app` is in [`Mode::Prompt`].
-fn render_prompt(app: &App, frame: &mut Frame) {
+/// Draws the input popup of [`Mode::Prompt`] or the dialog of [`Mode::Confirm`] over the rest
+/// of the interface.
+fn render_popup(app: &App, frame: &mut Frame) {
+    let area = frame.area();
     match app.mode() {
         Mode::Prompt(prompt) => {
-            let area = frame.area();
             InputPopup::new(prompt.prompt(), app.theme()).render_with_cursor(frame, area);
+        }
+        Mode::Confirm(confirm) => {
+            let dialog = ConfirmDialog::new(confirm.message(), app.keymap(), app.theme());
+            frame.render_widget(dialog, area);
         }
         Mode::Normal | Mode::Help(_) => {}
     }

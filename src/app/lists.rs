@@ -6,10 +6,14 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::app::confirm::ConfirmKind;
+use crate::app::prompt::PromptKind;
 use crate::app::state::{App, Focus};
+use crate::app::status::StatusMessage;
 use crate::config::keymap::action::Action;
-use crate::storage::workspace::{Entry, ListPath, Workspace};
+use crate::storage::workspace::{Entry, List, ListPath, Workspace, moved_path};
 use crate::ui::outline::{Outcome, Outline, OutlineCommand, OutlineItem};
+use crate::ui::text_input::TextInput;
 
 /// Identifies a row of the workspace tree across rescans.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -20,11 +24,54 @@ pub enum EntryKey {
     List(ListPath),
 }
 
+impl EntryKey {
+    /// Returns the path of the folder or list relative to the workspace root.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Folder(path) => path,
+            Self::List(path) => path.as_path(),
+        }
+    }
+}
+
 impl From<&Entry> for EntryKey {
     fn from(entry: &Entry) -> Self {
         match entry {
             Entry::Folder(folder) => Self::Folder(folder.path().to_path_buf()),
             Entry::List(list) => Self::List(list.path().clone()),
+        }
+    }
+}
+
+/// A folder or list that was renamed or removed, which changes or ends the paths of the lists
+/// at or inside it; see [`App::apply_entry_change`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum EntryChange<'path> {
+    /// The entry at `from` is now at `to`, both relative to the workspace root.
+    Renamed { from: &'path Path, to: &'path Path },
+    /// The entry at this path, relative to the workspace root, was removed.
+    Removed(&'path Path),
+}
+
+impl EntryChange<'_> {
+    /// Returns the path of the list at `path` after the change: a new path if it was renamed
+    /// or inside a renamed folder, `None` if it was removed, and `path` itself otherwise.
+    pub(super) fn list_path(self, path: ListPath) -> Option<ListPath> {
+        match self {
+            Self::Renamed { from, to } => Some(path.moved(from, to).unwrap_or(path)),
+            Self::Removed(removed) => (!path.as_path().starts_with(removed)).then_some(path),
+        }
+    }
+
+    /// Returns the new key of the folder or list with `key`, or `None` if it was not renamed.
+    fn renamed_key(self, key: &EntryKey) -> Option<EntryKey> {
+        let Self::Renamed { from, to } = self else {
+            return None;
+        };
+        match key {
+            EntryKey::Folder(path) => moved_path(path, from, to).map(EntryKey::Folder),
+            EntryKey::List(path) => path.moved(from, to).map(EntryKey::List),
         }
     }
 }
@@ -149,6 +196,32 @@ impl ListsPane {
         }
     }
 
+    /// Returns the selected folder or list of `workspace`, or `None` if nothing is selected.
+    fn selected_entry<'workspace>(
+        &self,
+        workspace: &'workspace Workspace,
+    ) -> Option<&'workspace Entry> {
+        let selected = self.outline.selected()?;
+        tree_items(workspace)
+            .into_iter()
+            .find(|item| item.key == *selected)
+            .map(|item| item.entry)
+    }
+
+    /// Follows `change` of the workspace, which is already applied to `workspace`: renamed
+    /// entries stay selected, folded and active, a removed active list is closed and a removed
+    /// selection moves to a neighbour in a viewport `viewport_height` rows high.
+    fn apply_entry_change(
+        &mut self,
+        workspace: &Workspace,
+        change: EntryChange<'_>,
+        viewport_height: usize,
+    ) {
+        self.outline.rename_keys(|key| change.renamed_key(key));
+        self.active = self.active.take().and_then(|path| change.list_path(path));
+        self.refresh(workspace, viewport_height);
+    }
+
     /// Selects the entry with `key` in the tree of `workspace`, unfolding the folders that
     /// contain it, in a viewport `viewport_height` rows high.
     pub(super) fn select(&mut self, workspace: &Workspace, key: &EntryKey, viewport_height: usize) {
@@ -201,6 +274,55 @@ impl App {
         &self.lists
     }
 
+    /// Follows a folder or list that was renamed or removed in the workspace in every piece of
+    /// state that remembers lists by their [`ListPath`] or entries by their path.
+    ///
+    /// Every renamed or removed entry passes through here, so state keyed by [`ListPath`]
+    /// remaps its keys with [`EntryChange::list_path`] in this method.
+    pub(super) fn apply_entry_change(&mut self, change: EntryChange<'_>) {
+        let viewport_height = self.viewport_height(Focus::Lists);
+        self.lists
+            .apply_entry_change(&self.workspace, change, viewport_height);
+        self.tasks.apply_entry_change(change);
+    }
+
+    /// Opens a prompt to rename the selected folder or list, starting with its current name.
+    pub(super) fn rename_selected_entry(&mut self) {
+        let Some(entry) = self.lists.selected_entry(&self.workspace) else {
+            return;
+        };
+        let kind = PromptKind::Rename {
+            kind: entry.kind(),
+            path: entry.path().to_path_buf(),
+        };
+        let input = TextInput::with_value(entry.name());
+        self.open_prompt(kind, input);
+    }
+
+    /// Asks to confirm deleting the selected list or empty folder; a folder with entries is
+    /// never deleted and shows an error instead.
+    pub(super) fn delete_selected_entry(&mut self) {
+        let Some(entry) = self.lists.selected_entry(&self.workspace) else {
+            return;
+        };
+        let message = match entry {
+            Entry::List(list) => delete_list_question(list),
+            Entry::Folder(folder) if folder.entries().is_empty() => {
+                format!("Delete empty folder \"{}\"?", folder.name())
+            }
+            Entry::Folder(folder) => {
+                let error = format!("folder \"{}\" is not empty", folder.name());
+                self.show_message(StatusMessage::error(error));
+                return;
+            }
+        };
+        let kind = ConfirmKind::DeleteEntry {
+            kind: entry.kind(),
+            path: entry.path().to_path_buf(),
+        };
+        self.open_confirm(kind, message);
+    }
+
     /// Performs a navigation, folding or `open` action in the lists pane and focuses the
     /// tasks pane if it opened a list, which shows the task it showed when it was last open.
     pub(super) fn update_lists(&mut self, action: Action) {
@@ -209,6 +331,19 @@ impl App {
             self.focus = Focus::Tasks;
             self.refresh_tasks();
         }
+    }
+}
+
+/// Asks whether to delete `list`, with its number of tasks if it could be loaded.
+fn delete_list_question(list: &List) -> String {
+    let name = list.name();
+    match list.content() {
+        Ok(loaded) => {
+            let tasks = loaded.document().progress().total();
+            let noun = if tasks == 1 { "task" } else { "tasks" };
+            format!("Delete list \"{name}\" with {tasks} {noun}?")
+        }
+        Err(_) => format!("Delete list \"{name}\"?"),
     }
 }
 

@@ -5,7 +5,9 @@
 //! [`TaskId`], so it stays on its task while edits shift the lines around it.
 
 use std::collections::HashMap;
+use std::mem;
 
+use crate::app::lists::EntryChange;
 use crate::app::state::{App, Focus};
 use crate::config::keymap::action::Action;
 use crate::markdown::document::{TaskId, TodoDocument};
@@ -91,6 +93,15 @@ impl TasksPane {
         self.outlines
             .get_mut(path)
             .expect("the outline of the list was inserted above")
+    }
+
+    /// Follows `change` of the workspace: the navigation state of a renamed list moves to its
+    /// new path and that of a removed list is dropped.
+    pub(super) fn apply_entry_change(&mut self, change: EntryChange<'_>) {
+        self.outlines = mem::take(&mut self.outlines)
+            .into_iter()
+            .filter_map(|(path, outline)| change.list_path(path).map(|path| (path, outline)))
+            .collect();
     }
 }
 

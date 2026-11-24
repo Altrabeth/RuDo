@@ -122,14 +122,18 @@ keep the names above unless there is a reason to deviate.
 
 ```rust
 pub struct TodoDocument {
-    lines: Vec<Line>,          // every line of the file, in order
-    line_ending: LineEnding,   // Lf or CrLf, detected on load
-    trailing_newline: bool,
     byte_order_mark: bool,
-    indent: IndentStyle,       // detected, or the configured default
+    lines: Vec<DocumentLine>,  // every line of the file, in order
+    line_ending: LineEnding,   // Lf or CrLf, the dominant one, for inserted lines
+    next_task_id: u32,         // counter for fresh TaskIds
 }
 
-enum Line {
+struct DocumentLine {
+    kind: LineKind,
+    ending: Option<LineEnding>, // per line; None only for a last line without newline
+}
+
+enum LineKind {
     Raw(String),               // anything that is not a task, kept verbatim
     Task(TaskId, TaskLine),    // the id is stable for the lifetime of the loaded document
 }
@@ -148,6 +152,9 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   indentation width (a tab counts as four columns). A task's *block* is the task line plus all
   following lines that are indented deeper, including continuation lines and blank lines
   between them. Moving, deleting, yanking and indenting always operate on whole blocks.
+- The indent style is detected on demand (`indent_style(fallback)`): the first indented task
+  decides between tab and spaces, the space width is the smallest step between a task and its
+  parent; without indented tasks the configured `tasks.indent` is used.
 - `TaskId` is assigned when a document is parsed and survives edits, so the UI keeps the
   selection on the same task while lines shift. Re-parsing (external reload) assigns new ids.
 - Fenced code blocks and front matter are tracked while parsing; task-like lines inside them

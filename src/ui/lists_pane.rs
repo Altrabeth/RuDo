@@ -7,7 +7,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::app::lists::{TreeItem, tree_items};
 use crate::app::{App, Focus};
@@ -16,6 +15,7 @@ use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::Slot;
 use crate::storage::workspace::{Entry, List};
 use crate::ui::outline::{Fold, OutlineItem, OutlineRow};
+use crate::ui::pane_message::{key_sentence, render_message};
 
 /// Title of the lists pane.
 pub const TITLE: &str = "Lists";
@@ -124,18 +124,14 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List) {
 
 /// Renders the hint how to create the first list into `area`.
 fn render_empty_hint(app: &App, frame: &mut Frame, area: Rect) {
-    let hint = Paragraph::new(empty_hint(app.keymap()))
-        .style(app.theme().style(Slot::Text))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(hint, area);
+    render_message(app, frame, area, &empty_hint(app.keymap()), Slot::Text);
 }
 
 /// Tells which key creates a list, as the keymap actually binds it.
 fn empty_hint(keymap: &Keymap) -> String {
-    match keymap.keys(Action::NewList).first() {
-        Some(keys) => format!("No lists yet. Press {} to create one.", keys.compact()),
-        None => format!("Bind {} in your configuration", Action::NewList),
-    }
+    key_sentence(keymap, Action::NewList, |keys| {
+        format!("No lists yet. Press {keys} to create one.")
+    })
 }
 
 #[cfg(test)]

@@ -10,17 +10,16 @@ use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::app::tasks::{TaskItem, task_items};
 use crate::app::{App, Focus};
 use crate::config::keymap::action::Action;
-use crate::config::keymap::key::CompactKeySequence;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::{Slot, Theme};
 use crate::markdown::document::TaskId;
 use crate::markdown::task_line::TaskStatus;
 use crate::ui::outline::{Fold, Outline, OutlineItem, OutlineRow};
+use crate::ui::pane_message::{key_sentence, render_message};
 use crate::ui::text_input::{display_width, truncated};
 
 /// Title of the tasks pane while no list is open; otherwise the title is the list's name and
@@ -133,39 +132,18 @@ fn render_rows(
     }
 }
 
-/// Renders `message` in the style of `slot`, wrapped into `area`.
-fn render_message(app: &App, frame: &mut Frame, area: Rect, message: &str, slot: Slot) {
-    let paragraph = Paragraph::new(message)
-        .style(app.theme().style(slot))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
-}
-
 /// Tells which key opens a list, as the keymap actually binds it.
 fn no_list_hint(keymap: &Keymap) -> String {
-    key_hint(keymap, Action::Open, |keys| {
+    key_sentence(keymap, Action::Open, |keys| {
         format!("Select a list and press {keys}")
     })
 }
 
 /// Tells which key adds the first task, as the keymap actually binds it.
 fn no_tasks_hint(keymap: &Keymap) -> String {
-    key_hint(keymap, Action::NewTaskBelow, |keys| {
+    key_sentence(keymap, Action::NewTaskBelow, |keys| {
         format!("No tasks yet. Press {keys} to add one.")
     })
-}
-
-/// Returns `sentence` with the first key bound to `action`, or asks to bind it if it is
-/// unbound.
-fn key_hint(
-    keymap: &Keymap,
-    action: Action,
-    sentence: impl FnOnce(CompactKeySequence<'_>) -> String,
-) -> String {
-    match keymap.keys(action).first() {
-        Some(keys) => sentence(keys.compact()),
-        None => format!("Bind {action} in your configuration"),
-    }
 }
 
 /// The content of one row of the task tree, as styled spans.

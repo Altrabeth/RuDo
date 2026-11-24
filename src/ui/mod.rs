@@ -11,6 +11,7 @@ pub mod help_overlay;
 pub mod layout;
 pub mod lists_pane;
 pub mod outline;
+pub(crate) mod pane_message;
 pub mod popup;
 pub mod status_bar;
 pub mod tasks_pane;

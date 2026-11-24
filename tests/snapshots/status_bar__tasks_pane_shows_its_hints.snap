@@ -3,8 +3,8 @@ source: tests/status_bar.rs
 expression: system_under_test
 ---
 "╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
-"│                      ││                                                      │"
-"│                      ││                                                      │"
+"│ No lists yet. Press  ││                                                      │"
+"│ o to create one.     ││                                                      │"
 "│                      ││                                                      │"
 "╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
 " o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

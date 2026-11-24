@@ -19,7 +19,7 @@ use std::iter;
 use std::slice;
 
 use crate::config::{IndentStyle, IndentWidth};
-use crate::markdown::task_line::{TaskLine, indentation_width};
+use crate::markdown::task_line::{TaskLine, TaskStatus, indentation_width};
 
 mod content;
 mod insert;
@@ -219,6 +219,18 @@ impl TodoDocument {
         })
     }
 
+    /// Counts the done tasks and all tasks, subtasks included.
+    #[must_use]
+    pub fn progress(&self) -> Progress {
+        self.lines.iter().filter_map(DocumentLine::task).fold(
+            Progress::default(),
+            |progress, (_, task)| Progress {
+                done: progress.done + usize::from(task.status() == TaskStatus::Done),
+                total: progress.total + 1,
+            },
+        )
+    }
+
     /// Returns the 1-based line number of a task, for opening it in an editor, or `None` if
     /// `id` is not in this document.
     #[must_use]
@@ -253,6 +265,35 @@ impl Display for TodoDocument {
             write!(formatter, "{BYTE_ORDER_MARK}")?;
         }
         write_lines(formatter, &self.lines)
+    }
+}
+
+/// How many tasks of a document are done, as returned by [`TodoDocument::progress`].
+///
+/// Displays as `done/total`, the counter shown next to a list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Progress {
+    done: usize,
+    total: usize,
+}
+
+impl Progress {
+    /// Returns the number of done tasks.
+    #[must_use]
+    pub fn done(self) -> usize {
+        self.done
+    }
+
+    /// Returns the number of tasks.
+    #[must_use]
+    pub fn total(self) -> usize {
+        self.total
+    }
+}
+
+impl Display for Progress {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}/{}", self.done, self.total)
     }
 }
 
@@ -518,6 +559,35 @@ mod tests {
     );
 
     const UNKNOWN: TaskId = TaskId(99);
+
+    #[rstest]
+    #[case::empty("", 0, 0)]
+    #[case::no_tasks("# Heading\nText\n", 0, 0)]
+    #[case::subtasks_count("- [ ] a\n\t- [x] b\n- [X] c\n", 2, 3)]
+    #[case::other_statuses_are_not_done("- [/] a\n- [-] b\n- [?] c\n", 0, 3)]
+    #[case::code_blocks_are_ignored("```\n- [x] a\n```\n- [ ] b\n", 0, 1)]
+    fn progress_counts_done_and_all_tasks(
+        #[case] text: &str,
+        #[case] expected_done: usize,
+        #[case] expected_total: usize,
+    ) {
+        let document = TodoDocument::parse(text);
+
+        let system_under_test = document.progress();
+
+        assert_eq!(system_under_test.done(), expected_done);
+        assert_eq!(system_under_test.total(), expected_total);
+    }
+
+    #[test]
+    fn progress_displays_as_done_slash_total() {
+        let document = TodoDocument::parse("- [x] a\n- [ ] b\n");
+        let expected = "1/2";
+
+        let system_under_test = document.progress();
+
+        assert_eq!(system_under_test.to_string(), expected);
+    }
 
     fn descriptions(document: &TodoDocument) -> Vec<&str> {
         document

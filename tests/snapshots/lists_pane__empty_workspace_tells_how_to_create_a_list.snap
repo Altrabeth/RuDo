@@ -1,0 +1,10 @@
+---
+source: tests/lists_pane.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
+"│ No lists yet. Press  ││                                                      │"
+"│ o to create one.     ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new list  O new folder  enter open  r rename  dd delete               ? help "

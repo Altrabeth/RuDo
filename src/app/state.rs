@@ -2,6 +2,7 @@
 
 use jiff::civil::Date;
 
+use crate::app::lists::ListsPane;
 use crate::app::status::Status;
 use crate::config::Config;
 use crate::config::keymap::action::Context;
@@ -25,6 +26,7 @@ pub struct App {
     pub(super) keymap: Keymap,
     pub(super) resolver: KeyResolver,
     pub(super) focus: Focus,
+    pub(super) lists: ListsPane,
     pub(super) mode: Mode,
     pub(super) today: Date,
     pub(super) status: Status,
@@ -32,7 +34,8 @@ pub struct App {
 }
 
 impl App {
-    /// Starts the application on `workspace` with the lists pane focused.
+    /// Starts the application on `workspace` with the lists pane focused and the first list
+    /// selected and opened.
     ///
     /// `theme` and `keymap` are the effective theme and keymap built from `config`, as
     /// [`Settings::into_parts`](crate::config::settings::Settings::into_parts) returns them,
@@ -46,6 +49,7 @@ impl App {
         today: Date,
     ) -> Self {
         Self {
+            lists: ListsPane::new(&workspace),
             workspace,
             config,
             theme,

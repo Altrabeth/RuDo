@@ -76,6 +76,7 @@ src/
     watch.rs               file system watching
   app/
     state.rs               App, Focus, Mode
+    lists.rs               lists pane state: workspace tree navigation, active list
     status.rs              StatusMessage, Severity and when messages expire
     update.rs              App::update(Action) -> Vec<Effect>
     effect.rs              Effect and its executor

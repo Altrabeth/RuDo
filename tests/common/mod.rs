@@ -28,6 +28,15 @@ impl TestApp {
     /// Creates a workspace from `(path, content)` pairs, relative to the workspace root, and
     /// starts the app with the default configuration on [`TODAY`].
     pub fn new(files: &[(&str, &str)]) -> Self {
+        let files: Vec<(&str, &[u8])> = files
+            .iter()
+            .map(|(path, content)| (*path, content.as_bytes()))
+            .collect();
+        Self::from_bytes(&files)
+    }
+
+    /// Like [`TestApp::new`], but with raw file contents, such as lists that are not UTF-8.
+    pub fn from_bytes(files: &[(&str, &[u8])]) -> Self {
         let workspace_folder = TempDir::new().unwrap();
         for (path, content) in files {
             let path = workspace_folder.path().join(path);

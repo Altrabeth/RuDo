@@ -13,6 +13,8 @@ use std::hash::Hash;
 
 use strum::EnumIter;
 
+use crate::config::keymap::action::Action;
+
 /// Rows kept visible between the selection and the edge of the viewport (vim's `scrolloff`).
 const SCROLL_MARGIN: usize = 2;
 
@@ -69,6 +71,73 @@ pub enum OutlineCommand {
     FoldAll,
     /// Unfolds every item.
     UnfoldAll,
+}
+
+impl OutlineCommand {
+    /// Returns the command that `action` performs in a tree-shaped pane, or `None` if it is
+    /// not a navigation or folding action.
+    ///
+    /// Every pane built on [`Outline`] maps its actions through this function, so the keys
+    /// move and fold the same way everywhere. [`OutlineCommand::Parent`] has no action of its
+    /// own; [`Action::Collapse`] falls back to it.
+    #[must_use]
+    pub const fn from_action(action: Action) -> Option<Self> {
+        match action {
+            Action::MoveDown => Some(Self::Down),
+            Action::MoveUp => Some(Self::Up),
+            Action::MoveToTop => Some(Self::Top),
+            Action::MoveToBottom => Some(Self::Bottom),
+            Action::HalfPageDown => Some(Self::HalfPageDown),
+            Action::HalfPageUp => Some(Self::HalfPageUp),
+            Action::Collapse => Some(Self::Collapse),
+            Action::Expand => Some(Self::Expand),
+            Action::ToggleFold => Some(Self::ToggleFold),
+            Action::FoldAll => Some(Self::FoldAll),
+            Action::UnfoldAll => Some(Self::UnfoldAll),
+            Action::Help
+            | Action::Quit
+            | Action::FocusNext
+            | Action::FocusPrevious
+            | Action::FocusLists
+            | Action::FocusTasks
+            | Action::Search
+            | Action::ClearFilter
+            | Action::Undo
+            | Action::Redo
+            | Action::ToggleCompleted
+            | Action::OpenInEditor
+            | Action::Open
+            | Action::NewList
+            | Action::NewFolder
+            | Action::Rename
+            | Action::Delete
+            | Action::NewTaskBelow
+            | Action::NewTaskAbove
+            | Action::NewSubtask
+            | Action::Edit
+            | Action::ToggleDone
+            | Action::Yank
+            | Action::PasteBelow
+            | Action::PasteAbove
+            | Action::MoveTaskDown
+            | Action::MoveTaskUp
+            | Action::Indent
+            | Action::Outdent
+            | Action::PriorityUp
+            | Action::PriorityDown
+            | Action::SetDueDate
+            | Action::SetRecurrence
+            | Action::SortByPriority
+            | Action::SortByDueDate
+            | Action::SortAlphabetically
+            | Action::SortByStatus
+            | Action::CloseHelp
+            | Action::ConfirmYes
+            | Action::ConfirmNo
+            | Action::Submit
+            | Action::Cancel => None,
+        }
+    }
 }
 
 /// Tells the caller whether an operation changed the selection or the folding.
@@ -554,6 +623,43 @@ mod tests {
     ) -> Observed {
         let outcome = outline.apply(items, command, height);
         Observed::of(&outline, items, outcome)
+    }
+
+    #[rstest]
+    #[case::move_down(Action::MoveDown, Some(OutlineCommand::Down))]
+    #[case::move_up(Action::MoveUp, Some(OutlineCommand::Up))]
+    #[case::move_to_top(Action::MoveToTop, Some(OutlineCommand::Top))]
+    #[case::move_to_bottom(Action::MoveToBottom, Some(OutlineCommand::Bottom))]
+    #[case::half_page_down(Action::HalfPageDown, Some(OutlineCommand::HalfPageDown))]
+    #[case::half_page_up(Action::HalfPageUp, Some(OutlineCommand::HalfPageUp))]
+    #[case::collapse(Action::Collapse, Some(OutlineCommand::Collapse))]
+    #[case::expand(Action::Expand, Some(OutlineCommand::Expand))]
+    #[case::toggle_fold(Action::ToggleFold, Some(OutlineCommand::ToggleFold))]
+    #[case::fold_all(Action::FoldAll, Some(OutlineCommand::FoldAll))]
+    #[case::unfold_all(Action::UnfoldAll, Some(OutlineCommand::UnfoldAll))]
+    #[case::open(Action::Open, None)]
+    #[case::delete(Action::Delete, None)]
+    #[case::quit(Action::Quit, None)]
+    fn actions_map_to_outline_commands(
+        #[case] action: Action,
+        #[case] expected: Option<OutlineCommand>,
+    ) {
+        let system_under_test = OutlineCommand::from_action(action);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn every_command_but_parent_has_an_action() {
+        let expected: HashSet<OutlineCommand> = OutlineCommand::iter()
+            .filter(|command| *command != OutlineCommand::Parent)
+            .collect();
+
+        let system_under_test: HashSet<OutlineCommand> = Action::iter()
+            .filter_map(OutlineCommand::from_action)
+            .collect();
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[rstest]

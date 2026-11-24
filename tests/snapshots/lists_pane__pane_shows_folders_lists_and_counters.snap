@@ -1,0 +1,14 @@
+---
+source: tests/lists_pane.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
+"│ ▾ Home               ││                                                      │"
+"│   • Chores       0/2 ││                                                      │"
+"│     Groceries    1/4 ││                                                      │"
+"│ ▾ Work               ││                                                      │"
+"│     Plan         1/1 ││                                                      │"
+"│   Inbox          0/1 ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new list  O new folder  enter open  r rename  dd delete               ? help "

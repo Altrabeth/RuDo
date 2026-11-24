@@ -49,14 +49,7 @@ impl App {
             Action::FocusPrevious => self.focus = self.focus.previous(),
             Action::FocusLists => self.focus = Focus::Lists,
             Action::FocusTasks => self.focus = Focus::Tasks,
-            Action::Help
-            | Action::Search
-            | Action::ClearFilter
-            | Action::Undo
-            | Action::Redo
-            | Action::ToggleCompleted
-            | Action::OpenInEditor
-            | Action::MoveDown
+            action @ (Action::MoveDown
             | Action::MoveUp
             | Action::MoveToTop
             | Action::MoveToBottom
@@ -67,7 +60,17 @@ impl App {
             | Action::ToggleFold
             | Action::FoldAll
             | Action::UnfoldAll
-            | Action::Open
+            | Action::Open) => match self.focus {
+                Focus::Lists => self.update_lists(action),
+                Focus::Tasks => {}
+            },
+            Action::Help
+            | Action::Search
+            | Action::ClearFilter
+            | Action::Undo
+            | Action::Redo
+            | Action::ToggleCompleted
+            | Action::OpenInEditor
             | Action::NewList
             | Action::NewFolder
             | Action::Rename

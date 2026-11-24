@@ -124,7 +124,7 @@ impl App {
             }
             Mode::Normal => match self.focus {
                 Focus::Lists => self.update_lists(action),
-                Focus::Tasks => {}
+                Focus::Tasks => self.update_tasks(action),
             },
             Mode::Prompt(_) => {}
         }

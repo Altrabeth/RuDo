@@ -4,7 +4,7 @@ assertion_line: 59
 expression: system_under_test
 ---
 "╭ Lists ───────────────────────────────╮╭ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮"
-"│ No lists yet. Press o to create one. ││                                                                                                                                                              │"
+"│ No lists yet. Press o to create one. ││ Select a list and press enter                                                                                                                                │"
 "│                                      ││                                                                                                                                                              │"
 "│                                      ││                                                                                                                                                              │"
 "│                                      ││                                                                                                                                                              │"

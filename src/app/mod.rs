@@ -12,6 +12,7 @@ pub mod lists;
 pub mod prompt;
 pub mod state;
 pub mod status;
+pub mod tasks;
 mod update;
 
 pub use self::effect::{Effect, execute};

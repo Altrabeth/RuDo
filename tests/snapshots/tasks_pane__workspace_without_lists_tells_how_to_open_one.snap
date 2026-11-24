@@ -1,0 +1,11 @@
+---
+source: tests/tasks_pane.rs
+assertion_line: 259
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
+"│ No lists yet. Press  ││ Select a list and press enter                        │"
+"│ o to create one.     ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

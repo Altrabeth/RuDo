@@ -1,0 +1,17 @@
+---
+source: tests/tasks_pane.rs
+assertion_line: 210
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Groceries  1/7 ──────────────────────────────────────╮"
+"│ • Groceries      1/7 ││ ▾ [ ] Buy milk #shopping                             │"
+"│   Notes          0/0 ││ │   [x] Check lactose-free                           │"
+"│   Work           0/2 ││ │ ▸ [ ] Oat milk                                     │"
+"│                      ││   [ ] Bake bread                                     │"
+"│                      ││   [-] Buy candles                                    │"
+"│                      ││   [/] Clean fridge                                   │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

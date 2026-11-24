@@ -1,9 +1,10 @@
 ---
 source: tests/lists_pane.rs
+assertion_line: 230
 expression: system_under_test
 ---
-"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
-"│   list-23        0/0 ││                                                      │"
+"╭ Lists ───────────────╮╭ list-00  0/0 ────────────────────────────────────────╮"
+"│   list-23        0/0 ││ No tasks yet. Press o to add one.                    │"
 "│   list-24        0/0 ││                                                      │"
 "│   list-25        0/0 ││                                                      │"
 "│   list-26        0/0 ││                                                      │"

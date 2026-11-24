@@ -22,6 +22,9 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::config::keymap::key::{Key, KeyChord, Modifiers};
 
+/// Marks text that was cut off.
+const ELLIPSIS: &str = "\u{2026}";
+
 /// An editing operation on a [`TextInput`], triggered by one of the [`EDITING_KEYS`].
 ///
 /// Words are runs of non-whitespace grapheme clusters, as in readline's `unix-word-rubout`.
@@ -468,6 +471,26 @@ pub(crate) fn display_width(text: &str) -> usize {
         .sum()
 }
 
+/// Returns `text` cut to at most `width` cells, ending in an ellipsis if it was cut.
+pub(crate) fn truncated(text: &str, width: usize) -> Cow<'_, str> {
+    if display_width(text) <= width {
+        return Cow::Borrowed(text);
+    }
+    let Some(text_width) = width.checked_sub(display_width(ELLIPSIS)) else {
+        return Cow::Borrowed("");
+    };
+    let mut used_width = 0;
+    let end = text
+        .grapheme_indices(true)
+        .take_while(|(_, grapheme)| {
+            used_width += usize::from(grapheme.cell_width());
+            used_width <= text_width
+        })
+        .last()
+        .map_or(0, |(start, grapheme)| start + grapheme.len());
+    Cow::Owned(format!("{}{ELLIPSIS}", &text[..end]))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -786,5 +809,22 @@ mod tests {
         let system_under_test = text_input.cursor_position(area);
 
         assert_eq!(system_under_test, None);
+    }
+
+    #[rstest]
+    #[case::fits("close", 5, "close")]
+    #[case::cut("close the help", 8, "close t\u{2026}")]
+    #[case::only_the_ellipsis("close", 1, "\u{2026}")]
+    #[case::nothing("close", 0, "")]
+    #[case::wide_character_does_not_overflow("\u{65E5}\u{672C}\u{8A9E}", 4, "\u{65E5}\u{2026}")]
+    #[case::combining_mark_stays_whole("e\u{301}e\u{301}e\u{301}", 2, "e\u{301}\u{2026}")]
+    fn truncated_cuts_with_an_ellipsis(
+        #[case] text: &str,
+        #[case] width: usize,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = truncated(text, width);
+
+        assert_eq!(system_under_test, expected);
     }
 }

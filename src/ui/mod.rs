@@ -16,6 +16,8 @@ pub mod status_bar;
 pub mod tasks_pane;
 pub mod text_input;
 
+use std::borrow::Cow;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::{Paragraph, Wrap};
@@ -71,13 +73,13 @@ fn render_prompt(app: &App, frame: &mut Frame) {
 /// Draws the border of `pane` around `area` and its contents inside.
 fn render_pane(app: &App, frame: &mut Frame, pane: Focus, area: Rect, hint: PaneSwitchHint) {
     let title = match pane {
-        Focus::Lists => lists_pane::TITLE,
-        Focus::Tasks => tasks_pane::TITLE,
+        Focus::Lists => Cow::Borrowed(lists_pane::TITLE),
+        Focus::Tasks => tasks_pane::title(app),
     };
     let border = PaneBorder {
         pane,
         focus: app.focus(),
-        title,
+        title: &title,
         hint,
     };
     let inner = render_pane_border(frame, area, border, app.theme(), app.keymap());

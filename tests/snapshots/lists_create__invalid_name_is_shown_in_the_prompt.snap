@@ -3,7 +3,7 @@ source: tests/lists_create.rs
 expression: system_under_test
 ---
 "╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
-"│ No lists yet. Press  ││                                                      │"
+"│ No lists yet. Press  ││ Select a list and press enter                        │"
 "│ o to create one.     ││                                                      │"
 "│               ╭ New list ────────────────────────────────────╮               │"
 "│               │ a/b                                          │               │"

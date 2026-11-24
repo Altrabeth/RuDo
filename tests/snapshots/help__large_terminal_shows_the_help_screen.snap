@@ -1,9 +1,10 @@
 ---
 source: tests/help.rs
+assertion_line: 284
 expression: system_under_test
 ---
 "╭ Lists ───────────────────────────╮╭ Tasks ───────────────────────────────────────────────────────────────────────────╮"
-"│ No lists yet. Press o to create  ││                                                                                  │"
+"│ No lists yet. Press o to create  ││ Select a list and press enter                                                    │"
 "│ one.                             ││                                                                                  │"
 "│     ╭ Help ────────────────────────────────────────────────────────────────────────────────────────────────────╮     │"
 "│     │  ctrl-u, pageup    half a page up                                                                        │     │"

@@ -1,10 +1,11 @@
 ---
 source: tests/lists_pane.rs
+assertion_line: 200
 expression: system_under_test
 ---
-"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
-"│ ▾ Home               ││                                                      │"
-"│   • Chores       0/2 ││                                                      │"
+"╭ Lists ───────────────╮╭ Chores  0/2 ─────────────────────────────────────────╮"
+"│ ▾ Home               ││   [ ] Vacuum                                         │"
+"│   • Chores       0/2 ││   [ ] Dust                                           │"
 "│     Groceries    1/4 ││                                                      │"
 "│ ▾ Work               ││                                                      │"
 "│     Plan         1/1 ││                                                      │"

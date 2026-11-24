@@ -1,9 +1,10 @@
 ---
 source: tests/lists_pane.rs
+assertion_line: 219
 expression: system_under_test
 ---
-"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
-"│ • fine           0/0 ││                                                      │"
+"╭ Lists ───────────────╮╭ fine  0/0 ───────────────────────────────────────────╮"
+"│ • fine           0/0 ││ No tasks yet. Press o to add one.                    │"
 "│   other   unreadable ││                                                      │"
 "│                      ││                                                      │"
 "╰──────────────────────╯╰──────────────────────────────────────────────────────╯"

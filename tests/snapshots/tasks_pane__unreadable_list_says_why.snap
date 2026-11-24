@@ -1,0 +1,11 @@
+---
+source: tests/tasks_pane.rs
+assertion_line: 269
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ broken ──────────────────────────────────────────────╮"
+"│ • broken  unreadable ││ the file is not valid UTF-8                          │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

@@ -202,11 +202,12 @@ impl App {
     }
 
     /// Performs a navigation, folding or `open` action in the lists pane and focuses the
-    /// tasks pane if it opened a list.
+    /// tasks pane if it opened a list, which shows the task it showed when it was last open.
     pub(super) fn update_lists(&mut self, action: Action) {
         let viewport_height = self.viewport_height(Focus::Lists);
         if self.lists.update(&self.workspace, action, viewport_height) {
             self.focus = Focus::Tasks;
+            self.refresh_tasks();
         }
     }
 }

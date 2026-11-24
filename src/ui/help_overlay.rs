@@ -6,21 +6,18 @@
 //! [`help_overlay`] decides where everything goes; the app uses it too, so that scrolling and
 //! drawing agree on the height of the viewport.
 
-use std::borrow::Cow;
-
 use ratatui::Frame;
-use ratatui::buffer::{Buffer, CellWidth};
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::app::help::{HelpFilter, HelpOverlay};
 use crate::app::{App, Mode};
 use crate::config::theme::{Slot, Theme};
 use crate::ui::help::{HelpRow, HelpSection, rows};
 use crate::ui::layout::{HelpLayout, help_overlay};
-use crate::ui::text_input::{TextInputView, display_width};
+use crate::ui::text_input::{TextInputView, display_width, truncated};
 
 /// The key column is never wider than this, nor than half of the overlay.
 const KEY_COLUMN_MAX_WIDTH: usize = 24;
@@ -28,8 +25,6 @@ const KEY_COLUMN_MAX_WIDTH: usize = 24;
 const ENTRY_INDENT: usize = 2;
 /// Space between the key column and the description.
 const COLUMN_GAP: usize = 2;
-/// Marks text that was cut off.
-const ELLIPSIS: &str = "\u{2026}";
 const TITLE: &str = " Help ";
 /// Precedes the filter text, like the key that opens the filter.
 const FILTER_PROMPT: &str = "/";
@@ -164,26 +159,6 @@ fn key_column_width(sections: &[HelpSection], row_width: usize) -> usize {
     widest.min(KEY_COLUMN_MAX_WIDTH).min(row_width / 2)
 }
 
-/// Returns `text` cut to at most `width` cells, ending in an ellipsis if it was cut.
-fn truncated(text: &str, width: usize) -> Cow<'_, str> {
-    if display_width(text) <= width {
-        return Cow::Borrowed(text);
-    }
-    let Some(text_width) = width.checked_sub(display_width(ELLIPSIS)) else {
-        return Cow::Borrowed("");
-    };
-    let mut used_width = 0;
-    let end = text
-        .grapheme_indices(true)
-        .take_while(|(_, grapheme)| {
-            used_width += usize::from(grapheme.cell_width());
-            used_width <= text_width
-        })
-        .last()
-        .map_or(0, |(start, grapheme)| start + grapheme.len());
-    Cow::Owned(format!("{}{ELLIPSIS}", &text[..end]))
-}
-
 fn render_scrollbar(
     offset: usize,
     viewport_height: usize,
@@ -238,23 +213,6 @@ mod tests {
         let overrides: KeyBindings = serde_saphyr::from_str(keybindings).unwrap();
         let keymap = Keymap::new(&overrides).unwrap();
         filter(&help_sections(&keymap), query)
-    }
-
-    #[rstest]
-    #[case::fits("close", 5, "close")]
-    #[case::cut("close the help", 8, "close t\u{2026}")]
-    #[case::only_the_ellipsis("close", 1, "\u{2026}")]
-    #[case::nothing("close", 0, "")]
-    #[case::wide_character_does_not_overflow("\u{65E5}\u{672C}\u{8A9E}", 4, "\u{65E5}\u{2026}")]
-    #[case::combining_mark_stays_whole("e\u{301}e\u{301}e\u{301}", 2, "e\u{301}\u{2026}")]
-    fn truncated_cuts_with_an_ellipsis(
-        #[case] text: &str,
-        #[case] width: usize,
-        #[case] expected: &str,
-    ) {
-        let system_under_test = truncated(text, width);
-
-        assert_eq!(system_under_test, expected);
     }
 
     #[rstest]

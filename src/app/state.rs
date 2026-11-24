@@ -7,6 +7,7 @@ use crate::app::help::HelpOverlay;
 use crate::app::lists::ListsPane;
 use crate::app::prompt::PromptOverlay;
 use crate::app::status::Status;
+use crate::app::tasks::TasksPane;
 use crate::config::Config;
 use crate::config::keymap::action::Context;
 use crate::config::keymap::key::KeyChord;
@@ -31,6 +32,7 @@ pub struct App {
     pub(super) resolver: KeyResolver,
     pub(super) focus: Focus,
     pub(super) lists: ListsPane,
+    pub(super) tasks: TasksPane,
     pub(super) mode: Mode,
     pub(super) today: Date,
     pub(super) status: Status,
@@ -56,8 +58,9 @@ impl App {
     ) -> Self {
         // The size is unknown until the runtime calls `resize`, which scrolls the panes again.
         let screen_size = Size::ZERO;
-        Self {
+        let mut app = Self {
             lists: ListsPane::new(&workspace, viewport_height(screen_size, Focus::Lists)),
+            tasks: TasksPane::default(),
             workspace,
             config,
             theme,
@@ -69,7 +72,9 @@ impl App {
             status: Status::default(),
             should_quit: false,
             screen_size,
-        }
+        };
+        app.refresh_tasks();
+        app
     }
 
     /// Returns the workspace with its loaded lists.
@@ -139,6 +144,7 @@ impl App {
         self.screen_size = screen_size;
         self.lists
             .refresh(&self.workspace, self.viewport_height(Focus::Lists));
+        self.refresh_tasks();
         match &mut self.mode {
             Mode::Normal | Mode::Prompt(_) => {}
             Mode::Help(help) => help.refresh(screen_size),

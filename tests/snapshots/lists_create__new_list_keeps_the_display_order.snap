@@ -2,8 +2,8 @@
 source: tests/lists_create.rs
 expression: system_under_test
 ---
-"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
-"│ ▾ Home               ││                                                      │"
+"╭ Lists ───────────────╮╭ Chores  0/1 ─────────────────────────────────────────╮"
+"│ ▾ Home               ││   [ ] Vacuum                                         │"
 "│   • Chores       0/1 ││                                                      │"
 "│   Archive        0/0 ││                                                      │"
 "│   Inbox          0/1 ││                                                      │"

@@ -1,9 +1,10 @@
 ---
 source: tests/status_bar.rs
+assertion_line: 128
 expression: system_under_test
 ---
 "╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
-"│ No lists yet. Press  ││                                                      │"
+"│ No lists yet. Press  ││ Select a list and press enter                        │"
 "│ o to create one.     ││                                                      │"
 "│                      ││                                                      │"
 "╰──────────────────────╯╰──────────────────────────────────────────────────────╯"

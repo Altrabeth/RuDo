@@ -1,0 +1,11 @@
+---
+source: tests/tasks_pane.rs
+assertion_line: 249
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Notes  0/0 ──────────────────────────────────────────╮"
+"│   Groceries      1/7 ││ No tasks yet. Press o to add one.                    │"
+"│ • Notes          0/0 ││                                                      │"
+"│   Work           0/2 ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

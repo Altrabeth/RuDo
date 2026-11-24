@@ -87,14 +87,14 @@ src/
   ui/
     mod.rs                 view(&App, &mut Frame)
     outline.rs             generic tree navigation: selection, folding, scrolling
-    layout.rs              panes, focus, responsive layout
+    layout.rs              responsive layout: pane, bottom bar and overlay areas, focus border
     lists_pane.rs          workspace tree
     tasks_pane.rs          task tree with metadata
     status_bar.rs          key hints, pending keys, messages
     text_input.rs          single-line text editor widget
     popup.rs               input popup and confirmation dialog
     help.rs                help content model
-    help_overlay.rs        help overlay: layout, rows, scrollbar, filter line
+    help_overlay.rs        help overlay: rows, scrollbar, filter line
   runtime/
     terminal.rs            terminal setup and restore, panic safety
     event.rs               merging terminal, tick and file system events
@@ -129,8 +129,19 @@ keep the names above unless there is a reason to deviate.
 - Only `KeyEventKind::Press` and `Repeat` are handled; `Release` events (Windows, kitty
   keyboard protocol) are dropped at the boundary.
 - The runtime reports the terminal size with `App::resize` at start-up and on every resize
-  event. Scrolling commands derive viewport heights from it with the same layout functions
-  `view` uses (such as `ui::help_overlay::layout`), so `view` itself never changes state.
+  event. `ui::layout` is the single source of the geometry: `view` draws into the areas it
+  returns, and `App` derives the viewport height of a pane or overlay from the same functions
+  (`ui::layout::pane_content`, `ui::layout::help_overlay`), so navigation moves by exactly
+  the height that is drawn. There are no viewport constants. `App::resize` refreshes every
+  outline with the new heights, so the selections stay visible, and `view` renders from the
+  stored offsets without changing state.
+- Text inputs scroll horizontally without stored state: `TextInputView` computes the scroll
+  offset from the text, the cursor and the width of its row on every render (just far
+  enough to show the cursor cell). A `TextInput` therefore holds only its text and cursor,
+  `App` never needs to know the width of an input, and `view` renders inputs and
+  `InputPopup`s from `&TextInput` and `&Prompt`. The price is that the cursor rests at the
+  right edge while moving left through text scrolled to its end, instead of the text staying
+  put until the cursor reaches the left edge.
 - `ratatui::init` and `ratatui::restore` manage the terminal, including restoring it on panic.
   Use crossterm through `ratatui::crossterm` so there is exactly one crossterm version.
 

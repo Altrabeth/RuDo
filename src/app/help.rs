@@ -11,7 +11,7 @@ use crate::config::keymap::action::Context;
 use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::keymap::Keymap;
 use crate::ui::help::{HelpHeading, HelpRow, HelpRowKey, HelpSection, filter, help_sections, rows};
-use crate::ui::help_overlay::{FilterLine, layout};
+use crate::ui::layout::{FilterLine, help_overlay};
 use crate::ui::outline::{Outcome, Outline, OutlineCommand};
 use crate::ui::text_input::{TextChange, TextInput};
 
@@ -182,7 +182,7 @@ impl HelpOverlay {
 
     fn viewport_height(&self, screen_size: Size) -> usize {
         let screen = Rect::from(screen_size);
-        usize::from(layout(screen, self.filter.line()).rows.height)
+        usize::from(help_overlay(screen, self.filter.line()).rows.height)
     }
 }
 

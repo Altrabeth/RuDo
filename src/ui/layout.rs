@@ -1,8 +1,13 @@
-//! The responsive layout: where the panes and the bottom bar go for a terminal size, and the
-//! border that shows which pane has the focus.
+//! The responsive layout: where the panes, the bottom bar and the overlays go for a terminal
+//! size, and the border that shows which pane has the focus.
+//!
+//! The functions here are the single source of the geometry. The view draws into the areas
+//! they return, and the app derives the viewport heights for scrolling from the same areas
+//! ([`pane_content`], [`help_overlay`]), so navigation always moves by the height that is
+//! drawn.
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType};
 
@@ -24,6 +29,10 @@ const LISTS_WIDTH_PERCENT: u32 = 30;
 const LISTS_MIN_WIDTH: u16 = 24;
 const LISTS_MAX_WIDTH: u16 = 40;
 const BOTTOM_BAR_HEIGHT: u16 = 1;
+/// The border around a pane or an overlay takes one cell on every side.
+const BORDER: Margin = Margin::new(1, 1);
+/// Share of the terminal width and height covered by the help overlay.
+const HELP_OVERLAY_PERCENT: u16 = 90;
 
 /// The actions whose keys a lone pane shows in its title, because the other pane is hidden.
 const PANE_SWITCH_ACTIONS: [Action; 2] = [Action::FocusLists, Action::FocusTasks];
@@ -83,6 +92,77 @@ impl Screen {
     }
 }
 
+/// Returns the area inside the border of `pane` on a terminal of the size of `screen`, into
+/// which the pane renders its rows; empty if the terminal is too small for any pane.
+///
+/// A pane has the focus whenever it is navigated, so the area is the one `pane` has while it
+/// is focused. Its height is the same whichever pane has the focus.
+#[must_use]
+pub fn pane_content(screen: Rect, pane: Focus) -> Rect {
+    let area = match Screen::new(screen, pane) {
+        Screen::TooSmall(_) => return Rect::ZERO,
+        Screen::SideBySide { lists, tasks, .. } => match pane {
+            Focus::Lists => lists,
+            Focus::Tasks => tasks,
+        },
+        Screen::FocusedOnly { area, .. } => area,
+    };
+    inside_border(area)
+}
+
+/// Returns the area inside the border drawn around `area`.
+fn inside_border(area: Rect) -> Rect {
+    area.inner(BORDER)
+}
+
+/// Whether the help overlay reserves its last row for the filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FilterLine {
+    /// No filter is open or applied; every row shows help rows.
+    Hidden,
+    /// The last row shows the filter.
+    Shown,
+}
+
+/// Where the parts of the help overlay go, computed by [`help_overlay`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HelpLayout {
+    /// The overlay including its border.
+    pub overlay: Rect,
+    /// The rows of the help screen inside the border.
+    pub rows: Rect,
+    /// The row of the filter, if it is shown.
+    pub filter: Option<Rect>,
+}
+
+/// Divides the help overlay for a terminal of the size of `screen`.
+///
+/// The overlay covers 90 % of the terminal in both directions, centred.
+#[must_use]
+pub fn help_overlay(screen: Rect, filter_line: FilterLine) -> HelpLayout {
+    let overlay = screen.centered(
+        Constraint::Percentage(HELP_OVERLAY_PERCENT),
+        Constraint::Percentage(HELP_OVERLAY_PERCENT),
+    );
+    let inside = inside_border(overlay);
+    match filter_line {
+        FilterLine::Hidden => HelpLayout {
+            overlay,
+            rows: inside,
+            filter: None,
+        },
+        FilterLine::Shown => {
+            let [rows, filter] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(inside);
+            HelpLayout {
+                overlay,
+                rows,
+                filter: Some(filter),
+            }
+        }
+    }
+}
+
 /// Returns the width of the lists pane in a terminal `terminal_width` columns wide.
 fn lists_width(terminal_width: u16) -> u16 {
     let share = u32::from(terminal_width) * LISTS_WIDTH_PERCENT / 100;
@@ -114,7 +194,7 @@ pub struct PaneBorder<'a> {
 }
 
 /// Draws `border` around `area` and returns the area inside it, into which the pane renders
-/// its contents.
+/// its contents; it is the area [`pane_content`] returns for the same pane.
 ///
 /// The border and title use the `border_focused` and `title_focused` slots of `theme` if the
 /// pane has the focus, and `border` and `title` otherwise.
@@ -141,9 +221,8 @@ pub fn render_pane_border(
             block = block.title(pane_switch_hint(theme, keymap).right_aligned());
         }
     }
-    let inner = block.inner(area);
     frame.render_widget(block, area);
-    inner
+    inside_border(area)
 }
 
 /// Returns the keys that switch panes with their labels, such as ` 1 lists 2 tasks `.
@@ -242,6 +321,56 @@ mod tests {
         let system_under_test = Screen::new(area, Focus::Tasks);
 
         assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::lists_side_by_side(Rect::new(0, 0, 80, 24), Focus::Lists, Rect::new(1, 1, 22, 21))]
+    #[case::tasks_side_by_side(Rect::new(0, 0, 80, 40), Focus::Tasks, Rect::new(25, 1, 54, 37))]
+    #[case::lists_alone(Rect::new(0, 0, 40, 12), Focus::Lists, Rect::new(1, 1, 38, 9))]
+    #[case::tasks_alone(Rect::new(0, 0, 40, 12), Focus::Tasks, Rect::new(1, 1, 38, 9))]
+    #[case::too_small(Rect::new(0, 0, 20, 4), Focus::Lists, Rect::ZERO)]
+    fn pane_content_is_the_area_inside_the_border(
+        #[case] screen: Rect,
+        #[case] pane: Focus,
+        #[case] expected: Rect,
+    ) {
+        let system_under_test = pane_content(screen, pane);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::hidden(
+        FilterLine::Hidden,
+        HelpLayout {
+            overlay: Rect::new(4, 1, 72, 22),
+            rows: Rect::new(5, 2, 70, 20),
+            filter: None,
+        },
+    )]
+    #[case::shown(
+        FilterLine::Shown,
+        HelpLayout {
+            overlay: Rect::new(4, 1, 72, 22),
+            rows: Rect::new(5, 2, 70, 19),
+            filter: Some(Rect::new(5, 21, 70, 1)),
+        },
+    )]
+    fn help_overlay_is_centred(#[case] filter_line: FilterLine, #[case] expected: HelpLayout) {
+        let screen = Rect::new(0, 0, 80, 24);
+
+        let system_under_test = help_overlay(screen, filter_line);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::empty(Rect::ZERO)]
+    #[case::one_row(Rect::new(0, 0, 3, 1))]
+    fn help_overlay_of_a_tiny_screen_has_no_rows(#[case] screen: Rect) {
+        let system_under_test = help_overlay(screen, FilterLine::Shown);
+
+        assert_eq!(system_under_test.rows.height, 0);
     }
 
     #[test]

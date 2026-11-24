@@ -11,15 +11,6 @@ use crate::config::keymap::action::Action;
 use crate::storage::workspace::{Entry, ListPath, Workspace};
 use crate::ui::outline::{Outcome, Outline, OutlineCommand, OutlineItem};
 
-/// Rows of the lists pane that navigation assumes are visible.
-///
-/// [`App::update`] does not know the terminal size, because the view is drawn from the state
-/// and never changes it. This is the pane height of a standard 80 by 24 terminal (24 rows
-/// minus the two border rows and the bottom bar); it only decides how far the half-page moves
-/// go and where the scroll offset starts. The view keeps the selection visible in whatever
-/// height it really has.
-const VIEWPORT_HEIGHT: usize = 21;
-
 /// Identifies a row of the workspace tree across rescans.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EntryKey {
@@ -99,9 +90,10 @@ pub struct ListsPane {
 }
 
 impl ListsPane {
-    /// Selects and activates the first list of `workspace` in display order, if it has any.
+    /// Selects and activates the first list of `workspace` in display order, if it has any,
+    /// in a pane `viewport_height` rows high.
     #[must_use]
-    pub fn new(workspace: &Workspace) -> Self {
+    pub fn new(workspace: &Workspace, viewport_height: usize) -> Self {
         let items = tree_items(workspace);
         let mut outline = Outline::new();
         let first_list = items.iter().find_map(|item| match &item.key {
@@ -109,13 +101,13 @@ impl ListsPane {
             EntryKey::Folder(_) => None,
         });
         let Some((key, path)) = first_list else {
-            outline.refresh(&items, VIEWPORT_HEIGHT);
+            outline.refresh(&items, viewport_height);
             return Self {
                 outline,
                 active: None,
             };
         };
-        match outline.select(&items, key, VIEWPORT_HEIGHT) {
+        match outline.select(&items, key, viewport_height) {
             // Nothing is selected or folded yet, so selecting the list always succeeds.
             Outcome::Changed | Outcome::Unchanged => {}
         }
@@ -137,11 +129,19 @@ impl ListsPane {
         self.active.as_ref()
     }
 
-    /// Performs `action` on the tree of `workspace` and returns whether it opened a list.
+    /// Keeps the selection inside a viewport `viewport_height` rows high, for example after
+    /// the terminal was resized.
+    pub(super) fn refresh(&mut self, workspace: &Workspace, viewport_height: usize) {
+        self.outline
+            .refresh(&tree_items(workspace), viewport_height);
+    }
+
+    /// Performs `action` on the tree of `workspace`, shown in a viewport `viewport_height` rows
+    /// high, and returns whether it opened a list.
     ///
     /// `open` opens a selected list and folds or unfolds a selected folder; `expand` opens a
     /// list when there is nothing to unfold.
-    fn update(&mut self, workspace: &Workspace, action: Action) -> bool {
+    fn update(&mut self, workspace: &Workspace, action: Action, viewport_height: usize) -> bool {
         let command = if action == Action::Open {
             if self.open_selected_list() {
                 return true;
@@ -154,7 +154,7 @@ impl ListsPane {
         };
         let outcome = self
             .outline
-            .apply(&tree_items(workspace), command, VIEWPORT_HEIGHT);
+            .apply(&tree_items(workspace), command, viewport_height);
         command == OutlineCommand::Expand
             && outcome == Outcome::Unchanged
             && self.open_selected_list()
@@ -182,7 +182,8 @@ impl App {
     /// Performs a navigation, folding or `open` action in the lists pane and focuses the
     /// tasks pane if it opened a list.
     pub(super) fn update_lists(&mut self, action: Action) {
-        if self.lists.update(&self.workspace, action) {
+        let viewport_height = self.viewport_height(Focus::Lists);
+        if self.lists.update(&self.workspace, action, viewport_height) {
             self.focus = Focus::Tasks;
         }
     }

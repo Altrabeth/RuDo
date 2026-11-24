@@ -13,7 +13,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, Padding, StatefulWidget, Widget};
+use ratatui::widgets::{Block, BorderType, Clear, Padding, Widget};
 
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
@@ -109,31 +109,34 @@ impl Prompt {
 /// in rows of their own, which stay empty while the line is absent so that the popup does not
 /// change its size while the user types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InputPopup<'theme> {
-    theme: &'theme Theme,
+pub struct InputPopup<'a> {
+    prompt: &'a Prompt,
+    theme: &'a Theme,
 }
 
-impl<'theme> InputPopup<'theme> {
-    /// Creates a popup styled by `theme`.
+impl<'a> InputPopup<'a> {
+    /// Creates a popup that shows `prompt`, styled by `theme`.
     #[must_use]
-    pub const fn new(theme: &'theme Theme) -> Self {
-        Self { theme }
+    pub const fn new(prompt: &'a Prompt, theme: &'a Theme) -> Self {
+        Self { prompt, theme }
     }
 
-    /// Renders `prompt` centred in `area` and places the terminal cursor in its input.
-    pub fn render_with_cursor(self, frame: &mut Frame, area: Rect, prompt: &mut Prompt) {
-        let input_row = input_popup_inner(area).rows().next();
-        frame.render_stateful_widget(self, area, prompt);
-        if let Some(position) = input_row.and_then(|row| prompt.input.cursor_position(row)) {
+    /// Renders the prompt centred in `area` and places the terminal cursor in its input.
+    pub fn render_with_cursor(self, frame: &mut Frame, area: Rect) {
+        let cursor_position = input_popup_inner(area)
+            .rows()
+            .next()
+            .and_then(|row| self.prompt.input.cursor_position(row));
+        frame.render_widget(self, area);
+        if let Some(position) = cursor_position {
             frame.set_cursor_position(position);
         }
     }
 }
 
-impl StatefulWidget for InputPopup<'_> {
-    type State = Prompt;
-
-    fn render(self, area: Rect, buffer: &mut Buffer, prompt: &mut Prompt) {
+impl Widget for InputPopup<'_> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        let prompt = self.prompt;
         let popup = centered_rect(area, INPUT_POPUP_HEIGHT);
         render_popup_block(&prompt.title, popup, buffer, self.theme);
         // Rows are taken from the top, so a popup cut short by a tiny terminal keeps its input.
@@ -141,9 +144,9 @@ impl StatefulWidget for InputPopup<'_> {
         let Some(input_row) = rows.next() else {
             return;
         };
-        TextInputView::new("")
+        TextInputView::new(&prompt.input, "")
             .style(self.theme.style(Slot::Text))
-            .render(input_row, buffer, &mut prompt.input);
+            .render(input_row, buffer);
         let optional_lines = [
             (&prompt.hint, Slot::KeyHintLabel),
             (&prompt.preview, Slot::Text),
@@ -299,10 +302,10 @@ mod tests {
         terminal
     }
 
-    fn draw_input_popup(size: (u16, u16), mut prompt: Prompt) -> Terminal<TestBackend> {
+    fn draw_input_popup(size: (u16, u16), prompt: &Prompt) -> Terminal<TestBackend> {
         let theme = Theme::default();
         draw(size, |frame| {
-            InputPopup::new(&theme).render_with_cursor(frame, frame.area(), &mut prompt);
+            InputPopup::new(prompt, &theme).render_with_cursor(frame, frame.area());
         })
     }
 
@@ -365,7 +368,7 @@ mod tests {
 
     #[test]
     fn input_popup_without_optional_lines() {
-        let terminal = draw_input_popup(NORMAL_SIZE, prompt());
+        let terminal = draw_input_popup(NORMAL_SIZE, &prompt());
 
         let system_under_test = terminal.backend();
 
@@ -374,7 +377,7 @@ mod tests {
 
     #[test]
     fn input_popup_with_hint() {
-        let terminal = draw_input_popup(NORMAL_SIZE, prompt().with_hint("enter save"));
+        let terminal = draw_input_popup(NORMAL_SIZE, &prompt().with_hint("enter save"));
 
         let system_under_test = terminal.backend();
 
@@ -385,7 +388,7 @@ mod tests {
     fn input_popup_with_preview() {
         let mut prompt = prompt();
         prompt.set_preview(Some("due 2026-11-25".into()));
-        let terminal = draw_input_popup(NORMAL_SIZE, prompt);
+        let terminal = draw_input_popup(NORMAL_SIZE, &prompt);
 
         let system_under_test = terminal.backend();
 
@@ -396,7 +399,7 @@ mod tests {
     fn input_popup_with_error() {
         let mut prompt = prompt();
         prompt.set_error(Some("unknown date".into()));
-        let terminal = draw_input_popup(NORMAL_SIZE, prompt);
+        let terminal = draw_input_popup(NORMAL_SIZE, &prompt);
 
         let system_under_test = terminal.backend();
 
@@ -405,7 +408,7 @@ mod tests {
 
     #[test]
     fn input_popup_with_all_lines() {
-        let terminal = draw_input_popup(NORMAL_SIZE, prompt_with_all_lines());
+        let terminal = draw_input_popup(NORMAL_SIZE, &prompt_with_all_lines());
 
         let system_under_test = terminal.backend();
 
@@ -414,7 +417,7 @@ mod tests {
 
     #[test]
     fn input_popup_on_tiny_terminal() {
-        let terminal = draw_input_popup(TINY_SIZE, prompt_with_all_lines());
+        let terminal = draw_input_popup(TINY_SIZE, &prompt_with_all_lines());
 
         let system_under_test = terminal.backend();
 
@@ -428,7 +431,7 @@ mod tests {
         #[case] size: (u16, u16),
         #[case] expected: Position,
     ) {
-        let mut terminal = draw_input_popup(size, prompt_with_all_lines());
+        let mut terminal = draw_input_popup(size, &prompt_with_all_lines());
 
         let system_under_test = terminal.get_cursor_position().unwrap();
 
@@ -445,8 +448,8 @@ mod tests {
         let expected = Rect::new(0, 0, size.0, size.1);
 
         let system_under_test = draw(size, |frame| {
-            let mut prompt = prompt_with_all_lines();
-            InputPopup::new(&theme).render_with_cursor(frame, frame.area(), &mut prompt);
+            let prompt = prompt_with_all_lines();
+            InputPopup::new(&prompt, &theme).render_with_cursor(frame, frame.area());
             let dialog = ConfirmDialog::new("Delete?", &keymap, &theme);
             frame.render_widget(dialog, frame.area());
         });
@@ -463,7 +466,7 @@ mod tests {
             theme.style(Slot::InputError),
         ];
 
-        let system_under_test = draw_input_popup(NORMAL_SIZE, prompt_with_all_lines());
+        let system_under_test = draw_input_popup(NORMAL_SIZE, &prompt_with_all_lines());
 
         assert_eq!(style_at(&system_under_test, 10, 2), expected[0]);
         assert_eq!(style_at(&system_under_test, 12, 2), expected[1]);

@@ -2,7 +2,9 @@
 //!
 //! [`TextInput`] holds the edited text and the cursor; it is changed by [`EditCommand`]s and by
 //! inserting typed or pasted text. [`TextInputView`] renders it into one terminal row,
-//! scrolling horizontally so that the cursor stays visible. The fixed editing keys are listed
+//! scrolling horizontally so that the cursor stays visible. The scroll offset is not stored:
+//! it is computed from the text, the cursor and the width of the row on every render, so the
+//! view only needs `&TextInput` and never changes the application state. The fixed editing keys are listed
 //! once in [`EDITING_KEYS`], which both key handling and the help screen read.
 //!
 //! The cursor always rests on a grapheme cluster boundary, so combining sequences, emoji ZWJ
@@ -15,7 +17,7 @@ use ratatui::Frame;
 use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::widgets::StatefulWidget;
+use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::config::keymap::key::{Key, KeyChord, Modifiers};
@@ -149,14 +151,12 @@ pub enum TextChange {
     Unchanged,
 }
 
-/// The state of a single-line text editor: its text, cursor and horizontal scroll offset.
+/// The state of a single-line text editor: its text and cursor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct TextInput {
     value: String,
     /// Byte index into `value`, always on a grapheme cluster boundary.
     cursor: usize,
-    /// Display column of `value` shown in the leftmost cell, updated while rendering.
-    scroll: usize,
 }
 
 impl TextInput {
@@ -250,11 +250,11 @@ impl TextInput {
         }
     }
 
-    /// Returns the terminal position of the cursor after the input was rendered into `area`
-    /// by [`TextInputView`], or `None` if the cursor is not inside `area`.
+    /// Returns the terminal position of the cursor when the input is rendered into `area` by
+    /// [`TextInputView`], or `None` if the cursor is not inside `area`.
     #[must_use]
     pub fn cursor_position(&self, area: Rect) -> Option<Position> {
-        let column = self.cursor_column().checked_sub(self.scroll)?;
+        let column = self.cursor_column().checked_sub(self.scroll(area.width))?;
         let column = u16::try_from(column)
             .ok()
             .filter(|&column| column < area.width)?;
@@ -319,23 +319,19 @@ impl TextInput {
         display_width(&self.value[..self.cursor])
     }
 
-    /// Adjusts the scroll offset so that the cursor cell is inside a row of `width` cells,
-    /// without scrolling further right than needed to show the end of the text.
-    fn scroll_to_cursor(&mut self, width: u16) {
-        let width = usize::from(width);
-        let cursor_column = self.cursor_column();
-        let last_useful_scroll = (display_width(&self.value) + 1).saturating_sub(width);
-        let scroll = self.scroll.min(cursor_column);
-        let scroll = scroll.max((cursor_column + 1).saturating_sub(width));
-        self.scroll = scroll.min(last_useful_scroll);
+    /// Returns the display column shown in the leftmost cell of a row `width` cells wide: the
+    /// text scrolls just far enough to show the cursor cell, so the cursor rests at the right
+    /// edge while it is right of the first `width` columns.
+    fn scroll(&self, width: u16) -> usize {
+        (self.cursor_column() + 1).saturating_sub(usize::from(width))
     }
 
     /// Returns the byte index and display column of the first grapheme cluster that starts at
-    /// or after the scroll offset.
-    fn first_visible_grapheme(&self) -> (usize, usize) {
+    /// or after the display column `scroll`.
+    fn first_visible_grapheme(&self, scroll: usize) -> (usize, usize) {
         let mut column = 0;
         for (index, grapheme) in self.value.grapheme_indices(true) {
-            if column >= self.scroll {
+            if column >= scroll {
                 return (index, column);
             }
             column += usize::from(grapheme.cell_width());
@@ -349,17 +345,19 @@ impl TextInput {
 /// The text scrolls horizontally so that the cursor stays visible. An empty input shows a
 /// placeholder, dimmed by default.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TextInputView<'placeholder> {
-    placeholder: &'placeholder str,
+pub struct TextInputView<'a> {
+    input: &'a TextInput,
+    placeholder: &'a str,
     style: Style,
     placeholder_style: Style,
 }
 
-impl<'placeholder> TextInputView<'placeholder> {
-    /// Creates a view that shows `placeholder` while the input is empty.
+impl<'a> TextInputView<'a> {
+    /// Creates a view of `input` that shows `placeholder` while the input is empty.
     #[must_use]
-    pub const fn new(placeholder: &'placeholder str) -> Self {
+    pub const fn new(input: &'a TextInput, placeholder: &'a str) -> Self {
         Self {
+            input,
             placeholder,
             style: Style::new(),
             placeholder_style: Style::new().add_modifier(Modifier::DIM),
@@ -380,19 +378,19 @@ impl<'placeholder> TextInputView<'placeholder> {
         self
     }
 
-    /// Renders `input` into `area` and places the terminal cursor at the input's cursor.
-    pub fn render_with_cursor(self, frame: &mut Frame, area: Rect, input: &mut TextInput) {
-        frame.render_stateful_widget(self, area, input);
-        if let Some(position) = input.cursor_position(area) {
+    /// Renders the input into `area` and places the terminal cursor at the input's cursor.
+    pub fn render_with_cursor(self, frame: &mut Frame, area: Rect) {
+        let cursor_position = self.input.cursor_position(area);
+        frame.render_widget(self, area);
+        if let Some(position) = cursor_position {
             frame.set_cursor_position(position);
         }
     }
 }
 
-impl StatefulWidget for TextInputView<'_> {
-    type State = TextInput;
-
-    fn render(self, area: Rect, buffer: &mut Buffer, input: &mut TextInput) {
+impl Widget for TextInputView<'_> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        let input = self.input;
         let area = area.intersection(buffer.area);
         if area.is_empty() {
             return;
@@ -400,15 +398,14 @@ impl StatefulWidget for TextInputView<'_> {
         buffer.set_style(area, self.style);
         let max_width = usize::from(area.width);
         if input.value.is_empty() {
-            input.scroll = 0;
             let style = self.style.patch(self.placeholder_style);
             buffer.set_stringn(area.x, area.y, self.placeholder, max_width, style);
             return;
         }
-        input.scroll_to_cursor(area.width);
-        let (start, column) = input.first_visible_grapheme();
+        let scroll = input.scroll(area.width);
+        let (start, column) = input.first_visible_grapheme(scroll);
         // A wide grapheme cut by the left edge leaves its visible cells empty.
-        let padding = column - input.scroll;
+        let padding = column - scroll;
         let Some(x) = u16::try_from(padding)
             .ok()
             .and_then(|padding| area.x.checked_add(padding))
@@ -496,7 +493,6 @@ mod tests {
         TextInput {
             value: marked.replacen(CURSOR_MARK, "", 1),
             cursor,
-            scroll: 0,
         }
     }
 
@@ -513,17 +509,17 @@ mod tests {
         marked(&text_input)
     }
 
-    fn render_buffer(view: TextInputView<'_>, area: Rect, input: &mut TextInput) -> Buffer {
+    fn render_buffer(view: TextInputView<'_>, area: Rect) -> Buffer {
         let mut buffer = Buffer::empty(area);
-        view.render(area, &mut buffer, input);
+        view.render(area, &mut buffer);
         buffer
     }
 
-    fn render(input: &mut TextInput, width: u16) -> (Buffer, Position) {
+    fn render(input: &TextInput, width: u16) -> (Buffer, Position) {
         let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
         terminal
             .draw(|frame| {
-                TextInputView::new("Search").render_with_cursor(frame, frame.area(), input);
+                TextInputView::new(input, "Search").render_with_cursor(frame, frame.area());
             })
             .unwrap();
         let cursor = terminal.get_cursor_position().unwrap();
@@ -724,45 +720,27 @@ mod tests {
     #[case::wide_cut_at_right_edge("|abc\u{65E5}", 4, "abc ", 0)]
     #[case::wide_cut_at_left_edge("\u{65E5}\u{672C}a|", 3, " a ", 2)]
     #[case::wide_at_cursor_scrolls("a\u{65E5}\u{672C}|", 3, "\u{672C} ", 2)]
+    #[case::cursor_at_start_shows_the_start("|abcdefghij", 5, "abcde", 0)]
+    #[case::cursor_inside_the_first_columns("ab|cdefghij", 5, "abcde", 2)]
+    #[case::cursor_further_right_rests_at_the_right_edge("abcdefgh|ij", 5, "efghi", 4)]
     fn render_scrolls_to_cursor(
         #[case] text: &str,
         #[case] width: u16,
         #[case] expected_line: &str,
         #[case] expected_cursor_x: u16,
     ) {
-        let mut text_input = input(text);
+        let text_input = input(text);
         let expected_buffer = Buffer::with_lines([expected_line]);
         let expected_cursor = Position::new(expected_cursor_x, 0);
 
-        let system_under_test = render(&mut text_input, width);
-
-        assert_eq!(system_under_test, (expected_buffer, expected_cursor));
-    }
-
-    #[rstest]
-    #[case::move_to_start(EditCommand::MoveToStart, "abcde", 0)]
-    #[case::shrinking_text_fills_row(EditCommand::DeleteBackward, "fghi ", 4)]
-    #[case::move_left_inside_view(EditCommand::MoveLeft, "ghij ", 3)]
-    fn render_scrolls_back_after_edit(
-        #[case] command: EditCommand,
-        #[case] expected_line: &str,
-        #[case] expected_cursor_x: u16,
-    ) {
-        let width = 5;
-        let mut text_input = input("abcdefghij|");
-        render(&mut text_input, width);
-        text_input.apply(command);
-        let expected_buffer = Buffer::with_lines([expected_line]);
-        let expected_cursor = Position::new(expected_cursor_x, 0);
-
-        let system_under_test = render(&mut text_input, width);
+        let system_under_test = render(&text_input, width);
 
         assert_eq!(system_under_test, (expected_buffer, expected_cursor));
     }
 
     #[test]
     fn render_shows_dimmed_placeholder_when_empty() {
-        let mut text_input = TextInput::new();
+        let text_input = TextInput::new();
         let mut expected_buffer = Buffer::with_lines(["Search  "]);
         expected_buffer.set_style(
             Rect::new(0, 0, 6, 1),
@@ -770,38 +748,38 @@ mod tests {
         );
         let expected_cursor = Position::new(0, 0);
 
-        let system_under_test = render(&mut text_input, 8);
+        let system_under_test = render(&text_input, 8);
 
         assert_eq!(system_under_test, (expected_buffer, expected_cursor));
     }
 
     #[test]
     fn render_applies_style_to_whole_row() {
-        let mut text_input = input("ab|");
+        let text_input = input("ab|");
         let style = Style::new().add_modifier(Modifier::BOLD);
         let mut expected = Buffer::with_lines(["ab  "]);
         expected.set_style(Rect::new(0, 0, 4, 1), style);
-        let view = TextInputView::new("").style(style);
+        let view = TextInputView::new(&text_input, "").style(style);
 
-        let system_under_test = render_buffer(view, Rect::new(0, 0, 4, 1), &mut text_input);
+        let system_under_test = render_buffer(view, Rect::new(0, 0, 4, 1));
 
         assert_eq!(system_under_test, expected);
     }
 
     #[test]
     fn render_into_empty_area_draws_nothing() {
-        let mut text_input = input("ab|");
+        let text_input = input("ab|");
         let area = Rect::new(0, 0, 0, 1);
         let expected = Buffer::empty(area);
 
-        let system_under_test = render_buffer(TextInputView::new(""), area, &mut text_input);
+        let system_under_test = render_buffer(TextInputView::new(&text_input, ""), area);
 
         assert_eq!(system_under_test, expected);
     }
 
     #[rstest]
     #[case::zero_height(Rect::new(0, 0, 5, 0))]
-    #[case::scrolled_out_of_view(Rect::new(0, 0, 1, 1))]
+    #[case::zero_width(Rect::new(0, 0, 0, 1))]
     fn cursor_position_is_none_outside_area(#[case] area: Rect) {
         let text_input = input("ab|");
 

@@ -152,13 +152,22 @@ fn other_keys_keep_the_active_list_and_the_focus(#[case] keys: &str) {
     assert_eq!(system_under_test.focus(), Focus::Lists);
 }
 
+/// The pane shows the terminal height minus the bottom bar and two border rows: 21 rows at
+/// 80x24 and 37 rows at 80x40, so half a page is 10 and 18 rows.
 #[rstest]
-#[case::down("ctrl-d", "list-10.md")]
-#[case::down_twice("pagedown pagedown", "list-20.md")]
-#[case::up("G ctrl-u", "list-19.md")]
-fn half_page_moves_half_the_standard_pane_height(#[case] keys: &str, #[case] expected: &str) {
-    let mut test_app = many_lists(30);
-    test_app.press(keys);
+#[case::down_at_80x24(24, "ctrl-d", "list-10.md")]
+#[case::down_twice_at_80x24(24, "pagedown pagedown", "list-20.md")]
+#[case::up_at_80x24(24, "G ctrl-u", "list-49.md")]
+#[case::down_at_80x40(40, "ctrl-d", "list-18.md")]
+#[case::down_twice_at_80x40(40, "pagedown pagedown", "list-36.md")]
+#[case::up_at_80x40(40, "G ctrl-u", "list-41.md")]
+fn half_page_moves_half_the_pane_height(
+    #[case] height: u16,
+    #[case] keys: &str,
+    #[case] expected: &str,
+) {
+    let mut test_app = many_lists(60);
+    test_app.resize(80, height).press(keys);
     let expected_key = key(&test_app, expected);
 
     let system_under_test = test_app.app().lists().outline().selected();
@@ -166,9 +175,25 @@ fn half_page_moves_half_the_standard_pane_height(#[case] keys: &str, #[case] exp
     assert_eq!(system_under_test, Some(&expected_key));
 }
 
+#[rstest]
+#[case::bottom("G", "list-59.md")]
+#[case::middle("G ctrl-u ctrl-u", "list-39.md")]
+fn shrinking_the_terminal_keeps_the_selection_visible(#[case] keys: &str, #[case] selected: &str) {
+    let mut test_app = many_lists(60);
+    test_app.press(keys).resize(80, 10);
+    let expected_row = format!("   {}", selected.trim_end_matches(".md"));
+
+    let system_under_test = test_app.render(80, 10);
+
+    assert!(
+        (1..8).any(|y| lists_row(&system_under_test, y).starts_with(&expected_row)),
+        "{selected} is not visible"
+    );
+}
+
 #[test]
 fn pane_shows_folders_lists_and_counters() {
-    let test_app = TestApp::new(WORKSPACE);
+    let mut test_app = TestApp::new(WORKSPACE);
 
     let system_under_test = test_app.render(80, 10);
 
@@ -187,7 +212,7 @@ fn pane_marks_the_active_list_while_the_selection_is_elsewhere() {
 
 #[test]
 fn pane_marks_lists_that_cannot_be_loaded() {
-    let test_app = TestApp::from_bytes(&[("fine.md", b""), ("other.md", b"- [ ] \xff\n")]);
+    let mut test_app = TestApp::from_bytes(&[("fine.md", b""), ("other.md", b"- [ ] \xff\n")]);
 
     let system_under_test = test_app.render(80, 6);
 
@@ -207,7 +232,7 @@ fn pane_scrolls_to_keep_the_selection_visible() {
 
 #[test]
 fn empty_workspace_tells_how_to_create_a_list() {
-    let test_app = TestApp::new(&[]);
+    let mut test_app = TestApp::new(&[]);
 
     let system_under_test = test_app.render(80, 6);
 
@@ -233,7 +258,7 @@ fn counters_follow_edits_immediately() {
 
 #[test]
 fn folders_and_counters_use_their_theme_slots() {
-    let test_app = TestApp::new(WORKSPACE);
+    let mut test_app = TestApp::new(WORKSPACE);
 
     let system_under_test = test_app.render(80, 10);
 

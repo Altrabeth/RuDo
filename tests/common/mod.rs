@@ -70,11 +70,11 @@ impl TestApp {
         self
     }
 
-    /// Draws the application with [`ui::view`] into a terminal of `width` by `height` cells;
-    /// its `Display` output is the text of every row, for snapshot tests.
-    ///
-    /// Scrolling follows the size given to [`TestApp::resize`], so render at that size.
-    pub fn render(&self, width: u16, height: u16) -> TestBackend {
+    /// Resizes the app to `width` by `height` cells, like [`TestApp::resize`], and draws it
+    /// with [`ui::view`] into a terminal of that size; its `Display` output is the text of
+    /// every row, for snapshot tests.
+    pub fn render(&mut self, width: u16, height: u16) -> TestBackend {
+        self.resize(width, height);
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal.draw(|frame| ui::view(&self.app, frame)).unwrap();
         terminal.backend().clone()

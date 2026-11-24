@@ -69,7 +69,7 @@ fn style_at(backend: &TestBackend, x: u16, y: u16) -> Style {
 
 #[test]
 fn lists_pane_shows_its_hints() {
-    let test_app = TestApp::new(&[]);
+    let mut test_app = TestApp::new(&[]);
 
     let system_under_test = test_app.render(80, 6);
 
@@ -108,7 +108,7 @@ fn narrow_bar_drops_hints_from_the_right_but_keeps_help(
 
 #[test]
 fn hints_use_the_key_hint_slots() {
-    let test_app = TestApp::new(&[]);
+    let mut test_app = TestApp::new(&[]);
 
     let system_under_test = test_app.render(80, 6);
 

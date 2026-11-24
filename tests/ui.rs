@@ -24,7 +24,7 @@ const UNFOCUSED_TITLE: Style = Style::new().fg(Color::Gray);
 
 #[test]
 fn standard_terminal_shows_both_panes() {
-    let test_app = TestApp::new(&[]);
+    let mut test_app = TestApp::new(&[]);
 
     let system_under_test = test_app.render(80, 24);
 
@@ -43,7 +43,7 @@ fn narrow_terminal_shows_the_focused_pane_with_a_hint() {
 
 #[test]
 fn tiny_terminal_shows_that_it_is_too_small() {
-    let test_app = TestApp::new(&[]);
+    let mut test_app = TestApp::new(&[]);
 
     let system_under_test = test_app.render(20, 4);
 
@@ -52,7 +52,7 @@ fn tiny_terminal_shows_that_it_is_too_small() {
 
 #[test]
 fn large_terminal_caps_the_lists_pane_width() {
-    let test_app = TestApp::new(&[]);
+    let mut test_app = TestApp::new(&[]);
 
     let system_under_test = test_app.render(200, 50);
 
@@ -80,7 +80,7 @@ fn focused_pane_has_the_focused_border(
 
 #[test]
 fn focused_pane_title_uses_the_focused_title_style() {
-    let test_app = TestApp::new(&[]);
+    let mut test_app = TestApp::new(&[]);
 
     let system_under_test = test_app.render(80, 24);
 

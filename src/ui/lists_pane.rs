@@ -37,8 +37,8 @@ const UNREADABLE: &str = "unreadable";
 
 /// Renders the contents of the lists pane of `app` into `area`, the inside of its border.
 ///
-/// The scroll offset of the outline is adjusted to the real height of `area`, so that the
-/// selection stays visible in any terminal size.
+/// The rows start at the scroll offset of the outline, which the app keeps valid for the
+/// height of `area` because it derives the viewport from the same layout.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let items = tree_items(app.workspace());
     if items.is_empty() {
@@ -50,32 +50,19 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let selected_row = rows
         .iter()
         .position(|row| Some(row.item().key()) == outline.selected());
-    let offset = scroll_offset(outline.offset(), selected_row, rows.len(), area.height);
     let selection = app.theme().style(match app.focus() {
         Focus::Lists => Slot::Selection,
         Focus::Tasks => Slot::SelectionUnfocused,
     });
-    for (row_area, (index, row)) in area.rows().zip(rows.iter().enumerate().skip(offset)) {
+    for (row_area, (index, row)) in area
+        .rows()
+        .zip(rows.iter().enumerate().skip(outline.offset()))
+    {
         if Some(index) == selected_row {
             frame.buffer_mut().set_style(row_area, selection);
         }
         render_row(app, frame, row_area.inner(Margin::new(PADDING, 0)), row);
     }
-}
-
-/// Returns the first row to show in a viewport `height` rows high: the outline's `offset`,
-/// moved as little as needed to show the selection and to fill the viewport.
-fn scroll_offset(
-    offset: usize,
-    selected_row: Option<usize>,
-    row_count: usize,
-    height: u16,
-) -> usize {
-    let height = usize::from(height).max(1);
-    let offset = offset.min(row_count.saturating_sub(height));
-    selected_row.map_or(offset, |row| {
-        offset.clamp((row + 1).saturating_sub(height), row)
-    })
 }
 
 /// Renders one folder or list into `area`, the row inside the padding.
@@ -172,26 +159,6 @@ mod tests {
         let keymap = Keymap::new(&overrides).unwrap();
 
         let system_under_test = empty_hint(&keymap);
-
-        assert_eq!(system_under_test, expected);
-    }
-
-    #[rstest]
-    #[case::keeps_a_valid_offset(3, Some(5), 20, 4, 3)]
-    #[case::scrolls_down_to_the_selection(0, Some(9), 20, 4, 6)]
-    #[case::scrolls_up_to_the_selection(8, Some(2), 20, 4, 2)]
-    #[case::fills_a_taller_viewport(9, Some(29), 30, 25, 5)]
-    #[case::shows_all_rows_that_fit(5, Some(0), 3, 10, 0)]
-    #[case::without_selection(2, None, 20, 4, 2)]
-    #[case::empty_viewport(0, Some(3), 20, 0, 3)]
-    fn scroll_offset_shows_the_selection(
-        #[case] offset: usize,
-        #[case] selected_row: Option<usize>,
-        #[case] row_count: usize,
-        #[case] height: u16,
-        #[case] expected: usize,
-    ) {
-        let system_under_test = scroll_offset(offset, selected_row, row_count, height);
 
         assert_eq!(system_under_test, expected);
     }

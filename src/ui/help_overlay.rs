@@ -3,7 +3,7 @@
 //! The overlay covers most of the terminal and lists the [`help`](crate::ui::help) rows in
 //! two columns, keys and description. A scrollbar and a `top-bottom/total` indicator appear
 //! when the rows do not fit, and an open or applied filter is shown in its last row.
-//! [`layout`] decides where everything goes; the app uses it too, so that scrolling and
+//! [`help_overlay`] decides where everything goes; the app uses it too, so that scrolling and
 //! drawing agree on the height of the viewport.
 
 use std::borrow::Cow;
@@ -19,10 +19,9 @@ use crate::app::help::{HelpFilter, HelpOverlay};
 use crate::app::{App, Mode};
 use crate::config::theme::{Slot, Theme};
 use crate::ui::help::{HelpRow, HelpSection, rows};
+use crate::ui::layout::{HelpLayout, help_overlay};
 use crate::ui::text_input::{TextInputView, display_width};
 
-/// Share of the terminal width and height covered by the overlay.
-const OVERLAY_PERCENT: u16 = 90;
 /// The key column is never wider than this, nor than half of the overlay.
 const KEY_COLUMN_MAX_WIDTH: usize = 24;
 /// Indentation of the entries below their heading.
@@ -40,54 +39,6 @@ const NO_MATCHES: &str = "no matching keys";
 /// Drawn over the right border along the visible part of the rows.
 const SCROLLBAR_TRACK: &str = "\u{2502}";
 
-/// Whether the overlay reserves its last row for the filter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FilterLine {
-    /// No filter is open or applied; every row shows help rows.
-    Hidden,
-    /// The last row shows the filter.
-    Shown,
-}
-
-/// Where the parts of the help overlay go, computed by [`layout`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HelpLayout {
-    /// The overlay including its border.
-    pub overlay: Rect,
-    /// The rows of the help screen inside the border.
-    pub rows: Rect,
-    /// The row of the filter, if it is shown.
-    pub filter: Option<Rect>,
-}
-
-/// Divides the overlay for a terminal of the size of `screen`.
-///
-/// The overlay covers 90 % of the terminal in both directions, centred.
-#[must_use]
-pub fn layout(screen: Rect, filter_line: FilterLine) -> HelpLayout {
-    let overlay = screen.centered(
-        Constraint::Percentage(OVERLAY_PERCENT),
-        Constraint::Percentage(OVERLAY_PERCENT),
-    );
-    let inside = overlay.inner(Margin::new(1, 1));
-    match filter_line {
-        FilterLine::Hidden => HelpLayout {
-            overlay,
-            rows: inside,
-            filter: None,
-        },
-        FilterLine::Shown => {
-            let [rows, filter] =
-                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(inside);
-            HelpLayout {
-                overlay,
-                rows,
-                filter: Some(filter),
-            }
-        }
-    }
-}
-
 /// Draws the help screen over the rest of the interface if `app` is in [`Mode::Help`].
 pub fn render(app: &App, frame: &mut Frame) {
     match app.mode() {
@@ -97,7 +48,7 @@ pub fn render(app: &App, frame: &mut Frame) {
 }
 
 fn render_help(help: &HelpOverlay, theme: &Theme, frame: &mut Frame) {
-    let parts = layout(frame.area(), help.filter().line());
+    let parts = help_overlay(frame.area(), help.filter().line());
     let row_count = rows(help.sections()).count();
     let viewport_height = usize::from(parts.rows.height);
     let mut block = Block::bordered()
@@ -267,16 +218,11 @@ fn render_filter(filter: &HelpFilter, theme: &Theme, frame: &mut Frame, area: Re
         Line::styled(FILTER_PROMPT, theme.style(Slot::HelpKey)),
         prompt_area,
     );
-    let view = TextInputView::new(FILTER_PLACEHOLDER).style(theme.style(Slot::Text));
+    let view = |input| TextInputView::new(input, FILTER_PLACEHOLDER).style(theme.style(Slot::Text));
     match filter {
         HelpFilter::Off => {}
-        HelpFilter::Editing(input) => {
-            // Rendering only adjusts the horizontal scroll, which a copy can do as well.
-            view.render_with_cursor(frame, input_area, &mut input.clone());
-        }
-        HelpFilter::Applied(input) => {
-            frame.render_stateful_widget(view, input_area, &mut input.clone());
-        }
+        HelpFilter::Editing(input) => view(input).render_with_cursor(frame, input_area),
+        HelpFilter::Applied(input) => frame.render_widget(view(input), input_area),
     }
 }
 
@@ -292,40 +238,6 @@ mod tests {
         let overrides: KeyBindings = serde_saphyr::from_str(keybindings).unwrap();
         let keymap = Keymap::new(&overrides).unwrap();
         filter(&help_sections(&keymap), query)
-    }
-
-    #[rstest]
-    #[case::hidden(
-        FilterLine::Hidden,
-        HelpLayout {
-            overlay: Rect::new(4, 1, 72, 22),
-            rows: Rect::new(5, 2, 70, 20),
-            filter: None,
-        },
-    )]
-    #[case::shown(
-        FilterLine::Shown,
-        HelpLayout {
-            overlay: Rect::new(4, 1, 72, 22),
-            rows: Rect::new(5, 2, 70, 19),
-            filter: Some(Rect::new(5, 21, 70, 1)),
-        },
-    )]
-    fn layout_centres_the_overlay(#[case] filter_line: FilterLine, #[case] expected: HelpLayout) {
-        let screen = Rect::new(0, 0, 80, 24);
-
-        let system_under_test = layout(screen, filter_line);
-
-        assert_eq!(system_under_test, expected);
-    }
-
-    #[rstest]
-    #[case::empty(Rect::ZERO)]
-    #[case::one_row(Rect::new(0, 0, 3, 1))]
-    fn layout_of_a_tiny_screen_has_no_rows(#[case] screen: Rect) {
-        let system_under_test = layout(screen, FilterLine::Shown);
-
-        assert_eq!(system_under_test.rows.height, 0);
     }
 
     #[rstest]

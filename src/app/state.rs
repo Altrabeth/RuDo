@@ -1,7 +1,7 @@
 //! Everything the application knows: [`App`] with its [`Focus`] and [`Mode`].
 
 use jiff::civil::Date;
-use ratatui::layout::Size;
+use ratatui::layout::{Rect, Size};
 
 use crate::app::help::HelpOverlay;
 use crate::app::lists::ListsPane;
@@ -13,6 +13,7 @@ use crate::config::keymap::keymap::Keymap;
 use crate::config::keymap::resolver::KeyResolver;
 use crate::config::theme::Theme;
 use crate::storage::workspace::Workspace;
+use crate::ui::layout::pane_content;
 
 /// The complete state of a running RuDo.
 ///
@@ -52,8 +53,10 @@ impl App {
         keymap: Keymap,
         today: Date,
     ) -> Self {
+        // The size is unknown until the runtime calls `resize`, which scrolls the panes again.
+        let screen_size = Size::ZERO;
         Self {
-            lists: ListsPane::new(&workspace),
+            lists: ListsPane::new(&workspace, viewport_height(screen_size, Focus::Lists)),
             workspace,
             config,
             theme,
@@ -64,7 +67,7 @@ impl App {
             today,
             status: Status::default(),
             should_quit: false,
-            screen_size: Size::ZERO,
+            screen_size,
         }
     }
 
@@ -128,12 +131,21 @@ impl App {
 
     /// Sets the size of the terminal; the runtime calls it at start-up and whenever the
     /// terminal is resized, because scrolling depends on the height of the panes.
+    ///
+    /// Every pane and overlay scrolls again so that its selection stays visible.
     pub fn resize(&mut self, screen_size: Size) {
         self.screen_size = screen_size;
+        self.lists
+            .refresh(&self.workspace, self.viewport_height(Focus::Lists));
         match &mut self.mode {
             Mode::Normal => {}
             Mode::Help(help) => help.refresh(screen_size),
         }
+    }
+
+    /// Returns the number of rows `pane` shows on the current terminal, by which it scrolls.
+    pub(super) fn viewport_height(&self, pane: Focus) -> usize {
+        viewport_height(self.screen_size, pane)
     }
 
     /// Returns the date the application treats as today.
@@ -153,6 +165,11 @@ impl App {
     pub fn should_quit(&self) -> bool {
         self.should_quit
     }
+}
+
+/// Returns the number of rows `pane` shows on a terminal of `screen_size`, as the view draws it.
+fn viewport_height(screen_size: Size, pane: Focus) -> usize {
+    usize::from(pane_content(Rect::from(screen_size), pane).height)
 }
 
 /// The pane that receives key presses.

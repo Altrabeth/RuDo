@@ -80,6 +80,10 @@ impl App {
             Action::NewFolder => self.open_prompt(PromptKind::NewFolder {
                 parent: self.lists.target_folder(),
             }),
+            Action::Indent => return self.indent_task(),
+            Action::MoveTaskDown => return self.move_task_down(),
+            Action::MoveTaskUp => return self.move_task_up(),
+            Action::Outdent => return self.outdent_task(),
             Action::ToggleDone => return self.toggle_done(),
             Action::ClearFilter
             | Action::Undo
@@ -95,10 +99,6 @@ impl App {
             | Action::Yank
             | Action::PasteBelow
             | Action::PasteAbove
-            | Action::MoveTaskDown
-            | Action::MoveTaskUp
-            | Action::Indent
-            | Action::Outdent
             | Action::PriorityUp
             | Action::PriorityDown
             | Action::SetDueDate

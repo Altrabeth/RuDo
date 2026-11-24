@@ -124,6 +124,24 @@ impl App {
             .refresh(&items, viewport_height);
     }
 
+    /// Selects `task` in the task tree of the active list and unfolds the tasks that contain
+    /// it, so that it stays visible after an edit moved it under a folded task.
+    pub(super) fn select_task(&mut self, task: TaskId) {
+        let viewport_height = self.viewport_height(Focus::Tasks);
+        let Some(path) = self.lists.active() else {
+            return;
+        };
+        let items = list_items(&self.workspace, path);
+        match self
+            .tasks
+            .outline_mut(path)
+            .select(&items, &task, viewport_height)
+        {
+            // Whether the selection moved does not matter: the task is selected either way.
+            Outcome::Changed | Outcome::Unchanged => {}
+        }
+    }
+
     /// Performs a navigation or folding action in the tasks pane.
     ///
     /// `collapse` on a top-level task that cannot fold, or in a pane without tasks, focuses

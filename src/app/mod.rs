@@ -13,6 +13,7 @@ pub mod lists;
 pub mod prompt;
 pub mod state;
 pub mod status;
+pub mod task_input;
 mod task_reorder;
 mod task_toggle;
 pub mod tasks;

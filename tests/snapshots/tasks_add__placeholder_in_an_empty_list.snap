@@ -1,0 +1,15 @@
+---
+source: tests/tasks_add.rs
+assertion_line: 223
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Notes  0/0 ──────────────────────────────────────────╮"
+"│   Groceries      0/3 ││   [ ] Eggs                                           │"
+"│ • Notes          0/0 ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" enter accept  esc cancel                                                       "

@@ -7,7 +7,7 @@ use crate::app::state::{App, Focus, Mode};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::resolver::Resolution;
-use crate::markdown::document::{EditOutcome, TodoDocument};
+use crate::markdown::document::{EditOutcome, InsertPosition, TodoDocument};
 use crate::storage::workspace::ListPath;
 use crate::ui::outline::OutlineCommand;
 use crate::ui::text_input::TextInput;
@@ -46,6 +46,7 @@ impl App {
             }
             Mode::Help(help) => help.paste(text, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.paste(text),
+            Mode::InlineEdit(edit) => edit.paste(text),
         }
         Vec::new()
     }
@@ -102,14 +103,14 @@ impl App {
             Action::MoveTaskUp => return self.move_task_up(),
             Action::Outdent => return self.outdent_task(),
             Action::ToggleDone => return self.toggle_done(),
+            Action::NewTaskBelow => self.add_task(InsertPosition::Below),
+            Action::NewTaskAbove => self.add_task(InsertPosition::Above),
+            Action::NewSubtask => self.add_subtask(),
             Action::ClearFilter
             | Action::Undo
             | Action::Redo
             | Action::ToggleCompleted
             | Action::OpenInEditor
-            | Action::NewTaskBelow
-            | Action::NewTaskAbove
-            | Action::NewSubtask
             | Action::Edit
             | Action::Yank
             | Action::PasteBelow
@@ -139,7 +140,7 @@ impl App {
                 Focus::Lists => self.update_lists(action),
                 Focus::Tasks => self.update_tasks(action),
             },
-            Mode::Prompt(_) | Mode::Confirm(_) => {}
+            Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
         }
     }
 
@@ -147,7 +148,7 @@ impl App {
     fn search(&mut self) {
         match &mut self.mode {
             Mode::Help(help) => help.open_filter(self.screen_size),
-            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) => {}
+            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
         }
     }
 
@@ -156,6 +157,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.submit_filter(self.screen_size),
             Mode::Prompt(_) => return self.submit_prompt(),
+            Mode::InlineEdit(_) => return self.submit_inline_edit(),
             Mode::Normal | Mode::Confirm(_) => {}
         }
         Vec::new()
@@ -166,6 +168,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.cancel_filter(&self.keymap, self.screen_size),
             Mode::Prompt(_) => self.close_prompt(),
+            Mode::InlineEdit(_) => self.cancel_inline_edit(),
             Mode::Normal | Mode::Confirm(_) => {}
         }
     }
@@ -175,6 +178,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.press(chord, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.press(chord),
+            Mode::InlineEdit(edit) => edit.press(chord),
             Mode::Normal | Mode::Confirm(_) => {}
         }
     }

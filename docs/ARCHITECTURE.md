@@ -79,6 +79,7 @@ src/
     lists.rs               lists pane state: workspace tree navigation, active list
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
+    task_input.rs          inline task editor (Mode::InlineEdit): adding tasks, one edit on submit
     tasks.rs               tasks pane state: task tree navigation per list
     task_reorder.rs        moving, indenting and outdenting the selected task
     status.rs              StatusMessage, Severity and when messages expire
@@ -216,6 +217,9 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   writes atomically: a temporary file in the same directory, `fsync`, then `rename` over the
   target. Symlinks are resolved first so the link survives, and the original file permissions
   are kept.
+- Text typed into a task row (`Mode::InlineEdit`) does not touch the document: the tasks pane
+  shows a placeholder row, and submitting applies the whole change with one `edit_list` call,
+  so it is saved once and undone in one step; cancelling leaves the file byte-identical.
 - Before writing, the executor compares the file on disk with the content RuDo loaded. If it
   differs, RuDo does not overwrite it, reloads the file and reports that the last change was
   not applied.

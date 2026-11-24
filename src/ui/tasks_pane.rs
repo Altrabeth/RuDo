@@ -3,25 +3,29 @@
 //! Every row shows the tree guides of its ancestors, a fold marker, the checkbox and the
 //! description, styled by the status of the task with its tags highlighted. [`TaskRow`] builds the content of a row
 //! from its task alone, so every part a task shows is added in one place.
+//!
+//! While a new task is typed in [`Mode::InlineEdit`], a placeholder row with the text input
+//! is shown where the task will be inserted; the document itself is only changed on submit.
 
 use std::borrow::Cow;
 
 use ratatui::Frame;
-use ratatui::layout::{Margin, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::app::task_input::InlineEditKind;
 use crate::app::tasks::{TaskItem, task_items};
-use crate::app::{App, Focus};
+use crate::app::{App, Focus, Mode};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::{Slot, Theme};
 use crate::domain::tags;
-use crate::markdown::document::TaskId;
+use crate::markdown::document::{InsertPosition, TaskId};
 use crate::markdown::task_line::TaskStatus;
 use crate::ui::outline::{Fold, Outline, OutlineItem, OutlineRow};
 use crate::ui::pane_message::{key_sentence, render_message};
-use crate::ui::text_input::{display_width, fitted};
+use crate::ui::text_input::{TextInput, TextInputView, display_width, fitted};
 
 /// Title of the tasks pane while no list is open; otherwise the title is the list's name and
 /// its `done/total` counter, see [`title`].
@@ -91,7 +95,8 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         }
     };
     let items = task_items(loaded.document());
-    if items.is_empty() {
+    let new_task = new_task(app);
+    if items.is_empty() && new_task.is_none() {
         render_message(
             app,
             frame,
@@ -103,34 +108,128 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     }
     let fallback = Outline::new();
     let outline = app.task_outline().unwrap_or(&fallback);
-    render_rows(app, frame, area, outline, &items);
+    let visible_rows = outline.visible_rows(&items);
+    let placeholder = new_task.map(|(position, input)| {
+        let (row, depth) = placeholder_slot(&visible_rows, position);
+        (row, PaneRow::NewTask { depth, input })
+    });
+    let offset = match &placeholder {
+        Some((row, _)) => offset_showing(outline.offset(), *row, usize::from(area.height)),
+        None => outline.offset(),
+    };
+    let mut rows: Vec<PaneRow<'_, '_>> = visible_rows.into_iter().map(PaneRow::Task).collect();
+    if let Some((row, placeholder)) = placeholder {
+        rows.insert(row, placeholder);
+    }
+    let first_row = offset.min(rows.len());
+    render_rows(app, frame, area, outline.selected(), &rows[first_row..]);
 }
 
-/// Renders the visible `items` of `outline` from its scroll offset on, highlighting the
-/// selected one.
+/// A row of the tasks pane: a task, or the placeholder of a new task while its text is typed.
+enum PaneRow<'a, 'document> {
+    Task(OutlineRow<'a, TaskItem<'document>>),
+    NewTask { depth: usize, input: &'a TextInput },
+}
+
+/// Returns where the new task typed in the inline editor of `app` goes and its text, or
+/// `None` if no new task is typed.
+fn new_task(app: &App) -> Option<(InsertPosition, &TextInput)> {
+    match app.mode() {
+        Mode::InlineEdit(edit) => match edit.kind() {
+            InlineEditKind::New(position) => Some((position, edit.input())),
+        },
+        Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::Confirm(_) => None,
+    }
+}
+
+/// Returns the index among `rows` before which a new task at `position` is shown, and its
+/// depth.
+///
+/// A task below its reference task or as its subtask goes after the visible block of the
+/// reference task, which ends at the task itself if it is folded. A reference task that is
+/// not visible is treated like [`InsertPosition::End`].
+fn placeholder_slot(
+    rows: &[OutlineRow<'_, TaskItem<'_>>],
+    position: InsertPosition,
+) -> (usize, usize) {
+    let row_of = |id: TaskId| rows.iter().position(|row| *row.item().key() == id);
+    let depth_of = |row: usize| rows[row].item().depth();
+    let end_of_block = |row: usize| {
+        rows[row + 1..]
+            .iter()
+            .position(|next| next.item().depth() <= depth_of(row))
+            .map_or(rows.len(), |after| row + 1 + after)
+    };
+    let slot = match position {
+        InsertPosition::Below(id) => row_of(id).map(|row| (end_of_block(row), depth_of(row))),
+        InsertPosition::Above(id) => row_of(id).map(|row| (row, depth_of(row))),
+        InsertPosition::LastChild(id) => {
+            row_of(id).map(|row| (end_of_block(row), depth_of(row) + 1))
+        }
+        InsertPosition::End => None,
+    };
+    slot.unwrap_or((rows.len(), 0))
+}
+
+/// Returns the scroll offset closest to `offset` at which `row` is inside a viewport
+/// `height` rows high.
+fn offset_showing(offset: usize, row: usize, height: usize) -> usize {
+    offset.min(row).max((row + 1).saturating_sub(height))
+}
+
+/// Renders `rows` from the top of `area`, highlighting the `selected` task.
 fn render_rows(
     app: &App,
     frame: &mut Frame,
     area: Rect,
-    outline: &Outline<TaskId>,
-    items: &[TaskItem<'_>],
+    selected: Option<&TaskId>,
+    rows: &[PaneRow<'_, '_>],
 ) {
     let theme = app.theme();
     let selection = theme.style(match app.focus() {
         Focus::Tasks => Slot::Selection,
         Focus::Lists => Slot::SelectionUnfocused,
     });
-    for (row_area, row) in area
-        .rows()
-        .zip(outline.visible_rows(items).iter().skip(outline.offset()))
-    {
-        if Some(row.item().key()) == outline.selected() {
-            frame.buffer_mut().set_style(row_area, selection);
-        }
+    for (row_area, row) in area.rows().zip(rows) {
         let text_area = row_area.inner(Margin::new(PADDING, 0));
-        let line = TaskRow::new(row, theme).into_line(usize::from(text_area.width));
-        frame.render_widget(line, text_area);
+        let width = usize::from(text_area.width);
+        match row {
+            PaneRow::Task(row) => {
+                if Some(row.item().key()) == selected {
+                    frame.buffer_mut().set_style(row_area, selection);
+                }
+                frame.render_widget(TaskRow::new(row, theme).into_line(width), text_area);
+            }
+            PaneRow::NewTask { depth, input } => {
+                render_new_task(
+                    frame,
+                    text_area,
+                    TaskRow::new_task(*depth, theme),
+                    input,
+                    theme,
+                );
+            }
+        }
     }
+}
+
+/// Renders the placeholder `row` of a new task into `area`, followed by the `input` with its
+/// cursor.
+fn render_new_task(
+    frame: &mut Frame,
+    area: Rect,
+    row: TaskRow<'_>,
+    input: &TextInput,
+    theme: &Theme,
+) {
+    let lead = row.into_line(usize::from(area.width));
+    let lead_width = u16::try_from(lead.width()).unwrap_or(u16::MAX);
+    let [lead_area, input_area] =
+        Layout::horizontal([Constraint::Length(lead_width), Constraint::Fill(1)]).areas(area);
+    frame.render_widget(lead, lead_area);
+    TextInputView::new(input, "")
+        .style(theme.style(Slot::Text))
+        .render_with_cursor(frame, input_area);
 }
 
 /// Tells which key opens a list, as the keymap actually binds it.
@@ -168,23 +267,40 @@ impl<'a> TaskRow<'a> {
     #[must_use]
     pub fn new(row: &OutlineRow<'_, TaskItem<'a>>, theme: &Theme) -> Self {
         let task = row.item().task();
-        let guide_style = theme.style(Slot::TreeGuide);
-        let status_style = theme.style(status_slot(task.status()));
         let marker = match row.fold() {
             Fold::Leaf => LEAF_MARKER,
             Fold::Expanded => EXPANDED_MARKER,
             Fold::Collapsed => COLLAPSED_MARKER,
         };
+        let depth = row.item().depth();
+        Self::from_parts(depth, marker, task.status(), task.description(), theme)
+    }
+
+    /// Builds the row of a new task `depth` levels deep without a description; the text input
+    /// drawn after the row shows the typed text instead.
+    fn new_task(depth: usize, theme: &Theme) -> Self {
+        Self::from_parts(depth, LEAF_MARKER, TaskStatus::Todo, "", theme)
+    }
+
+    fn from_parts(
+        depth: usize,
+        marker: &'static str,
+        status: TaskStatus,
+        description: &'a str,
+        theme: &Theme,
+    ) -> Self {
+        let guide_style = theme.style(Slot::TreeGuide);
+        let status_style = theme.style(status_slot(status));
         Self {
-            depth: row.item().depth(),
+            depth,
             guide_style,
             lead: vec![
                 Span::styled(marker, guide_style),
-                Span::styled(checkbox(task.status()), status_style),
+                Span::styled(checkbox(status), status_style),
                 Span::raw(" "),
             ],
             description: Description {
-                text: task.description(),
+                text: description,
                 style: status_style,
                 tag_style: theme.style(Slot::Tag),
             },
@@ -439,6 +555,67 @@ mod tests {
         let keymap = keymap(yaml);
 
         let system_under_test = no_tasks_hint(&keymap);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    /// Nested tasks: `a` with the subtask `b`, then `c`.
+    const NESTED: &str = "- [ ] a\n\t- [ ] b\n- [ ] c\n";
+
+    /// Returns the placeholder slot of a new task at `position` in [`NESTED`], given the
+    /// description of the reference task.
+    fn slot_in_nested(position: fn(TaskId) -> InsertPosition, reference: &str) -> (usize, usize) {
+        let document = TodoDocument::parse(NESTED);
+        let items = task_items(&document);
+        let id = *items
+            .iter()
+            .find(|item| item.task().description() == reference)
+            .unwrap()
+            .key();
+        let outline = Outline::new();
+        placeholder_slot(&outline.visible_rows(&items), position(id))
+    }
+
+    #[rstest]
+    #[case::below_a_block(InsertPosition::Below, "a", (2, 0))]
+    #[case::below_a_subtask(InsertPosition::Below, "b", (2, 1))]
+    #[case::above(InsertPosition::Above, "c", (2, 0))]
+    #[case::subtask_after_the_last_subtask(InsertPosition::LastChild, "a", (2, 1))]
+    #[case::first_subtask(InsertPosition::LastChild, "c", (3, 1))]
+    #[case::end(|_| InsertPosition::End, "a", (3, 0))]
+    fn placeholder_goes_where_the_task_will_be_inserted(
+        #[case] position: fn(TaskId) -> InsertPosition,
+        #[case] reference: &str,
+        #[case] expected: (usize, usize),
+    ) {
+        let system_under_test = slot_in_nested(position, reference);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::already_visible(2, 5, 10, 2)]
+    #[case::above_the_viewport(4, 1, 10, 1)]
+    #[case::below_the_viewport(0, 12, 10, 3)]
+    #[case::without_rows(0, 3, 0, 4)]
+    fn offset_showing_scrolls_just_enough_to_show_the_row(
+        #[case] offset: usize,
+        #[case] row: usize,
+        #[case] height: usize,
+        #[case] expected: usize,
+    ) {
+        let system_under_test = offset_showing(offset, row, height);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn new_task_row_shows_guides_and_an_open_checkbox() {
+        let expected = "│ │   [ ] ";
+
+        let system_under_test = TaskRow::new_task(2, &Theme::default())
+            .into_line(40)
+            .to_string();
 
         assert_eq!(system_under_test, expected);
     }

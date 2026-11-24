@@ -69,7 +69,7 @@ impl App {
                 self.resolver.reset();
                 vec![overlay.kind.into_effect()]
             }
-            mode @ (Mode::Normal | Mode::Help(_) | Mode::Prompt(_)) => {
+            mode @ (Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::InlineEdit(_)) => {
                 self.mode = mode;
                 Vec::new()
             }
@@ -83,7 +83,7 @@ impl App {
                 self.resolver.reset();
                 self.mode = Mode::Normal;
             }
-            Mode::Normal | Mode::Help(_) | Mode::Prompt(_) => {}
+            Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::InlineEdit(_) => {}
         }
     }
 }

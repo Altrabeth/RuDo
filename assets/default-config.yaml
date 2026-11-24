@@ -1,0 +1,29 @@
+# RuDo configuration
+#
+# Save this file as ~/.config/rudo/config.yaml (or $XDG_CONFIG_HOME/rudo/config.yaml).
+# Every setting is optional: delete the ones you do not want to change and RuDo uses the
+# default shown here. Unknown settings are errors, so typos are reported.
+#
+# YAML notes:
+# - A lone `~` or `null` means "not set". Write `~/todo` for a folder in your home directory.
+# - Booleans are `true` or `false`; `yes`, `no`, `on` and `off` are not accepted.
+# - Quote values that start with `#`, such as hex colours ("#ff0000"), because `#` starts a
+#   comment.
+
+workspace:
+  # Folder holding your lists, for example `~/Obsidian/Vault/Todo`. `~` is expanded and a
+  # relative path is relative to the folder of this file. `--root` on the command line wins.
+  # `null` uses $XDG_DATA_HOME/rudo (~/.local/share/rudo), which is created on first start.
+  root: null
+
+tasks:
+  # Show completed tasks on start-up (toggle with `H`).
+  show_completed: true
+  # Write `[completion:: YYYY-MM-DD]` when a task is marked done.
+  record_completion_date: true
+  # Indentation for subtasks in files that have none yet: `tab` or a number of spaces (1-8).
+  indent: tab
+
+# Command used by `open-in-editor`, for example `nvim` or `code --wait`.
+# `null` uses $VISUAL, then $EDITOR, then `vi`.
+editor: null

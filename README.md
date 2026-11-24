@@ -239,9 +239,9 @@ Vim users who expect `esc` to keep the typed text can bind `esc` to `submit` ins
 ## Configuration
 
 RuDo reads `$XDG_CONFIG_HOME/rudo/config.yaml`, which is `~/.config/rudo/config.yaml` unless
-`XDG_CONFIG_HOME` is set. `--config <file>` selects another file. A missing file is not an
-error; every setting has a default, and a configuration file only needs the settings you want
-to change.
+`XDG_CONFIG_HOME` is set (`config.yml` is accepted too). `--config <file>` selects another
+file, which must exist. A missing default file is not an error; every setting has a default,
+and a configuration file only needs the settings you want to change.
 
 ```sh
 rudo config path      # print the configuration file RuDo uses
@@ -255,7 +255,8 @@ instead of being ignored.
 
 ```yaml
 workspace:
-  # Folder holding your lists. `~` is expanded. Overridden by `--root`.
+  # Folder holding your lists. `~` is expanded; a relative path is relative to this file.
+  # Overridden by `--root`.
   root: ~/Obsidian/Vault/Todo
 
 tasks:

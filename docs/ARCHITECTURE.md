@@ -48,6 +48,7 @@ src/
   paths.rs                 XDG config, data and state directories, `~` expansion
   config/
     mod.rs                 Config, loading, error reporting
+    root.rs                WorkspaceRoot: `--root`, `workspace.root` or the default folder
     theme.rs               Theme, Slot, StyleConfig, NO_COLOR
     keymap/
       key.rs               KeyChord, KeySequence: notation parsing and Display

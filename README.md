@@ -123,6 +123,10 @@ Things to pick up on Saturday.
 | `[completion:: YYYY-MM-DD]` | completion date, written when a task is marked done          |
 | `[anything:: value]`        | unknown fields are kept and written back unchanged           |
 
+A task without a priority has normal priority, between medium and low. Priorities are shown
+at the right edge of the row: `!!!`, `!!` and `!` for highest to medium, `-` and `--` for low
+and lowest; a value RuDo does not know is shown as written.
+
 Lines inside fenced code blocks and front matter are never treated as tasks. Line endings
 (LF or CRLF), a trailing newline and a byte order mark are preserved. Untouched lines are
 written back byte for byte; only lines you edit in RuDo are re-rendered.

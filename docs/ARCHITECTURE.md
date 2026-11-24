@@ -83,6 +83,7 @@ src/
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
     task_input.rs          inline task editor (Mode::InlineEdit): adding tasks, one edit on submit
     tasks.rs               tasks pane state: task tree navigation per list
+    task_priority.rs       raising and lowering the priority of the selected task
     task_reorder.rs        moving, indenting and outdenting the selected task
     status.rs              StatusMessage, Severity and when messages expire
     update.rs              App::update(Action) -> Vec<Effect>

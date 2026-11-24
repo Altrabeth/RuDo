@@ -102,6 +102,8 @@ impl App {
             Action::MoveTaskDown => return self.move_task_down(),
             Action::MoveTaskUp => return self.move_task_up(),
             Action::Outdent => return self.outdent_task(),
+            Action::PriorityDown => return self.lower_priority(),
+            Action::PriorityUp => return self.raise_priority(),
             Action::ToggleDone => return self.toggle_done(),
             Action::NewTaskBelow => self.add_task(InsertPosition::Below),
             Action::NewTaskAbove => self.add_task(InsertPosition::Above),
@@ -115,8 +117,6 @@ impl App {
             | Action::Yank
             | Action::PasteBelow
             | Action::PasteAbove
-            | Action::PriorityUp
-            | Action::PriorityDown
             | Action::SetDueDate
             | Action::SetRecurrence
             | Action::SortByPriority

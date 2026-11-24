@@ -16,6 +16,7 @@ mod reload;
 pub mod state;
 pub mod status;
 pub mod task_input;
+mod task_priority;
 mod task_reorder;
 mod task_toggle;
 pub mod tasks;

@@ -4,5 +4,6 @@
 //! current date take it as a parameter.
 
 pub mod date;
+pub mod priority;
 pub mod recurrence;
 pub mod tags;

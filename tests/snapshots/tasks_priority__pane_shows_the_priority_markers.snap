@@ -1,0 +1,14 @@
+---
+source: tests/tasks_priority.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Priorities  1/7 ─────────────────────────────────────╮"
+"│ • Priorities     1/7 ││   [ ] Call the bank                              !!! │"
+"│                      ││   [ ] Pay rent                                    !! │"
+"│                      ││   [ ] Book flights                                 ! │"
+"│                      ││   [ ] Water plants                                   │"
+"│                      ││   [ ] Sort photos                                  - │"
+"│                      ││   [ ] Learn juggling                              -- │"
+"│                      ││   [x] Fix the bike                            urgent │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

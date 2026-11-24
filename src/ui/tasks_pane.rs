@@ -2,7 +2,8 @@
 //!
 //! Every row shows the tree guides of its ancestors, a fold marker, the checkbox and the
 //! description, styled by the status of the task with its tags highlighted. [`TaskRow`] builds the content of a row
-//! from its task alone, so every part a task shows is added in one place.
+//! from its task alone, so every part a task shows is added in one place. Metadata such as the
+//! priority is aligned to the right edge of the row.
 //!
 //! While a new task is typed in [`Mode::InlineEdit`], a placeholder row with the text input
 //! is shown where the task will be inserted; the document itself is only changed on submit.
@@ -20,9 +21,10 @@ use crate::app::{App, Focus, Mode};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::{Slot, Theme};
+use crate::domain::priority::Priority;
 use crate::domain::tags;
 use crate::markdown::document::{InsertPosition, TaskId};
-use crate::markdown::task_line::TaskStatus;
+use crate::markdown::task_line::{FieldKey, TaskLine, TaskStatus};
 use crate::ui::outline::{Fold, Outline, OutlineItem, OutlineRow};
 use crate::ui::pane_message::{key_sentence, render_message};
 use crate::ui::text_input::{TextInput, TextInputView, display_width, fitted};
@@ -46,6 +48,8 @@ const TITLE_SEPARATOR: &str = "  ";
 /// Columns that tree guides never take from a row: the fold marker, the checkbox and the
 /// first ten cells of the description.
 const MIN_TEXT_WIDTH: usize = 16;
+/// Separates the description from the trailing metadata and its parts from each other.
+const METADATA_GAP: &str = " ";
 
 /// Returns the title of the tasks pane of `app`: the name of the active list with its
 /// `done/total` counter, or [`TITLE`] while no list is open.
@@ -250,7 +254,8 @@ fn no_tasks_hint(keymap: &Keymap) -> String {
 ///
 /// Every part a task shows is added in [`TaskRow::new`]. [`TaskRow::into_line`] fits the row
 /// into the width of the pane: deep nesting loses tree guides before the text becomes
-/// invisible, and the description is cut with an ellipsis.
+/// invisible, the description is cut with an ellipsis, and the trailing metadata is aligned to
+/// the right edge unless the row is too narrow for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskRow<'a> {
     /// Number of ancestors, each drawn as a tree guide.
@@ -260,6 +265,8 @@ pub struct TaskRow<'a> {
     lead: Vec<Span<'a>>,
     /// The description without inline fields; cut if the row is too narrow.
     description: Description<'a>,
+    /// Right-aligned metadata such as the priority.
+    metadata: TrailingMetadata<'a>,
 }
 
 impl<'a> TaskRow<'a> {
@@ -273,13 +280,30 @@ impl<'a> TaskRow<'a> {
             Fold::Collapsed => COLLAPSED_MARKER,
         };
         let depth = row.item().depth();
-        Self::from_parts(depth, marker, task.status(), task.description(), theme)
+        let metadata = TrailingMetadata {
+            priority: priority_part(task, theme),
+        };
+        Self::from_parts(
+            depth,
+            marker,
+            task.status(),
+            task.description(),
+            metadata,
+            theme,
+        )
     }
 
     /// Builds the row of a new task `depth` levels deep without a description; the text input
     /// drawn after the row shows the typed text instead.
     fn new_task(depth: usize, theme: &Theme) -> Self {
-        Self::from_parts(depth, LEAF_MARKER, TaskStatus::Todo, "", theme)
+        Self::from_parts(
+            depth,
+            LEAF_MARKER,
+            TaskStatus::Todo,
+            "",
+            TrailingMetadata::default(),
+            theme,
+        )
     }
 
     fn from_parts(
@@ -287,6 +311,7 @@ impl<'a> TaskRow<'a> {
         marker: &'static str,
         status: TaskStatus,
         description: &'a str,
+        metadata: TrailingMetadata<'a>,
         theme: &Theme,
     ) -> Self {
         let guide_style = theme.style(Slot::TreeGuide);
@@ -304,6 +329,7 @@ impl<'a> TaskRow<'a> {
                 style: status_style,
                 tag_style: theme.style(Slot::Tag),
             },
+            metadata,
         }
     }
 
@@ -311,7 +337,8 @@ impl<'a> TaskRow<'a> {
     ///
     /// Tree guides are drawn only as long as sixteen cells remain for the fold marker, the
     /// checkbox and the start of the description, and the description is cut with an
-    /// ellipsis where the row ends.
+    /// ellipsis where the trailing metadata begins, or where the row ends if the metadata does
+    /// not fit next to the lead.
     #[must_use]
     pub fn into_line(self, width: usize) -> Line<'a> {
         let guide_width = display_width(TREE_GUIDE);
@@ -324,12 +351,91 @@ impl<'a> TaskRow<'a> {
                 .iter()
                 .map(|span| display_width(&span.content))
                 .sum::<usize>();
-        let description_width = width.saturating_sub(lead_width);
+        let metadata_width = self.metadata.width();
+        let shows_metadata = metadata_width > 0 && lead_width + metadata_width <= width;
+        let text_width = if shows_metadata {
+            width - metadata_width
+        } else {
+            width
+        };
         let mut spans = Vec::with_capacity(self.lead.len() + 2);
         spans.push(Span::styled(TREE_GUIDE.repeat(guides), self.guide_style));
         spans.extend(self.lead);
-        self.description.push_spans(description_width, &mut spans);
+        self.description
+            .push_spans(text_width.saturating_sub(lead_width), &mut spans);
+        if shows_metadata {
+            let used_width: usize = spans.iter().map(|span| display_width(&span.content)).sum();
+            spans.push(Span::raw(" ".repeat(text_width - used_width)));
+            self.metadata.push_spans(&mut spans);
+        }
         Line::from(spans)
+    }
+}
+
+/// The metadata shown at the right edge of a row, in the fixed order recurrence, priority and
+/// due date, each part separated by [`METADATA_GAP`].
+///
+/// Every part is shown in full or, if the row is too narrow, not at all; a task without the
+/// metadata of a part has `None` there.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct TrailingMetadata<'a> {
+    /// The priority marker, such as `!!`.
+    priority: Option<MetadataPart<'a>>,
+}
+
+impl<'a> TrailingMetadata<'a> {
+    /// Returns the parts that are present, in their order.
+    fn parts(self) -> impl Iterator<Item = MetadataPart<'a>> {
+        [self.priority].into_iter().flatten()
+    }
+
+    /// Returns the cells the metadata takes, including the gap before each part, or zero if
+    /// there is none.
+    fn width(self) -> usize {
+        self.parts()
+            .map(|part| display_width(METADATA_GAP) + display_width(part.text))
+            .sum()
+    }
+
+    /// Appends every part, each preceded by a gap, to `spans`.
+    fn push_spans(self, spans: &mut Vec<Span<'a>>) {
+        for part in self.parts() {
+            spans.push(Span::raw(METADATA_GAP));
+            spans.push(Span::styled(part.text, part.style));
+        }
+    }
+}
+
+/// One part of the [`TrailingMetadata`] of a row.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MetadataPart<'a> {
+    text: &'a str,
+    style: Style,
+}
+
+/// Returns the priority part of the trailing metadata of `task`: the marker of its priority,
+/// or the value as written if it is no priority. Normal priority shows nothing.
+fn priority_part<'a>(task: &'a TaskLine, theme: &Theme) -> Option<MetadataPart<'a>> {
+    let value = task.field(&FieldKey::Priority)?.value();
+    let (text, slot) = match value.parse::<Priority>() {
+        Ok(priority) => priority_marker(priority),
+        // An unknown value is shown as is, so that a typo stays visible.
+        Err(_) => (value, Slot::Text),
+    };
+    Some(MetadataPart {
+        text,
+        style: theme.style(slot),
+    })
+}
+
+/// Returns the marker of `priority` and the slot that styles it.
+fn priority_marker(priority: Priority) -> (&'static str, Slot) {
+    match priority {
+        Priority::Highest => ("!!!", Slot::PriorityHighest),
+        Priority::High => ("!!", Slot::PriorityHigh),
+        Priority::Medium => ("!", Slot::PriorityMedium),
+        Priority::Low => ("-", Slot::PriorityLow),
+        Priority::Lowest => ("--", Slot::PriorityLowest),
     }
 }
 
@@ -449,6 +555,56 @@ mod tests {
         let document = "- [ ] a\n\t- [ ] b\n\t\t- [ ] cccc\n";
 
         let system_under_test = row_text(document, &[], 2, width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::highest("- [ ] a [priority:: highest]\n", 20, "  [ ] a          !!!")]
+    #[case::high("- [ ] a [priority:: high]\n", 20, "  [ ] a           !!")]
+    #[case::medium("- [ ] a [priority:: medium]\n", 20, "  [ ] a            !")]
+    #[case::normal("- [ ] a\n", 20, "  [ ] a")]
+    #[case::low("- [ ] a [priority:: low]\n", 20, "  [ ] a            -")]
+    #[case::lowest("- [ ] a [priority:: lowest]\n", 20, "  [ ] a           --")]
+    #[case::unknown_shown_as_is("- [ ] a [priority:: urgent]\n", 20, "  [ ] a       urgent")]
+    #[case::description_cut_before_it("- [ ] abcdef [priority:: highest]\n", 14, "  [ ] abc… !!!")]
+    #[case::only_the_lead_and_it("- [ ] a [priority:: highest]\n", 10, "  [ ]  !!!")]
+    #[case::dropped_if_too_narrow("- [ ] a [priority:: highest]\n", 9, "  [ ] a")]
+    fn priority_is_shown_at_the_right_edge(
+        #[case] document: &str,
+        #[case] width: usize,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = row_text(document, &[], 0, width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::highest(Priority::Highest, ("!!!", Slot::PriorityHighest))]
+    #[case::high(Priority::High, ("!!", Slot::PriorityHigh))]
+    #[case::medium(Priority::Medium, ("!", Slot::PriorityMedium))]
+    #[case::low(Priority::Low, ("-", Slot::PriorityLow))]
+    #[case::lowest(Priority::Lowest, ("--", Slot::PriorityLowest))]
+    fn priority_has_its_marker_and_slot(
+        #[case] priority: Priority,
+        #[case] expected: (&str, Slot),
+    ) {
+        let system_under_test = priority_marker(priority);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn priority_marker_is_styled_with_its_slot() {
+        let document = TodoDocument::parse("- [ ] a [priority:: high]\n");
+        let theme = Theme::default();
+        let expected = Some(MetadataPart {
+            text: "!!",
+            style: theme.style(Slot::PriorityHigh),
+        });
+
+        let system_under_test = priority_part(document.tasks().next().unwrap().task(), &theme);
 
         assert_eq!(system_under_test, expected);
     }

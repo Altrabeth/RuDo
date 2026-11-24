@@ -3,13 +3,14 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::text::{Line, Span};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType};
 
 use crate::app::Focus;
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::{Slot, Theme};
+use crate::ui::status_bar::key_hint;
 
 /// Below this width, or [`MIN_HEIGHT`], only a short message is shown.
 const MIN_WIDTH: u16 = 24;
@@ -147,19 +148,12 @@ pub fn render_pane_border(
 
 /// Returns the keys that switch panes with their labels, such as ` 1 lists 2 tasks `.
 fn pane_switch_hint(theme: &Theme, keymap: &Keymap) -> Line<'static> {
-    let mut spans = vec![Span::raw(" ")];
-    for action in PANE_SWITCH_ACTIONS {
-        let Some(keys) = keymap.keys(action).first() else {
-            continue;
-        };
-        spans.extend([
-            Span::styled(keys.compact().to_string(), theme.style(Slot::KeyHint)),
-            Span::raw(" "),
-            Span::styled(action.short_label(), theme.style(Slot::KeyHintLabel)),
-            Span::raw(" "),
-        ]);
-    }
-    Line::from(spans)
+    Line::from_iter(
+        PANE_SWITCH_ACTIONS
+            .into_iter()
+            .filter_map(|action| key_hint(keymap, action, theme))
+            .flatten(),
+    )
 }
 
 #[cfg(test)]
@@ -268,11 +262,11 @@ mod tests {
 
     #[rstest]
     #[case::hidden(PaneSwitchHint::Hidden, "", "╭ Lists ─────────────────────────────╮")]
-    #[case::shown(PaneSwitchHint::Shown, "", "╭ Lists ──────────── 1 lists 2 tasks ╮")]
+    #[case::shown(PaneSwitchHint::Shown, "", "╭ Lists ─────────── 1 lists  2 tasks ╮")]
     #[case::rebound(
         PaneSwitchHint::Shown,
         "focus-lists: [L, ctrl-l]",
-        "╭ Lists ──────────── L lists 2 tasks ╮"
+        "╭ Lists ─────────── L lists  2 tasks ╮"
     )]
     #[case::unbound(
         PaneSwitchHint::Shown,

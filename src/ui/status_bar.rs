@@ -17,7 +17,7 @@ use crate::config::theme::{Slot, Theme};
 
 /// The spans of one key hint: a blank, the key, a blank, the label and a blank, so that
 /// consecutive hints are two blanks apart.
-type KeyHint = [Span<'static>; 5];
+pub(crate) type KeyHint = [Span<'static>; 5];
 
 /// Renders the bottom bar of `app` into `area`, a single line below the panes.
 ///
@@ -88,7 +88,7 @@ fn hints_line(keymap: &Keymap, context: Context, max_width: usize, theme: &Theme
 
 /// Returns the hint `<key> <short label>` for `action` with its first key, or `None` if the
 /// action is unbound.
-fn key_hint(keymap: &Keymap, action: Action, theme: &Theme) -> Option<KeyHint> {
+pub(crate) fn key_hint(keymap: &Keymap, action: Action, theme: &Theme) -> Option<KeyHint> {
     let keys = keymap.keys(action).first()?;
     Some([
         Span::raw(" "),

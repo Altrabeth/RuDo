@@ -9,10 +9,12 @@ publish = false
 anyhow = "1.0.105"
 clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 jiff = { version = "1.0.2", default-features = false, features = ["std"] }
+ratatui = { version = "0.30.2", default-features = false }
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 thiserror = "2.0.21"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "env-filter"] }
+unicode-segmentation = { version = "1.13.3", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"

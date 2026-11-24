@@ -8,3 +8,4 @@ pub mod cli;
 pub mod domain;
 pub mod logging;
 pub mod paths;
+pub mod ui;

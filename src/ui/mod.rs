@@ -1,3 +1,5 @@
-//! Terminal user interface: widgets that render the application state with `ratatui`.
+//! Terminal user interface: pure view models such as the outline, and widgets that render
+//! the application state with `ratatui`.
 
+pub mod outline;
 pub mod text_input;

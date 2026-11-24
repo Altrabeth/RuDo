@@ -42,6 +42,9 @@ pub(crate) fn indentation_width(text: &str) -> usize {
 /// Maximum number of digits of an ordered list marker, as in `CommonMark`.
 const MAX_ORDERED_DIGITS: usize = 9;
 
+/// Largest number of an ordered list marker: the largest with [`MAX_ORDERED_DIGITS`] digits.
+const MAX_ORDERED_NUMBER: u32 = 999_999_999;
+
 /// Characters that separate the parts of a task line and make up its indentation.
 const BLANKS: [char; 2] = [' ', '\t'];
 
@@ -111,6 +114,21 @@ pub enum ListMarker {
 }
 
 impl ListMarker {
+    /// Returns the marker for the next item of the same list: an ordered marker with the
+    /// following number (kept at the largest valid number), and the same bullet otherwise.
+    pub(crate) fn successor(self) -> Self {
+        match self {
+            Self::Ordered { number, delimiter } => Self::Ordered {
+                number: number
+                    .checked_add(1)
+                    .filter(|&next| next <= MAX_ORDERED_NUMBER)
+                    .unwrap_or(number),
+                delimiter,
+            },
+            Self::Dash | Self::Asterisk | Self::Plus => self,
+        }
+    }
+
     /// Splits a list marker off the start of `text`.
     fn split_prefix(text: &str) -> Option<(Self, &str)> {
         let mut characters = text.chars();
@@ -586,6 +604,19 @@ impl TaskLine {
         let index = self.fields.iter().position(|field| field.key() == key)?;
         self.mark_modified();
         Some(self.fields.remove(index))
+    }
+
+    /// Replaces the indentation, which must consist of spaces and tabs only. An unmodified task
+    /// keeps rendering its source line, with the new indentation.
+    pub(crate) fn set_indent(&mut self, indent: String) {
+        debug_assert!(
+            indent.chars().all(|character| BLANKS.contains(&character)),
+            "indentation consists of blanks"
+        );
+        if let Some(original) = &mut self.original {
+            original.replace_range(..self.indent.len(), &indent);
+        }
+        self.indent = indent;
     }
 
     fn mark_modified(&mut self) {
@@ -1149,6 +1180,58 @@ mod tests {
 
         assert_eq!(removed, None);
         assert!(!system_under_test.is_modified());
+    }
+
+    #[rstest]
+    #[case::dash(ListMarker::Dash, ListMarker::Dash)]
+    #[case::asterisk(ListMarker::Asterisk, ListMarker::Asterisk)]
+    #[case::plus(ListMarker::Plus, ListMarker::Plus)]
+    #[case::ordered(
+        ListMarker::Ordered { number: 9, delimiter: OrderedDelimiter::Parenthesis },
+        ListMarker::Ordered { number: 10, delimiter: OrderedDelimiter::Parenthesis }
+    )]
+    #[case::largest_number(
+        ListMarker::Ordered { number: MAX_ORDERED_NUMBER, delimiter: OrderedDelimiter::Period },
+        ListMarker::Ordered { number: MAX_ORDERED_NUMBER, delimiter: OrderedDelimiter::Period }
+    )]
+    fn successor_marker(#[case] marker: ListMarker, #[case] expected: ListMarker) {
+        let system_under_test = marker.successor();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn largest_ordered_number_has_maximum_digit_count() {
+        let expected = MAX_ORDERED_DIGITS;
+
+        let system_under_test = MAX_ORDERED_NUMBER.to_string().len();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn set_indent_keeps_the_source_line_of_an_unmodified_task() {
+        let mut task = parse_task("\t-  [ ] a [due:: 1] ");
+        let expected = "  -  [ ] a [due:: 1] ";
+        task.set_indent("  ".to_owned());
+
+        let system_under_test = task;
+
+        assert_eq!(system_under_test.indent(), "  ");
+        assert_eq!(system_under_test.to_string(), expected);
+        assert!(!system_under_test.is_modified());
+    }
+
+    #[test]
+    fn set_indent_of_a_modified_task_renders_canonically() {
+        let mut task = parse_task("- [ ]   a");
+        let expected = "\t- [x] a";
+        task.set_status(TaskStatus::Done);
+        task.set_indent("\t".to_owned());
+
+        let system_under_test = task;
+
+        assert_eq!(system_under_test.to_string(), expected);
     }
 
     /// Text with the syntax the field extraction must handle: fields, code spans and wikilinks.

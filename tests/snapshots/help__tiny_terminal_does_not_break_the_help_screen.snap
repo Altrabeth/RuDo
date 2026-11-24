@@ -1,0 +1,8 @@
+---
+source: tests/help.rs
+expression: system_under_test
+---
+" ╭ Help ──────────╮ "
+" │Lists pane      │ "
+" │  enter     ope…█ "
+" ╰────── 28-29/71 ╯ "

@@ -8,6 +8,7 @@ use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::resolver::Resolution;
 use crate::markdown::document::{EditOutcome, TodoDocument};
 use crate::storage::workspace::ListPath;
+use crate::ui::outline::OutlineCommand;
 
 impl App {
     /// Handles a key press: resolves `chord` in the current [`App::context`] and performs the
@@ -20,22 +21,27 @@ impl App {
         self.status.key_pressed();
         match self.resolver.feed(&self.keymap, self.context(), chord) {
             Resolution::Action(action) => self.update(action),
-            Resolution::Pending | Resolution::Cancelled | Resolution::NoMatch => Vec::new(),
+            Resolution::NoMatch => {
+                self.type_key(chord);
+                Vec::new()
+            }
+            Resolution::Pending | Resolution::Cancelled => Vec::new(),
         }
     }
 
     /// Handles text pasted into the terminal.
     ///
-    /// Pasted text is never interpreted as key presses: in [`Mode::Normal`] it is ignored, so
-    /// that pasting by mistake cannot trigger a burst of commands.
+    /// Pasted text is never interpreted as key presses: an open text input inserts it, and
+    /// otherwise it is ignored, so that pasting by mistake cannot trigger a burst of commands.
     #[must_use]
     pub fn handle_paste(&mut self, text: &str) -> Vec<Effect> {
-        match self.mode {
+        match &mut self.mode {
             Mode::Normal => {
                 tracing::debug!(length = text.len(), "pasted text ignored in normal mode");
-                Vec::new()
             }
+            Mode::Help(help) => help.paste(text, &self.keymap, self.screen_size),
         }
+        Vec::new()
     }
 
     /// Performs `action` and returns the effects it requires.
@@ -60,13 +66,13 @@ impl App {
             | Action::ToggleFold
             | Action::FoldAll
             | Action::UnfoldAll
-            | Action::Open) => match self.focus {
-                Focus::Lists => self.update_lists(action),
-                Focus::Tasks => {}
-            },
-            Action::Help
-            | Action::Search
-            | Action::ClearFilter
+            | Action::Open) => self.navigate(action),
+            Action::Search => self.search(),
+            Action::Submit => self.submit(),
+            Action::Cancel => self.cancel(),
+            Action::Help => self.open_help(),
+            Action::CloseHelp => self.close_help(),
+            Action::ClearFilter
             | Action::Undo
             | Action::Redo
             | Action::ToggleCompleted
@@ -95,13 +101,58 @@ impl App {
             | Action::SortByDueDate
             | Action::SortAlphabetically
             | Action::SortByStatus
-            | Action::CloseHelp
             | Action::ConfirmYes
-            | Action::ConfirmNo
-            | Action::Submit
-            | Action::Cancel => {}
+            | Action::ConfirmNo => {}
         }
         Vec::new()
+    }
+
+    /// Routes a navigation or tree action to whatever takes the keys: the help screen if it is
+    /// open, otherwise the focused pane.
+    fn navigate(&mut self, action: Action) {
+        match &mut self.mode {
+            Mode::Help(help) => {
+                if let Some(command) = OutlineCommand::from_action(action) {
+                    help.navigate(command, self.screen_size);
+                }
+            }
+            Mode::Normal => match self.focus {
+                Focus::Lists => self.update_lists(action),
+                Focus::Tasks => {}
+            },
+        }
+    }
+
+    /// Opens the filter of whatever takes the keys; so far only the help screen has one.
+    fn search(&mut self) {
+        match &mut self.mode {
+            Mode::Help(help) => help.open_filter(self.screen_size),
+            Mode::Normal => {}
+        }
+    }
+
+    /// Accepts the text of the open text input.
+    fn submit(&mut self) {
+        match &mut self.mode {
+            Mode::Help(help) => help.submit_filter(self.screen_size),
+            Mode::Normal => {}
+        }
+    }
+
+    /// Discards the text of the open text input.
+    fn cancel(&mut self) {
+        match &mut self.mode {
+            Mode::Help(help) => help.cancel_filter(&self.keymap, self.screen_size),
+            Mode::Normal => {}
+        }
+    }
+
+    /// Hands a key press that no action is bound to to the open text input, if any.
+    fn type_key(&mut self, chord: KeyChord) {
+        match &mut self.mode {
+            Mode::Help(help) => help.press(chord, &self.keymap, self.screen_size),
+            Mode::Normal => {}
+        }
     }
 
     /// Applies `edit` to the document of the list at `list` and returns [`Effect::Save`] for

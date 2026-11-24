@@ -1,0 +1,384 @@
+//! The help overlay: [`render`] draws the help screen of [`Mode::Help`] over the panes.
+//!
+//! The overlay covers most of the terminal and lists the [`help`](crate::ui::help) rows in
+//! two columns, keys and description. A scrollbar and a `top-bottom/total` indicator appear
+//! when the rows do not fit, and an open or applied filter is shown in its last row.
+//! [`layout`] decides where everything goes; the app uses it too, so that scrolling and
+//! drawing agree on the height of the viewport.
+
+use std::borrow::Cow;
+
+use ratatui::Frame;
+use ratatui::buffer::{Buffer, CellWidth};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
+use ratatui::text::Line;
+use ratatui::widgets::{Block, BorderType, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use unicode_segmentation::UnicodeSegmentation;
+
+use crate::app::help::{HelpFilter, HelpOverlay};
+use crate::app::{App, Mode};
+use crate::config::theme::{Slot, Theme};
+use crate::ui::help::{HelpRow, HelpSection, rows};
+use crate::ui::text_input::{TextInputView, display_width};
+
+/// Share of the terminal width and height covered by the overlay.
+const OVERLAY_PERCENT: u16 = 90;
+/// The key column is never wider than this, nor than half of the overlay.
+const KEY_COLUMN_MAX_WIDTH: usize = 24;
+/// Indentation of the entries below their heading.
+const ENTRY_INDENT: usize = 2;
+/// Space between the key column and the description.
+const COLUMN_GAP: usize = 2;
+/// Marks text that was cut off.
+const ELLIPSIS: &str = "\u{2026}";
+const TITLE: &str = " Help ";
+/// Precedes the filter text, like the key that opens the filter.
+const FILTER_PROMPT: &str = "/";
+const FILTER_PLACEHOLDER: &str = "type to filter";
+/// Shown when the filter matches nothing.
+const NO_MATCHES: &str = "no matching keys";
+/// Drawn over the right border along the visible part of the rows.
+const SCROLLBAR_TRACK: &str = "\u{2502}";
+
+/// Whether the overlay reserves its last row for the filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FilterLine {
+    /// No filter is open or applied; every row shows help rows.
+    Hidden,
+    /// The last row shows the filter.
+    Shown,
+}
+
+/// Where the parts of the help overlay go, computed by [`layout`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HelpLayout {
+    /// The overlay including its border.
+    pub overlay: Rect,
+    /// The rows of the help screen inside the border.
+    pub rows: Rect,
+    /// The row of the filter, if it is shown.
+    pub filter: Option<Rect>,
+}
+
+/// Divides the overlay for a terminal of the size of `screen`.
+///
+/// The overlay covers 90 % of the terminal in both directions, centred.
+#[must_use]
+pub fn layout(screen: Rect, filter_line: FilterLine) -> HelpLayout {
+    let overlay = screen.centered(
+        Constraint::Percentage(OVERLAY_PERCENT),
+        Constraint::Percentage(OVERLAY_PERCENT),
+    );
+    let inside = overlay.inner(Margin::new(1, 1));
+    match filter_line {
+        FilterLine::Hidden => HelpLayout {
+            overlay,
+            rows: inside,
+            filter: None,
+        },
+        FilterLine::Shown => {
+            let [rows, filter] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(inside);
+            HelpLayout {
+                overlay,
+                rows,
+                filter: Some(filter),
+            }
+        }
+    }
+}
+
+/// Draws the help screen over the rest of the interface if `app` is in [`Mode::Help`].
+pub fn render(app: &App, frame: &mut Frame) {
+    match app.mode() {
+        Mode::Normal => {}
+        Mode::Help(help) => render_help(help, app.theme(), frame),
+    }
+}
+
+fn render_help(help: &HelpOverlay, theme: &Theme, frame: &mut Frame) {
+    let parts = layout(frame.area(), help.filter().line());
+    let row_count = rows(help.sections()).count();
+    let viewport_height = usize::from(parts.rows.height);
+    let mut block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.style(Slot::PopupBorder))
+        .title_style(theme.style(Slot::PopupTitle))
+        .title(TITLE);
+    let scrolls = row_count > viewport_height;
+    if scrolls {
+        block = block.title_bottom(
+            Line::from(position_indicator(
+                help.offset(),
+                viewport_height,
+                row_count,
+            ))
+            .right_aligned(),
+        );
+    }
+    frame.render_widget(Clear, parts.overlay);
+    frame.render_widget(block, parts.overlay);
+    render_rows(help, theme, frame.buffer_mut(), parts.rows);
+    if scrolls {
+        render_scrollbar(
+            help.offset(),
+            viewport_height,
+            row_count,
+            theme,
+            frame,
+            parts,
+        );
+    }
+    if let Some(area) = parts.filter {
+        render_filter(help.filter(), theme, frame, area);
+    }
+}
+
+/// Returns the indicator of the visible rows, such as ` 1-19/70 `.
+fn position_indicator(offset: usize, viewport_height: usize, row_count: usize) -> String {
+    let bottom = (offset + viewport_height).min(row_count);
+    format!(" {}-{bottom}/{row_count} ", offset + 1)
+}
+
+fn render_rows(help: &HelpOverlay, theme: &Theme, buffer: &mut Buffer, area: Rect) {
+    if area.is_empty() {
+        return;
+    }
+    let width = usize::from(area.width);
+    if rows(help.sections()).next().is_none() {
+        let text = truncated(NO_MATCHES, width);
+        buffer.set_stringn(
+            area.x,
+            area.y,
+            text,
+            width,
+            theme.style(Slot::HelpDescription),
+        );
+        return;
+    }
+    let key_width = key_column_width(help.sections(), width);
+    let visible_rows = rows(help.sections()).skip(help.offset());
+    for (y, row) in (area.top()..area.bottom()).zip(visible_rows) {
+        let row_area = Rect::new(area.x, y, area.width, 1);
+        render_row(row, key_width, theme, buffer, row_area);
+        if help.selected() == Some(row.key()) {
+            buffer.set_style(row_area, theme.style(Slot::Selection));
+        }
+    }
+}
+
+/// Draws a heading over the whole row, or an entry as indented keys and description.
+fn render_row(row: HelpRow<'_>, key_width: usize, theme: &Theme, buffer: &mut Buffer, area: Rect) {
+    let width = usize::from(area.width);
+    match row {
+        HelpRow::Heading(heading) => {
+            let title = heading.to_string();
+            let style = theme.style(Slot::HelpHeading);
+            buffer.set_stringn(area.x, area.y, truncated(&title, width), width, style);
+        }
+        HelpRow::Entry(entry) => {
+            let cells = [
+                (ENTRY_INDENT, key_width, entry.keys(), Slot::HelpKey),
+                (
+                    ENTRY_INDENT + key_width + COLUMN_GAP,
+                    width.saturating_sub(ENTRY_INDENT + key_width + COLUMN_GAP),
+                    entry.description(),
+                    Slot::HelpDescription,
+                ),
+            ];
+            for (column, cell_width, text, slot) in cells {
+                let Some(x) = u16::try_from(column)
+                    .ok()
+                    .and_then(|column| area.x.checked_add(column))
+                    .filter(|&x| x < area.right())
+                else {
+                    continue;
+                };
+                let text = truncated(text, cell_width);
+                buffer.set_stringn(x, area.y, text, cell_width, theme.style(slot));
+            }
+        }
+    }
+}
+
+/// Returns the width of the key column: that of the widest keys, capped so that the
+/// descriptions keep at least half of a row `row_width` cells wide.
+fn key_column_width(sections: &[HelpSection], row_width: usize) -> usize {
+    let widest = sections
+        .iter()
+        .flat_map(HelpSection::entries)
+        .map(|entry| display_width(entry.keys()))
+        .max()
+        .unwrap_or(0);
+    widest.min(KEY_COLUMN_MAX_WIDTH).min(row_width / 2)
+}
+
+/// Returns `text` cut to at most `width` cells, ending in an ellipsis if it was cut.
+fn truncated(text: &str, width: usize) -> Cow<'_, str> {
+    if display_width(text) <= width {
+        return Cow::Borrowed(text);
+    }
+    let Some(text_width) = width.checked_sub(display_width(ELLIPSIS)) else {
+        return Cow::Borrowed("");
+    };
+    let mut used_width = 0;
+    let end = text
+        .grapheme_indices(true)
+        .take_while(|(_, grapheme)| {
+            used_width += usize::from(grapheme.cell_width());
+            used_width <= text_width
+        })
+        .last()
+        .map_or(0, |(start, grapheme)| start + grapheme.len());
+    Cow::Owned(format!("{}{ELLIPSIS}", &text[..end]))
+}
+
+fn render_scrollbar(
+    offset: usize,
+    viewport_height: usize,
+    row_count: usize,
+    theme: &Theme,
+    frame: &mut Frame,
+    parts: HelpLayout,
+) {
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some(SCROLLBAR_TRACK))
+        .style(theme.style(Slot::PopupBorder));
+    // One position per offset, so that the thumb reaches the end at the last full page.
+    let mut state = ScrollbarState::new(row_count - viewport_height + 1)
+        .position(offset)
+        .viewport_content_length(viewport_height);
+    let track = Rect {
+        height: parts.rows.height,
+        ..parts.overlay.inner(Margin::new(0, 1))
+    };
+    frame.render_stateful_widget(scrollbar, track, &mut state);
+}
+
+fn render_filter(filter: &HelpFilter, theme: &Theme, frame: &mut Frame, area: Rect) {
+    let [prompt_area, input_area] = Layout::horizontal([
+        Constraint::Length(FILTER_PROMPT.len().try_into().unwrap_or(u16::MAX)),
+        Constraint::Fill(1),
+    ])
+    .areas(area);
+    frame.render_widget(
+        Line::styled(FILTER_PROMPT, theme.style(Slot::HelpKey)),
+        prompt_area,
+    );
+    let view = TextInputView::new(FILTER_PLACEHOLDER).style(theme.style(Slot::Text));
+    match filter {
+        HelpFilter::Off => {}
+        HelpFilter::Editing(input) => {
+            // Rendering only adjusts the horizontal scroll, which a copy can do as well.
+            view.render_with_cursor(frame, input_area, &mut input.clone());
+        }
+        HelpFilter::Applied(input) => {
+            frame.render_stateful_widget(view, input_area, &mut input.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+    use crate::config::keymap::keymap::{KeyBindings, Keymap};
+    use crate::ui::help::{filter, help_sections};
+
+    fn sections(keybindings: &str, query: &str) -> Vec<HelpSection> {
+        let overrides: KeyBindings = serde_saphyr::from_str(keybindings).unwrap();
+        let keymap = Keymap::new(&overrides).unwrap();
+        filter(&help_sections(&keymap), query)
+    }
+
+    #[rstest]
+    #[case::hidden(
+        FilterLine::Hidden,
+        HelpLayout {
+            overlay: Rect::new(4, 1, 72, 22),
+            rows: Rect::new(5, 2, 70, 20),
+            filter: None,
+        },
+    )]
+    #[case::shown(
+        FilterLine::Shown,
+        HelpLayout {
+            overlay: Rect::new(4, 1, 72, 22),
+            rows: Rect::new(5, 2, 70, 19),
+            filter: Some(Rect::new(5, 21, 70, 1)),
+        },
+    )]
+    fn layout_centres_the_overlay(#[case] filter_line: FilterLine, #[case] expected: HelpLayout) {
+        let screen = Rect::new(0, 0, 80, 24);
+
+        let system_under_test = layout(screen, filter_line);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::empty(Rect::ZERO)]
+    #[case::one_row(Rect::new(0, 0, 3, 1))]
+    fn layout_of_a_tiny_screen_has_no_rows(#[case] screen: Rect) {
+        let system_under_test = layout(screen, FilterLine::Shown);
+
+        assert_eq!(system_under_test.rows.height, 0);
+    }
+
+    #[rstest]
+    #[case::fits("close", 5, "close")]
+    #[case::cut("close the help", 8, "close t\u{2026}")]
+    #[case::only_the_ellipsis("close", 1, "\u{2026}")]
+    #[case::nothing("close", 0, "")]
+    #[case::wide_character_does_not_overflow("\u{65E5}\u{672C}\u{8A9E}", 4, "\u{65E5}\u{2026}")]
+    #[case::combining_mark_stays_whole("e\u{301}e\u{301}e\u{301}", 2, "e\u{301}\u{2026}")]
+    fn truncated_cuts_with_an_ellipsis(
+        #[case] text: &str,
+        #[case] width: usize,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = truncated(text, width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::widest_keys("{}", "pagedown", 80, 16)]
+    #[case::capped_by_half_the_row("{}", "pagedown", 20, 10)]
+    #[case::capped_by_the_maximum(
+        "toggle-done: [ctrl-alt-x, ctrl-alt-y, ctrl-alt-z]",
+        "toggle-done",
+        200,
+        KEY_COLUMN_MAX_WIDTH
+    )]
+    #[case::nothing_shown("{}", "no such thing", 80, 0)]
+    fn key_column_fits_the_widest_keys(
+        #[case] keybindings: &str,
+        #[case] query: &str,
+        #[case] row_width: usize,
+        #[case] expected: usize,
+    ) {
+        let sections = sections(keybindings, query);
+
+        let system_under_test = key_column_width(&sections, row_width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::top(0, 19, 70, " 1-19/70 ")]
+    #[case::bottom(51, 19, 70, " 52-70/70 ")]
+    fn position_indicator_shows_the_visible_rows(
+        #[case] offset: usize,
+        #[case] viewport_height: usize,
+        #[case] row_count: usize,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = position_indicator(offset, viewport_height, row_count);
+
+        assert_eq!(system_under_test, expected);
+    }
+}

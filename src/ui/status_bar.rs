@@ -21,14 +21,16 @@ pub(crate) type KeyHint = [Span<'static>; 5];
 
 /// Renders the bottom bar of `app` into `area`, a single line below the panes.
 ///
-/// Key hints that do not fit are dropped from the right; the help key and the pending keys
-/// are always shown.
+/// Key hints that do not fit are dropped from the right; the pinned hint of the context (the
+/// help key in the panes) and the pending keys are always shown.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let theme = app.theme();
-    let help = key_hint(app.keymap(), Action::Help, theme);
+    let pinned =
+        pinned_action(app.context()).and_then(|action| key_hint(app.keymap(), action, theme));
     let pending = pending_keys(app.pending_keys(), theme);
     let right = Line::from_iter(
-        help.into_iter()
+        pinned
+            .into_iter()
             .flatten()
             .chain(pending.into_iter().flatten()),
     );
@@ -67,7 +69,20 @@ const fn hint_actions(context: Context) -> &'static [Action] {
             Action::Delete,
             Action::SetDueDate,
         ],
-        Context::Help | Context::Dialog | Context::Input => &[],
+        Context::Help => &[Action::Search],
+        Context::Dialog => &[Action::ConfirmYes, Action::ConfirmNo],
+        Context::Input => &[Action::Submit, Action::Cancel],
+    }
+}
+
+/// Returns the action whose key the bottom bar always shows at its right end in `context`:
+/// how to open the help in the panes and how to leave it in the help screen. Dialogs and text
+/// inputs pin nothing, because there `?` is not the help key.
+const fn pinned_action(context: Context) -> Option<Action> {
+    match context {
+        Context::Lists | Context::Tasks => Some(Action::Help),
+        Context::Help => Some(Action::CloseHelp),
+        Context::Dialog | Context::Input => None,
     }
 }
 
@@ -213,6 +228,34 @@ mod tests {
             .collect();
 
         assert_eq!(system_under_test, []);
+    }
+
+    #[test]
+    fn every_pinned_action_is_valid_in_its_context() {
+        let contexts: Vec<Context> = Context::iter().collect();
+
+        let system_under_test: Vec<(Context, Action)> = contexts
+            .iter()
+            .filter_map(|&context| pinned_action(context).map(|action| (context, action)))
+            .filter(|(context, action)| !action.contexts().contains(context))
+            .collect();
+
+        assert_eq!(system_under_test, []);
+    }
+
+    #[rstest]
+    #[case::lists(Context::Lists, Some(Action::Help))]
+    #[case::tasks(Context::Tasks, Some(Action::Help))]
+    #[case::help(Context::Help, Some(Action::CloseHelp))]
+    #[case::dialog(Context::Dialog, None)]
+    #[case::input(Context::Input, None)]
+    fn pinned_action_says_how_to_open_or_leave_the_help(
+        #[case] context: Context,
+        #[case] expected: Option<Action>,
+    ) {
+        let system_under_test = pinned_action(context);
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[rstest]

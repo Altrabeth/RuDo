@@ -83,6 +83,7 @@ src/
     history.rs             undo and redo
     register.rs            yank register
     filter.rs              smart-case search and filtering
+    help.rs                help screen state (Mode::Help): scrolling and filter input
   ui/
     mod.rs                 view(&App, &mut Frame)
     outline.rs             generic tree navigation: selection, folding, scrolling
@@ -92,7 +93,8 @@ src/
     status_bar.rs          key hints, pending keys, messages
     text_input.rs          single-line text editor widget
     popup.rs               input popup and confirmation dialog
-    help.rs                help content model and overlay
+    help.rs                help content model
+    help_overlay.rs        help overlay: layout, rows, scrollbar, filter line
   runtime/
     terminal.rs            terminal setup and restore, panic safety
     event.rs               merging terminal, tick and file system events
@@ -126,6 +128,9 @@ keep the names above unless there is a reason to deviate.
   by spawning a new one.
 - Only `KeyEventKind::Press` and `Repeat` are handled; `Release` events (Windows, kitty
   keyboard protocol) are dropped at the boundary.
+- The runtime reports the terminal size with `App::resize` at start-up and on every resize
+  event. Scrolling commands derive viewport heights from it with the same layout functions
+  `view` uses (such as `ui::help_overlay::layout`), so `view` itself never changes state.
 - `ratatui::init` and `ratatui::restore` manage the terminal, including restoring it on panic.
   Use crossterm through `ratatui::crossterm` so there is exactly one crossterm version.
 

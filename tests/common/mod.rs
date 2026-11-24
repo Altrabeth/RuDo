@@ -6,6 +6,7 @@ use std::path::Path;
 use jiff::civil::{Date, date};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::layout::Size;
 use rudo::app::{App, Effect, execute};
 use rudo::config::Config;
 use rudo::config::keymap::key::{Key, KeyChord, Modifiers};
@@ -17,6 +18,9 @@ use tempfile::TempDir;
 
 /// The date every `TestApp` treats as today.
 pub const TODAY: Date = date(2026, 3, 14);
+
+/// The terminal size every `TestApp` starts with.
+pub const SCREEN_SIZE: Size = Size::new(80, 24);
 
 /// The application with its workspace in a temporary folder and effects executed at once.
 pub struct TestApp {
@@ -46,7 +50,8 @@ impl TestApp {
         let config = Config::default();
         let keymap = Keymap::new(config.keybindings()).unwrap();
         let workspace = Workspace::scan(workspace_folder.path(), config.tasks().indent()).unwrap();
-        let app = App::new(workspace, config, Theme::default(), keymap, TODAY);
+        let mut app = App::new(workspace, config, Theme::default(), keymap, TODAY);
+        app.resize(SCREEN_SIZE);
         Self {
             workspace_folder,
             app,
@@ -58,8 +63,17 @@ impl TestApp {
         &self.app
     }
 
+    /// Tells the app that the terminal is now `width` by `height` cells, as the runtime does
+    /// when the terminal is resized. The app starts with [`SCREEN_SIZE`].
+    pub fn resize(&mut self, width: u16, height: u16) -> &mut Self {
+        self.app.resize(Size::new(width, height));
+        self
+    }
+
     /// Draws the application with [`ui::view`] into a terminal of `width` by `height` cells;
     /// its `Display` output is the text of every row, for snapshot tests.
+    ///
+    /// Scrolling follows the size given to [`TestApp::resize`], so render at that size.
     pub fn render(&self, width: u16, height: u16) -> TestBackend {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal.draw(|frame| ui::view(&self.app, frame)).unwrap();

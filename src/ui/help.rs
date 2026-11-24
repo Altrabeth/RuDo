@@ -13,6 +13,7 @@ use crate::app::filter::SmartCaseQuery;
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeySequence;
 use crate::config::keymap::keymap::Keymap;
+use crate::ui::outline::OutlineItem;
 use crate::ui::text_input::{EDITING_KEYS, EditCommand, EditingKey};
 
 /// Shown instead of the keys of an action without keys, so that it can still be discovered.
@@ -163,6 +164,42 @@ pub enum HelpRow<'a> {
     Heading(HelpHeading),
     /// An entry below a heading.
     Entry(&'a HelpEntry),
+}
+
+impl HelpRow<'_> {
+    /// Returns the key that identifies the row while the help screen is filtered and
+    /// scrolled.
+    #[must_use]
+    pub const fn key(self) -> HelpRowKey {
+        match self {
+            Self::Heading(heading) => HelpRowKey::Heading(heading),
+            Self::Entry(entry) => HelpRowKey::Entry(entry.subject),
+        }
+    }
+}
+
+/// Identifies a [`HelpRow`] independently of the sections it was taken from, so that the
+/// help screen can select and scroll to it with an [`Outline`](crate::ui::outline::Outline).
+///
+/// The help screen is flat: every row is a top-level outline item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HelpRowKey {
+    /// The row of a section heading.
+    Heading(HelpHeading),
+    /// The row of an entry.
+    Entry(HelpSubject),
+}
+
+impl OutlineItem for HelpRowKey {
+    type Key = Self;
+
+    fn key(&self) -> &Self {
+        self
+    }
+
+    fn depth(&self) -> usize {
+        0
+    }
 }
 
 /// Returns the help screen for `keymap`: every action exactly once, in the section of its
@@ -599,6 +636,29 @@ mod tests {
         let system_under_test: Vec<String> = rows(&sections).map(row_label).collect();
 
         assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn row_keys_identify_headings_and_entries() {
+        let sections = filter(&help_sections(&keymap("")), "zM");
+        let expected = [
+            HelpRowKey::Heading(HelpHeading::Trees),
+            HelpRowKey::Entry(HelpSubject::Action(Action::FoldAll)),
+        ];
+
+        let system_under_test: Vec<HelpRowKey> = rows(&sections).map(HelpRow::key).collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn row_key_is_a_top_level_outline_item_of_itself() {
+        let row_key = HelpRowKey::Heading(HelpHeading::TasksPane);
+
+        let system_under_test = row_key;
+
+        assert_eq!(OutlineItem::key(&system_under_test), &row_key);
+        assert_eq!(system_under_test.depth(), 0);
     }
 
     #[test]

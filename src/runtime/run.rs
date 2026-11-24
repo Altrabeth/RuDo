@@ -47,6 +47,7 @@ pub enum RuntimeError {
 /// Returns a [`RuntimeError`] if the terminal cannot be set up, read or drawn.
 pub fn run(app: &mut App) -> Result<(), RuntimeError> {
     let mut terminal = TerminalGuard::init().map_err(RuntimeError::Setup)?;
+    app.resize(terminal.size().map_err(RuntimeError::Setup)?);
     let (sender, receiver) = mpsc::channel();
     // Declared after the terminal so that it is dropped, and stops reading, first.
     let _input = InputThread::spawn(sender).map_err(RuntimeError::SpawnInput)?;
@@ -72,7 +73,10 @@ fn handle_event(app: &mut App, event: Event) {
     let effects = match event {
         Event::Key(chord) => app.handle_key(chord),
         Event::Paste(text) => app.handle_paste(&text),
-        Event::Resize => Vec::new(),
+        Event::Resize(size) => {
+            app.resize(size);
+            Vec::new()
+        }
     };
     for effect in effects {
         execute(app, effect);

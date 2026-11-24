@@ -2,10 +2,12 @@
 //! the application state with `ratatui`.
 //!
 //! [`view`] divides the terminal with [`layout::Screen`] and lets every region render itself:
-//! [`lists_pane`] and [`tasks_pane`] inside their borders and [`status_bar`] below them. All
-//! styles come from [`App::theme`].
+//! [`lists_pane`] and [`tasks_pane`] inside their borders and [`status_bar`] below them.
+//! Overlays such as [`help_overlay`] are drawn last, over the panes. All styles come from
+//! [`App::theme`].
 
 pub mod help;
+pub mod help_overlay;
 pub mod layout;
 pub mod lists_pane;
 pub mod outline;
@@ -50,6 +52,7 @@ pub fn view(app: &App, frame: &mut Frame) {
             status_bar::render(app, frame, bottom_bar);
         }
     }
+    help_overlay::render(app, frame);
 }
 
 /// Draws the border of `pane` around `area` and its contents inside.

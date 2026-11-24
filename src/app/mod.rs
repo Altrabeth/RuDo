@@ -7,6 +7,7 @@
 
 pub mod effect;
 pub mod filter;
+pub mod help;
 pub mod lists;
 pub mod state;
 pub mod status;

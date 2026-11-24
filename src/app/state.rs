@@ -1,7 +1,9 @@
 //! Everything the application knows: [`App`] with its [`Focus`] and [`Mode`].
 
 use jiff::civil::Date;
+use ratatui::layout::Size;
 
+use crate::app::help::HelpOverlay;
 use crate::app::lists::ListsPane;
 use crate::app::status::Status;
 use crate::config::Config;
@@ -31,6 +33,8 @@ pub struct App {
     pub(super) today: Date,
     pub(super) status: Status,
     pub(super) should_quit: bool,
+    /// Size of the terminal, from which scrolling commands derive the viewport heights.
+    pub(super) screen_size: Size,
 }
 
 impl App {
@@ -60,6 +64,7 @@ impl App {
             today,
             status: Status::default(),
             should_quit: false,
+            screen_size: Size::ZERO,
         }
     }
 
@@ -101,16 +106,33 @@ impl App {
 
     /// Returns the current mode.
     #[must_use]
-    pub fn mode(&self) -> Mode {
-        self.mode
+    pub fn mode(&self) -> &Mode {
+        &self.mode
     }
 
     /// Returns the [`Context`] in which key presses are resolved, derived from the mode and
     /// the focus.
     #[must_use]
     pub fn context(&self) -> Context {
-        match self.mode {
+        match &self.mode {
             Mode::Normal => self.focus.context(),
+            Mode::Help(help) => help.context(),
+        }
+    }
+
+    /// Returns the size of the terminal as last reported by [`App::resize`].
+    #[must_use]
+    pub fn screen_size(&self) -> Size {
+        self.screen_size
+    }
+
+    /// Sets the size of the terminal; the runtime calls it at start-up and whenever the
+    /// terminal is resized, because scrolling depends on the height of the panes.
+    pub fn resize(&mut self, screen_size: Size) {
+        self.screen_size = screen_size;
+        match &mut self.mode {
+            Mode::Normal => {}
+            Mode::Help(help) => help.refresh(screen_size),
         }
     }
 
@@ -169,12 +191,14 @@ impl Focus {
 
 /// What key presses mean apart from the focused pane: plain navigation and commands, or an
 /// overlay such as the help screen or a text input that takes them first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub enum Mode {
     /// Keys trigger the actions bound in the focused pane.
     #[default]
     Normal,
+    /// The help screen covers the panes and takes the keys.
+    Help(HelpOverlay),
 }
 
 #[cfg(test)]
@@ -225,7 +249,8 @@ pub(super) mod tests {
         let system_under_test = app_in(directory.path());
 
         assert_eq!(system_under_test.focus(), Focus::Lists);
-        assert_eq!(system_under_test.mode(), Mode::Normal);
+        assert!(matches!(system_under_test.mode(), Mode::Normal));
+        assert_eq!(system_under_test.screen_size(), Size::ZERO);
         assert_eq!(system_under_test.status_message(), None);
         assert!(!system_under_test.should_quit());
         assert_eq!(system_under_test.workspace().root(), directory.path());
@@ -259,6 +284,18 @@ pub(super) mod tests {
         let system_under_test = app.today();
 
         assert_eq!(system_under_test, tomorrow);
+    }
+
+    #[test]
+    fn resize_remembers_the_screen_size() {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_in(directory.path());
+        let screen_size = Size::new(80, 24);
+        app.resize(screen_size);
+
+        let system_under_test = app.screen_size();
+
+        assert_eq!(system_under_test, screen_size);
     }
 
     #[rstest]

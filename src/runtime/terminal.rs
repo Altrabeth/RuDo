@@ -6,6 +6,7 @@ use std::io;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::crossterm::execute;
+use ratatui::layout::Size;
 
 use crate::app::App;
 use crate::ui;
@@ -33,6 +34,15 @@ impl TerminalGuard {
         };
         execute!(io::stdout(), EnableBracketedPaste)?;
         Ok(guard)
+    }
+
+    /// Returns the size of the terminal.
+    ///
+    /// # Errors
+    ///
+    /// Returns the I/O error if the terminal cannot report its size.
+    pub fn size(&self) -> io::Result<Size> {
+        self.terminal.size()
     }
 
     /// Draws `app` with [`ui::view`].

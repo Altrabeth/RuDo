@@ -18,6 +18,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::widgets::StatefulWidget;
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::config::keymap::key::{Key, KeyChord, Modifiers};
+
 /// An editing operation on a [`TextInput`], triggered by one of the [`EDITING_KEYS`].
 ///
 /// Words are runs of non-whitespace grapheme clusters, as in readline's `unix-word-rubout`.
@@ -137,6 +139,16 @@ pub const EDITING_KEYS: [EditingKey; 11] = [
     },
 ];
 
+/// Tells whether a key press changed the text of a [`TextInput`].
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TextChange {
+    /// Text was inserted or deleted.
+    Changed,
+    /// The text is the same; at most the cursor moved.
+    Unchanged,
+}
+
 /// The state of a single-line text editor: its text, cursor and horizontal scroll offset.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct TextInput {
@@ -217,6 +229,25 @@ impl TextInput {
     pub fn insert_str(&mut self, text: &str) {
         let text = to_single_line(text);
         self.replace(self.cursor..self.cursor, &text);
+    }
+
+    /// Handles a key press that no action is bound to: one of the [`EDITING_KEYS`] applies its
+    /// command, a character without modifiers is inserted, and every other chord is ignored.
+    pub fn press(&mut self, chord: KeyChord) -> TextChange {
+        let length_before = self.value.len();
+        if let Some(command) = edit_command(chord) {
+            self.apply(command);
+        } else if let Key::Char(character) = chord.key()
+            && chord.modifiers() == Modifiers::NONE
+        {
+            self.insert_char(character);
+        }
+        // Every edit that changes the text inserts or deletes at least one byte.
+        if self.value.len() == length_before {
+            TextChange::Unchanged
+        } else {
+            TextChange::Changed
+        }
     }
 
     /// Returns the terminal position of the cursor after the input was rendered into `area`
@@ -395,6 +426,19 @@ impl StatefulWidget for TextInputView<'_> {
     }
 }
 
+/// Returns the command of the [`EDITING_KEYS`] row that lists `chord`, if any.
+fn edit_command(chord: KeyChord) -> Option<EditCommand> {
+    EDITING_KEYS
+        .iter()
+        .find(|editing_key| {
+            editing_key
+                .keys
+                .iter()
+                .any(|notation| notation.parse::<KeyChord>().is_ok_and(|key| key == chord))
+        })
+        .map(EditingKey::command)
+}
+
 /// Replaces line breaks and other control characters with spaces; `\r\n` becomes one space.
 fn to_single_line(text: &str) -> Cow<'_, str> {
     if !text.contains(char::is_control) {
@@ -421,7 +465,7 @@ fn is_whitespace(grapheme: &str) -> bool {
 
 /// Returns the number of terminal cells `text` occupies, measured exactly as [`Buffer`]
 /// measures it while rendering.
-fn display_width(text: &str) -> usize {
+pub(crate) fn display_width(text: &str) -> usize {
     text.graphemes(true)
         .map(|grapheme| usize::from(grapheme.cell_width()))
         .sum()
@@ -557,6 +601,52 @@ mod tests {
     #[case::control('\n', "a |")]
     fn insert_char_inserts_at_cursor(#[case] character: char, #[case] expected: &str) {
         let system_under_test = edit("a|", |text_input| text_input.insert_char(character));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::character("ab|", "c", "abc|", TextChange::Changed)]
+    #[case::shifted_character("ab|", "?", "ab?|", TextChange::Changed)]
+    #[case::space("ab|", "space", "ab |", TextChange::Changed)]
+    #[case::editing_key_moves("ab|", "ctrl-a", "|ab", TextChange::Unchanged)]
+    #[case::editing_key_with_second_notation("|ab", "end", "ab|", TextChange::Unchanged)]
+    #[case::editing_key_deletes("foo bar|", "ctrl-w", "foo |", TextChange::Changed)]
+    #[case::deleting_nothing("|ab", "backspace", "|ab", TextChange::Unchanged)]
+    #[case::character_with_modifier("ab|", "alt-c", "ab|", TextChange::Unchanged)]
+    #[case::other_key("ab|", "f5", "ab|", TextChange::Unchanged)]
+    fn press_edits_or_inserts(
+        #[case] before: &str,
+        #[case] notation: &str,
+        #[case] expected_text: &str,
+        #[case] expected_change: TextChange,
+    ) {
+        let chord: KeyChord = notation.parse().unwrap();
+        let mut text_input = input(before);
+
+        let system_under_test = text_input.press(chord);
+
+        assert_eq!(system_under_test, expected_change);
+        assert_eq!(marked(&text_input), expected_text);
+    }
+
+    #[test]
+    fn every_editing_key_notation_runs_its_command() {
+        let expected: Vec<Option<EditCommand>> = EDITING_KEYS
+            .iter()
+            .flat_map(|editing_key| {
+                editing_key
+                    .keys()
+                    .iter()
+                    .map(|_| Some(editing_key.command()))
+            })
+            .collect();
+
+        let system_under_test: Vec<Option<EditCommand>> = EDITING_KEYS
+            .iter()
+            .flat_map(EditingKey::keys)
+            .map(|notation| edit_command(notation.parse().unwrap()))
+            .collect();
 
         assert_eq!(system_under_test, expected);
     }

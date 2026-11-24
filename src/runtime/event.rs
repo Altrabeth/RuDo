@@ -9,6 +9,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use ratatui::crossterm::event::{self as terminal_event, KeyEventKind};
+use ratatui::layout::Size;
 
 use crate::config::keymap::key::KeyChord;
 
@@ -23,8 +24,8 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub enum Event {
     /// A key was pressed or is held down.
     Key(KeyChord),
-    /// The terminal was resized; the next draw adapts to the new size.
-    Resize,
+    /// The terminal was resized to this size; the next draw adapts to it.
+    Resize(Size),
     /// Text was pasted with bracketed paste.
     Paste(String),
 }
@@ -41,7 +42,9 @@ impl Event {
                 }
                 KeyEventKind::Release => None,
             },
-            terminal_event::Event::Resize(_, _) => Some(Self::Resize),
+            terminal_event::Event::Resize(width, height) => {
+                Some(Self::Resize(Size::new(width, height)))
+            }
             terminal_event::Event::Paste(text) => Some(Self::Paste(text)),
             terminal_event::Event::FocusGained
             | terminal_event::Event::FocusLost
@@ -188,12 +191,13 @@ mod tests {
     }
 
     #[test]
-    fn resize_becomes_a_resize_event() {
+    fn resize_becomes_a_resize_event_with_the_new_size() {
         let event = terminal_event::Event::Resize(80, 24);
+        let expected = Event::Resize(Size::new(80, 24));
 
         let system_under_test = Event::from_terminal(event);
 
-        assert_eq!(system_under_test, Some(Event::Resize));
+        assert_eq!(system_under_test, Some(expected));
     }
 
     #[test]

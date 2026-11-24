@@ -4,6 +4,7 @@
 //! configuration file only needs the settings a user wants to change. Unknown settings are
 //! errors that name the file, line and column.
 
+pub mod keymap;
 pub mod root;
 
 use std::fmt;

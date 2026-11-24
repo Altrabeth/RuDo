@@ -302,6 +302,11 @@ Key notation:
 | `f1` … `f12`                               | function keys                              |
 | `g g`, `z a`                               | sequences, keys separated by a space       |
 
+Modifiers can be combined in any order and are printed as `ctrl-alt-shift-`. Shift is part
+of the character, so `shift-a` is the same key as `A` and `shift-?` the same as `?`;
+`shift-tab` is `backtab`. Terminals send `ctrl-h` as `backspace`, `ctrl-i` as `tab`, `ctrl-m`
+as `enter` and `ctrl-[` as `esc`, so these keys cannot be bound separately.
+
 ### Theme
 
 `theme` maps a slot to a style. A style has an optional `fg` and `bg` colour and an optional

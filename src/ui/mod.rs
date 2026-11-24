@@ -9,6 +9,7 @@ pub mod help;
 pub mod layout;
 pub mod lists_pane;
 pub mod outline;
+pub mod popup;
 pub mod status_bar;
 pub mod tasks_pane;
 pub mod text_input;

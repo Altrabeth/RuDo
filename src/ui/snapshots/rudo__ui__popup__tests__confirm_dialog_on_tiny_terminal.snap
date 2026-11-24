@@ -1,0 +1,7 @@
+---
+source: src/ui/popup.rs
+expression: system_under_test
+---
+"╭ Confirm ─╮"
+"│ Delete l │"
+"╰──────────╯"

@@ -475,6 +475,52 @@ impl KeySequence {
     pub fn chords(&self) -> &[KeyChord] {
         &self.0
     }
+
+    /// Returns the short form of the sequence shown on the help screen and in the bottom bar.
+    ///
+    /// A sequence of plain characters is written without spaces, as vim users know it (`dd`,
+    /// `zM`); any other sequence keeps its notation so that `ctrl-d` or `g home` stay readable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rudo::config::keymap::key::{KeyNotationError, KeySequence};
+    ///
+    /// let fold_all: KeySequence = "z M".parse()?;
+    /// let half_page_down: KeySequence = "ctrl-d".parse()?;
+    /// assert_eq!(fold_all.compact().to_string(), "zM");
+    /// assert_eq!(half_page_down.compact().to_string(), "ctrl-d");
+    /// # Ok::<(), KeyNotationError>(())
+    /// ```
+    #[must_use]
+    pub fn compact(&self) -> CompactKeySequence<'_> {
+        CompactKeySequence(self)
+    }
+}
+
+/// Displays a [`KeySequence`] in its short form; created by [`KeySequence::compact`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompactKeySequence<'a>(&'a KeySequence);
+
+/// Tells whether a chord is typed as one visible character without modifiers.
+///
+/// The space bar is excluded because a blank would be invisible in the short form.
+fn is_plain_character(chord: &KeyChord) -> bool {
+    chord.modifiers == Modifiers::NONE
+        && matches!(chord.key, Key::Char(character) if character != ' ')
+}
+
+impl Display for CompactKeySequence<'_> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let chords = self.0.chords();
+        if chords.iter().all(is_plain_character) {
+            chords
+                .iter()
+                .try_for_each(|chord| write!(formatter, "{}", chord.key))
+        } else {
+            Display::fmt(self.0, formatter)
+        }
+    }
 }
 
 impl FromStr for KeySequence {
@@ -685,6 +731,25 @@ mod tests {
         let expected = "z alt-space";
 
         let system_under_test = sequence.to_string();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::single_character("j", "j")]
+    #[case::repeated_character("d d", "dd")]
+    #[case::mixed_case("z M", "zM")]
+    #[case::multi_byte("ä ö", "äö")]
+    #[case::named_key("down", "down")]
+    #[case::modifier("ctrl-d", "ctrl-d")]
+    #[case::space("space", "space")]
+    #[case::character_then_space("z space", "z space")]
+    #[case::character_then_modifier("g ctrl-d", "g ctrl-d")]
+    #[case::character_then_named_key("g home", "g home")]
+    fn compact_form_joins_only_plain_characters(#[case] notation: &str, #[case] expected: &str) {
+        let sequence: KeySequence = notation.parse().unwrap();
+
+        let system_under_test = sequence.compact().to_string();
 
         assert_eq!(system_under_test, expected);
     }

@@ -55,6 +55,7 @@ pub enum Context {
     Deserialize,
     strum::Display,
     strum::EnumIter,
+    strum::IntoStaticStr,
 )]
 #[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]

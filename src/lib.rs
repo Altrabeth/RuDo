@@ -4,6 +4,7 @@
 //! `rudo` binary only wires the pieces together. See `docs/ARCHITECTURE.md` for the module
 //! layout and the data flow.
 
+pub mod app;
 pub mod cli;
 pub mod config;
 pub mod domain;

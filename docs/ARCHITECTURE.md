@@ -77,6 +77,7 @@ src/
   app/
     state.rs               App, Focus, Mode
     lists.rs               lists pane state: workspace tree navigation, active list
+    prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     status.rs              StatusMessage, Severity and when messages expire
     update.rs              App::update(Action) -> Vec<Effect>
     effect.rs              Effect and its executor

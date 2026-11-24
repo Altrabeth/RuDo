@@ -34,7 +34,7 @@ impl EntryName {
     }
 
     /// Returns the file name of a list with this name, including the `.md` extension.
-    fn list_file_name(&self) -> String {
+    pub(crate) fn list_file_name(&self) -> String {
         [self.as_str(), LIST_EXTENSION].concat()
     }
 }

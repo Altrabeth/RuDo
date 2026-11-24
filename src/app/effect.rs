@@ -6,12 +6,15 @@
 use std::error::Error;
 use std::fmt::Write;
 use std::iter;
+use std::path::{Path, PathBuf};
 
-use crate::app::state::App;
+use crate::app::lists::EntryKey;
+use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
+use crate::storage::entries::{EntryError, EntryName, create_folder, create_list};
 use crate::storage::fingerprint::Fingerprint;
 use crate::storage::save::{SaveError, save};
-use crate::storage::workspace::{List, ListPath};
+use crate::storage::workspace::{EntryKind, List, ListPath};
 
 /// A side effect returned by [`App::update`] and performed by [`execute`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -19,6 +22,16 @@ use crate::storage::workspace::{List, ListPath};
 pub enum Effect {
     /// Write the document of the list at this path to its file.
     Save(ListPath),
+    /// Create an empty list file or folder named `name` in the folder `parent`.
+    CreateEntry {
+        /// Whether to create a list file or a folder.
+        kind: EntryKind,
+        /// The folder that receives the entry, relative to the workspace root and empty for
+        /// the root itself.
+        parent: PathBuf,
+        /// The name of the new entry, without the `.md` extension of list files.
+        name: EntryName,
+    },
 }
 
 /// Performs `effect` and reports its result to `app`.
@@ -27,6 +40,7 @@ pub enum Effect {
 pub fn execute(app: &mut App, effect: Effect) {
     match effect {
         Effect::Save(list) => save_list(app, &list),
+        Effect::CreateEntry { kind, parent, name } => create_entry(app, kind, &parent, &name),
     }
 }
 
@@ -43,6 +57,19 @@ fn save_list(app: &mut App, list: &ListPath) {
     }
 }
 
+/// Creates the list file or folder `name` in the folder `parent` on disk.
+fn create_entry(app: &mut App, kind: EntryKind, parent: &Path, name: &EntryName) {
+    let directory = app.workspace().root().join(parent);
+    let created = match kind {
+        EntryKind::Folder => create_folder(&directory, name),
+        EntryKind::List => create_list(&directory, name),
+    };
+    match created {
+        Ok(_) => app.entry_created(kind, parent, name),
+        Err(error) => app.create_failed(&error),
+    }
+}
+
 impl App {
     /// Records that the list at `list` was saved with content of the given `fingerprint`, so
     /// that the next save expects it on disk. Does nothing if the list is not loaded.
@@ -56,6 +83,25 @@ impl App {
     pub fn save_failed(&mut self, error: &SaveError) {
         let report = error_report(error);
         tracing::warn!(%report, "cannot save list");
+        self.show_message(StatusMessage::error(report));
+    }
+
+    /// Adds the folder or list `name`, just created in the folder `parent`, to the workspace
+    /// and selects it, unfolding the folders that contain it.
+    fn entry_created(&mut self, kind: EntryKind, parent: &Path, name: &EntryName) {
+        let Some(entry) = self.workspace.insert(kind, parent, name) else {
+            tracing::warn!(parent = %parent.display(), %name, "folder of a new entry is gone");
+            return;
+        };
+        let key = EntryKey::from(entry);
+        let viewport_height = self.viewport_height(Focus::Lists);
+        self.lists.select(&self.workspace, &key, viewport_height);
+    }
+
+    /// Reports that creating a list or folder failed with `error`.
+    fn create_failed(&mut self, error: &EntryError) {
+        let report = error_report(error);
+        tracing::warn!(%report, "cannot create entry");
         self.show_message(StatusMessage::error(report));
     }
 }

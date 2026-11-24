@@ -42,7 +42,7 @@ const SCROLLBAR_TRACK: &str = "\u{2502}";
 /// Draws the help screen over the rest of the interface if `app` is in [`Mode::Help`].
 pub fn render(app: &App, frame: &mut Frame) {
     match app.mode() {
-        Mode::Normal => {}
+        Mode::Normal | Mode::Prompt(_) => {}
         Mode::Help(help) => render_help(help, app.theme(), frame),
     }
 }

@@ -97,6 +97,12 @@ impl Prompt {
         self.preview = preview;
     }
 
+    /// Returns the error shown below the preview, if any.
+    #[must_use]
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
     /// Shows `error` below the preview in the `input_error` slot, or no error if it is `None`.
     pub fn set_error(&mut self, error: Option<Cow<'static, str>>) {
         self.error = error;
@@ -315,6 +321,15 @@ mod tests {
             let dialog = ConfirmDialog::new("Delete list groceries?", keymap, &theme);
             frame.render_widget(dialog, frame.area());
         })
+    }
+
+    #[rstest]
+    #[case::without_error(prompt(), None)]
+    #[case::with_error(prompt_with_all_lines(), Some("unknown date"))]
+    fn error_returns_the_shown_error(#[case] prompt: Prompt, #[case] expected: Option<&str>) {
+        let system_under_test = prompt.error();
+
+        assert_eq!(system_under_test, expected);
     }
 
     /// Returns the colour and modifiers of the cell at `x`, `y`; the background is never set.

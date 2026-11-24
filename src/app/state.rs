@@ -5,6 +5,7 @@ use ratatui::layout::{Rect, Size};
 
 use crate::app::help::HelpOverlay;
 use crate::app::lists::ListsPane;
+use crate::app::prompt::PromptOverlay;
 use crate::app::status::Status;
 use crate::config::Config;
 use crate::config::keymap::action::Context;
@@ -120,6 +121,7 @@ impl App {
         match &self.mode {
             Mode::Normal => self.focus.context(),
             Mode::Help(help) => help.context(),
+            Mode::Prompt(_) => Context::Input,
         }
     }
 
@@ -138,7 +140,7 @@ impl App {
         self.lists
             .refresh(&self.workspace, self.viewport_height(Focus::Lists));
         match &mut self.mode {
-            Mode::Normal => {}
+            Mode::Normal | Mode::Prompt(_) => {}
             Mode::Help(help) => help.refresh(screen_size),
         }
     }
@@ -216,6 +218,8 @@ pub enum Mode {
     Normal,
     /// The help screen covers the panes and takes the keys.
     Help(HelpOverlay),
+    /// An input popup asks for text, such as the name of a new list, and takes the keys.
+    Prompt(PromptOverlay),
 }
 
 #[cfg(test)]

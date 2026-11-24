@@ -2,6 +2,7 @@
 //! the [`Effect`]s to perform.
 
 use crate::app::effect::Effect;
+use crate::app::prompt::PromptKind;
 use crate::app::state::{App, Focus, Mode};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeyChord;
@@ -40,6 +41,7 @@ impl App {
                 tracing::debug!(length = text.len(), "pasted text ignored in normal mode");
             }
             Mode::Help(help) => help.paste(text, &self.keymap, self.screen_size),
+            Mode::Prompt(prompt) => prompt.paste(text),
         }
         Vec::new()
     }
@@ -68,17 +70,21 @@ impl App {
             | Action::UnfoldAll
             | Action::Open) => self.navigate(action),
             Action::Search => self.search(),
-            Action::Submit => self.submit(),
+            Action::Submit => return self.submit(),
             Action::Cancel => self.cancel(),
             Action::Help => self.open_help(),
             Action::CloseHelp => self.close_help(),
+            Action::NewList => self.open_prompt(PromptKind::NewList {
+                parent: self.lists.target_folder(),
+            }),
+            Action::NewFolder => self.open_prompt(PromptKind::NewFolder {
+                parent: self.lists.target_folder(),
+            }),
             Action::ClearFilter
             | Action::Undo
             | Action::Redo
             | Action::ToggleCompleted
             | Action::OpenInEditor
-            | Action::NewList
-            | Action::NewFolder
             | Action::Rename
             | Action::Delete
             | Action::NewTaskBelow
@@ -120,6 +126,7 @@ impl App {
                 Focus::Lists => self.update_lists(action),
                 Focus::Tasks => {}
             },
+            Mode::Prompt(_) => {}
         }
     }
 
@@ -127,22 +134,25 @@ impl App {
     fn search(&mut self) {
         match &mut self.mode {
             Mode::Help(help) => help.open_filter(self.screen_size),
-            Mode::Normal => {}
+            Mode::Normal | Mode::Prompt(_) => {}
         }
     }
 
-    /// Accepts the text of the open text input.
-    fn submit(&mut self) {
+    /// Accepts the text of the open text input and returns the effects it asks for.
+    fn submit(&mut self) -> Vec<Effect> {
         match &mut self.mode {
             Mode::Help(help) => help.submit_filter(self.screen_size),
+            Mode::Prompt(_) => return self.submit_prompt(),
             Mode::Normal => {}
         }
+        Vec::new()
     }
 
     /// Discards the text of the open text input.
     fn cancel(&mut self) {
         match &mut self.mode {
             Mode::Help(help) => help.cancel_filter(&self.keymap, self.screen_size),
+            Mode::Prompt(_) => self.close_prompt(),
             Mode::Normal => {}
         }
     }
@@ -151,6 +161,7 @@ impl App {
     fn type_key(&mut self, chord: KeyChord) {
         match &mut self.mode {
             Mode::Help(help) => help.press(chord, &self.keymap, self.screen_size),
+            Mode::Prompt(prompt) => prompt.press(chord),
             Mode::Normal => {}
         }
     }

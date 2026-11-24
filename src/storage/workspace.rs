@@ -18,6 +18,7 @@ use tracing::warn;
 
 use crate::config::IndentStyle;
 use crate::markdown::document::TodoDocument;
+use crate::storage::entries::EntryName;
 use crate::storage::fingerprint::Fingerprint;
 
 /// File extension of list files, compared case-insensitively.
@@ -102,6 +103,38 @@ impl Workspace {
     pub fn absolute_path(&self, path: &ListPath) -> PathBuf {
         self.root.join(&path.0)
     }
+
+    /// Adds an empty folder or list named `name` to the folder `parent` in display order and
+    /// returns it, after it was created on disk, so that the workspace need not be scanned
+    /// again.
+    ///
+    /// `parent` is relative to the workspace root and empty for the root itself. A list is
+    /// added with an empty document, as a scan would load its new, empty file. Returns `None`
+    /// if `parent` is not a folder of the workspace.
+    pub fn insert(&mut self, kind: EntryKind, parent: &Path, name: &EntryName) -> Option<&Entry> {
+        let entries = folder_entries_mut(&mut self.entries, parent)?;
+        let entry = match kind {
+            EntryKind::Folder => Entry::Folder(Folder {
+                name: name.as_str().to_owned(),
+                path: parent.join(name.as_str()),
+                entries: Vec::new(),
+            }),
+            EntryKind::List => Entry::List(List {
+                name: name.as_str().to_owned(),
+                path: ListPath(parent.join(name.list_file_name())),
+                content: Ok(LoadedList {
+                    document: TodoDocument::parse(""),
+                    fingerprint: Fingerprint::of(&[]),
+                }),
+            }),
+        };
+        let index = entries.partition_point(|existing| {
+            display_order((existing.kind(), existing.name()), (kind, name.as_str()))
+                == Ordering::Less
+        });
+        entries.insert(index, entry);
+        Some(&entries[index])
+    }
 }
 
 /// A list's file path relative to the workspace root, which identifies the list.
@@ -138,6 +171,15 @@ impl Entry {
         match self {
             Self::Folder(folder) => folder.name(),
             Self::List(list) => list.name(),
+        }
+    }
+
+    /// Returns whether this is a folder or a list.
+    #[must_use]
+    pub fn kind(&self) -> EntryKind {
+        match self {
+            Self::Folder(_) => EntryKind::Folder,
+            Self::List(_) => EntryKind::List,
         }
     }
 }
@@ -267,10 +309,12 @@ pub enum WorkspaceError {
     },
 }
 
-/// Display order of entry kinds: folders before lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum EntryKind {
+/// Whether an [`Entry`] is a folder or a list; folders are shown before lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
+pub enum EntryKind {
+    /// A directory.
     Folder,
+    /// A list file.
     List,
 }
 
@@ -314,12 +358,17 @@ fn read_directory(root: &Path, relative: &Path) -> io::Result<Vec<PendingEntry>>
         })
         .collect();
     entries.sort_by(|first, second| {
-        first
-            .kind()
-            .cmp(&second.kind())
-            .then_with(|| compare_names(first.name(), second.name()))
+        display_order((first.kind(), first.name()), (second.kind(), second.name()))
     });
     Ok(entries)
+}
+
+/// Orders entries by kind and name: folders first, then lists, each by [`compare_names`].
+fn display_order(first: (EntryKind, &str), second: (EntryKind, &str)) -> Ordering {
+    first
+        .0
+        .cmp(&second.0)
+        .then_with(|| compare_names(first.1, second.1))
 }
 
 /// Turns a directory entry into a folder or list, or `None` if it is not part of the tree.
@@ -436,6 +485,26 @@ fn find_list<'workspace>(
     })
 }
 
+/// Returns the entries of the folder at `path`, or of the root if `path` is empty.
+fn folder_entries_mut<'workspace>(
+    entries: &'workspace mut Vec<Entry>,
+    path: &Path,
+) -> Option<&'workspace mut Vec<Entry>> {
+    if path.as_os_str().is_empty() {
+        return Some(entries);
+    }
+    entries.iter_mut().find_map(|entry| match entry {
+        Entry::Folder(folder) if path.starts_with(&folder.path) => {
+            if folder.path == path {
+                Some(&mut folder.entries)
+            } else {
+                folder_entries_mut(&mut folder.entries, path)
+            }
+        }
+        Entry::Folder(_) | Entry::List(_) => None,
+    })
+}
+
 fn find_list_mut<'workspace>(
     entries: &'workspace mut [Entry],
     path: &ListPath,
@@ -454,6 +523,7 @@ mod tests {
     use std::io::ErrorKind;
 
     use rstest::rstest;
+    use strum::IntoEnumIterator;
     use tempfile::TempDir;
 
     use super::*;
@@ -742,6 +812,81 @@ mod tests {
         let system_under_test = compare_names(first, second);
 
         assert_eq!(system_under_test, expected);
+    }
+
+    fn entry_name(text: &str) -> EntryName {
+        EntryName::try_from(text).unwrap()
+    }
+
+    const TREE_BEFORE_INSERT: [&str; 5] =
+        ["home/", "home/garden/", "home/kitchen.md", "A.md", "c.md"];
+
+    #[rstest]
+    #[case::list_at_the_top_level(EntryKind::List, "", "b", 4)]
+    #[case::list_after_the_same_name_in_upper_case(EntryKind::List, "", "a", 4)]
+    #[case::folder_before_the_lists(EntryKind::Folder, "", "z", 3)]
+    #[case::list_in_a_nested_folder(EntryKind::List, "home/garden", "Roses", 2)]
+    #[case::folder_before_the_other_folders(EntryKind::Folder, "home", "attic", 1)]
+    fn insert_adds_the_entry_in_display_order(
+        #[case] kind: EntryKind,
+        #[case] parent: &str,
+        #[case] name: &str,
+        #[case] expected_row: usize,
+    ) {
+        let root = TempDir::new().unwrap();
+        create_dir(root.path(), "home/garden");
+        write_file(root.path(), "home/kitchen.md", b"");
+        write_file(root.path(), "c.md", b"");
+        write_file(root.path(), "A.md", b"");
+        let mut workspace = scan(&root);
+        let path = Path::new(parent).join(name);
+        let inserted_line = match kind {
+            EntryKind::Folder => format!("{}/", path.display()),
+            EntryKind::List => format!("{}.md", path.display()),
+        };
+        let mut expected: Vec<String> = TREE_BEFORE_INSERT.map(String::from).to_vec();
+        expected.insert(expected_row, inserted_line);
+
+        let system_under_test = workspace.insert(kind, Path::new(parent), &entry_name(name));
+
+        assert_eq!(system_under_test.map(Entry::name), Some(name));
+        assert_eq!(outline(workspace.entries()), expected);
+    }
+
+    #[test]
+    fn inserted_list_has_an_empty_document() {
+        let root = TempDir::new().unwrap();
+        let mut workspace = scan(&root);
+        let expected = LoadedList {
+            document: TodoDocument::parse(""),
+            fingerprint: Fingerprint::of(b""),
+        };
+
+        let system_under_test = workspace.insert(EntryKind::List, Path::new(""), &entry_name("a"));
+
+        let Some(Entry::List(list)) = system_under_test else {
+            panic!("expected a list, got {system_under_test:?}");
+        };
+        assert_eq!(list.content().unwrap(), &expected);
+    }
+
+    #[test]
+    fn insert_into_a_missing_folder_adds_nothing() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "missing.md", b"");
+        let mut workspace = scan(&root);
+        let expected = vec!["missing.md".to_owned()];
+
+        let system_under_test: Vec<bool> = EntryKind::iter()
+            .map(|kind| {
+                workspace
+                    .insert(kind, Path::new("missing"), &entry_name("a"))
+                    .is_some()
+            })
+            .collect();
+
+        assert_eq!(system_under_test, [false, false]);
+        assert_eq!(outline(workspace.entries()), expected);
     }
 
     #[cfg(unix)]

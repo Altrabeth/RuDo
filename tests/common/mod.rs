@@ -122,6 +122,11 @@ impl TestApp {
     pub fn read(&self, path: &str) -> String {
         fs::read_to_string(self.workspace_folder.path().join(path)).unwrap()
     }
+
+    /// Returns whether the folder at `path`, relative to the workspace root, exists.
+    pub fn is_folder(&self, path: &str) -> bool {
+        self.workspace_folder.path().join(path).is_dir()
+    }
 }
 
 fn find_list_path<'workspace>(

@@ -1,0 +1,16 @@
+---
+source: tests/lists_create.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
+"│ No lists yet. Press  ││                                                      │"
+"│ o to create one.     ││                                                      │"
+"│               ╭ New list ────────────────────────────────────╮               │"
+"│               │ a/b                                          │               │"
+"│               │ in the workspace folder                      │               │"
+"│               │                                              │               │"
+"│               │ names must not contain '/'                   │               │"
+"│               ╰──────────────────────────────────────────────╯               │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" enter accept  esc cancel                                                       "

@@ -4,7 +4,7 @@
 //! [`Workspace`] whenever the pane needs it, so lists that are created, renamed or reloaded
 //! can never leave a stale row behind.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::app::state::{App, Focus};
 use crate::config::keymap::action::Action;
@@ -18,6 +18,15 @@ pub enum EntryKey {
     Folder(PathBuf),
     /// A list, by its path.
     List(ListPath),
+}
+
+impl From<&Entry> for EntryKey {
+    fn from(entry: &Entry) -> Self {
+        match entry {
+            Entry::Folder(folder) => Self::Folder(folder.path().to_path_buf()),
+            Entry::List(list) => Self::List(list.path().clone()),
+        }
+    }
 }
 
 /// A folder or list of the workspace tree with its key and nesting depth.
@@ -63,20 +72,14 @@ fn push_items<'workspace>(
     depth: usize,
 ) {
     for entry in entries {
+        items.push(TreeItem {
+            entry,
+            key: EntryKey::from(entry),
+            depth,
+        });
         match entry {
-            Entry::Folder(folder) => {
-                items.push(TreeItem {
-                    entry,
-                    key: EntryKey::Folder(folder.path().to_path_buf()),
-                    depth,
-                });
-                push_items(items, folder.entries(), depth + 1);
-            }
-            Entry::List(list) => items.push(TreeItem {
-                entry,
-                key: EntryKey::List(list.path().clone()),
-                depth,
-            }),
+            Entry::Folder(folder) => push_items(items, folder.entries(), depth + 1),
+            Entry::List(_) => {}
         }
     }
 }
@@ -134,6 +137,25 @@ impl ListsPane {
     pub(super) fn refresh(&mut self, workspace: &Workspace, viewport_height: usize) {
         self.outline
             .refresh(&tree_items(workspace), viewport_height);
+    }
+
+    /// Returns the folder that receives a new entry, relative to the workspace root: the
+    /// selected folder, the folder of the selected list, or the root (an empty path).
+    pub(super) fn target_folder(&self) -> PathBuf {
+        match self.outline.selected() {
+            Some(EntryKey::Folder(folder)) => folder.clone(),
+            Some(EntryKey::List(list)) => list.as_path().parent().map_or_default(Path::to_path_buf),
+            None => PathBuf::new(),
+        }
+    }
+
+    /// Selects the entry with `key` in the tree of `workspace`, unfolding the folders that
+    /// contain it, in a viewport `viewport_height` rows high.
+    pub(super) fn select(&mut self, workspace: &Workspace, key: &EntryKey, viewport_height: usize) {
+        // An entry that is already selected stays selected, so either outcome is fine.
+        let _: Outcome = self
+            .outline
+            .select(&tree_items(workspace), key, viewport_height);
     }
 
     /// Performs `action` on the tree of `workspace`, shown in a viewport `viewport_height` rows

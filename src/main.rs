@@ -81,10 +81,16 @@ fn run(
         .context("cannot open the workspace folder")?;
     tracing::info!(?root, "workspace root resolved");
 
-    let (config, _theme, keymap) = settings.into_parts();
+    let (config, theme, keymap) = settings.into_parts();
     let workspace = Workspace::scan(root.path(), config.tasks().indent())
         .context("cannot read the workspace folder")?;
-    let mut app = App::new(workspace, config, keymap, ZonedDateTime::now().date());
+    let mut app = App::new(
+        workspace,
+        config,
+        theme,
+        keymap,
+        ZonedDateTime::now().date(),
+    );
     runtime::run(&mut app)?;
     tracing::info!("rudo stopped");
     Ok(())

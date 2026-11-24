@@ -33,7 +33,7 @@ init-project name=directory_name: && check
 
 # Install the cargo subcommands used by the recipes
 install-tools:
-    cargo install --locked cargo-deny cargo-llvm-cov
+    cargo install --locked cargo-deny cargo-insta cargo-llvm-cov
 
 # Build the project
 build *args:
@@ -65,6 +65,10 @@ lint:
 # Run all tests, including doctests
 test *args:
     cargo test --all-features "$@"
+
+# Review changed snapshots of the rendered interface
+snap:
+    cargo insta review
 
 # Build the documentation, denying warnings
 doc *args:

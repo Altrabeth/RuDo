@@ -1,5 +1,9 @@
 //! User scenarios of the application core: focus, quitting and saving edits.
 
+#[expect(
+    dead_code,
+    reason = "each test crate uses only part of the shared harness"
+)]
 mod common;
 
 use rstest::rstest;

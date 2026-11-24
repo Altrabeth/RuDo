@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::config::keymap::action::Context;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::keymap::resolver::KeyResolver;
+use crate::config::theme::Theme;
 use crate::storage::workspace::Workspace;
 
 /// The complete state of a running RuDo.
@@ -19,6 +20,7 @@ use crate::storage::workspace::Workspace;
 pub struct App {
     pub(super) workspace: Workspace,
     pub(super) config: Config,
+    pub(super) theme: Theme,
     pub(super) keymap: Keymap,
     pub(super) resolver: KeyResolver,
     pub(super) focus: Focus,
@@ -31,13 +33,21 @@ pub struct App {
 impl App {
     /// Starts the application on `workspace` with the lists pane focused.
     ///
-    /// `keymap` is the effective keymap built from `config`, and `today` is the current date,
-    /// which the runtime updates with [`App::set_today`].
+    /// `theme` and `keymap` are the effective theme and keymap built from `config`, as
+    /// [`Settings::into_parts`](crate::config::settings::Settings::into_parts) returns them,
+    /// and `today` is the current date, which the runtime updates with [`App::set_today`].
     #[must_use]
-    pub fn new(workspace: Workspace, config: Config, keymap: Keymap, today: Date) -> Self {
+    pub fn new(
+        workspace: Workspace,
+        config: Config,
+        theme: Theme,
+        keymap: Keymap,
+        today: Date,
+    ) -> Self {
         Self {
             workspace,
             config,
+            theme,
             keymap,
             resolver: KeyResolver::default(),
             focus: Focus::Lists,
@@ -58,6 +68,12 @@ impl App {
     #[must_use]
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Returns the effective theme, from which every widget takes its styles.
+    #[must_use]
+    pub fn theme(&self) -> &Theme {
+        &self.theme
     }
 
     /// Returns the effective keymap.
@@ -182,7 +198,13 @@ pub(super) mod tests {
         let config = Config::default();
         let keymap = Keymap::new(config.keybindings()).unwrap();
         let workspace = Workspace::scan(root, config.tasks().indent()).unwrap();
-        App::new(workspace, config, keymap, date(2026, 3, 14))
+        App::new(
+            workspace,
+            config,
+            Theme::default(),
+            keymap,
+            date(2026, 3, 14),
+        )
     }
 
     /// Returns the path of the only list in the workspace of `app`.
@@ -211,6 +233,7 @@ pub(super) mod tests {
         assert!(!system_under_test.should_quit());
         assert_eq!(system_under_test.workspace().root(), directory.path());
         assert_eq!(system_under_test.config(), &Config::default());
+        assert_eq!(system_under_test.theme(), &Theme::default());
     }
 
     #[rstest]

@@ -211,7 +211,7 @@ run in-process.
 | ---------------------------------- | --------------------------------------------------------------------- |
 | parsing, domain types, edits       | unit tests with `rstest` tables; `proptest` for round trips           |
 | `App::update`                      | build a state, apply actions, assert on the resulting state and effects |
-| widgets and layout                 | render into `ratatui::backend::TestBackend`, `insta` snapshots        |
+| widgets and layout                 | `TestApp::render(width, height)` into a `TestBackend`; `insta` text snapshots (`just snap`), colours asserted on single cells |
 | storage                            | the real file system under `tempfile::TempDir`                        |
 | user scenarios                     | `tests/` drive a `TestApp` with key strings (`"o"`, `"Buy milk"`, `"enter"`) against a `TempDir` workspace and assert on the files |
 | terminal and event loop            | kept too thin to need tests (humble object)                           |

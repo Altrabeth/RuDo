@@ -1,0 +1,8 @@
+---
+source: tests/ui.rs
+expression: system_under_test
+---
+"                    "
+"                    "
+" terminal too small "
+"                    "

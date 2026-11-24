@@ -4,11 +4,15 @@ use std::fs;
 use std::path::Path;
 
 use jiff::civil::{Date, date};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 use rudo::app::{App, Effect, execute};
 use rudo::config::Config;
 use rudo::config::keymap::key::{Key, KeyChord, Modifiers};
 use rudo::config::keymap::keymap::Keymap;
+use rudo::config::theme::Theme;
 use rudo::storage::workspace::{Entry, ListPath, Workspace};
+use rudo::ui;
 use tempfile::TempDir;
 
 /// The date every `TestApp` treats as today.
@@ -33,7 +37,7 @@ impl TestApp {
         let config = Config::default();
         let keymap = Keymap::new(config.keybindings()).unwrap();
         let workspace = Workspace::scan(workspace_folder.path(), config.tasks().indent()).unwrap();
-        let app = App::new(workspace, config, keymap, TODAY);
+        let app = App::new(workspace, config, Theme::default(), keymap, TODAY);
         Self {
             workspace_folder,
             app,
@@ -43,6 +47,14 @@ impl TestApp {
     /// Returns the application.
     pub fn app(&self) -> &App {
         &self.app
+    }
+
+    /// Draws the application with [`ui::view`] into a terminal of `width` by `height` cells;
+    /// its `Display` output is the text of every row, for snapshot tests.
+    pub fn render(&self, width: u16, height: u16) -> TestBackend {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| ui::view(&self.app, frame)).unwrap();
+        terminal.backend().clone()
     }
 
     /// Presses the keys written in key notation, such as `"g g"` or `"ctrl-c"`.

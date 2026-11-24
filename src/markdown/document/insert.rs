@@ -105,9 +105,7 @@ impl TodoDocument {
     /// document.
     #[must_use = "the removed block is lost if it is not kept"]
     pub fn remove_block(&mut self, id: TaskId) -> Option<TaskBlock> {
-        let start = self.line_index(id)?;
-        let end = start + self.block(id)?.lines.len();
-        let removed = self.remove_lines(start..end);
+        let removed = self.remove_lines(self.block_range(id)?);
         Some(TaskBlock::detach(removed.into_iter().map(|line| line.kind)))
     }
 
@@ -197,8 +195,7 @@ impl TodoDocument {
                 Some(last_child) => self.target(InsertPosition::Below(last_child), fallback_indent),
                 None => Some(Target {
                     line_index: self.block_end(id)?,
-                    indent: self.task_line(id)?.indent().to_owned()
-                        + &indent_unit(self.indent_style(fallback_indent)),
+                    indent: self.child_indent(id, fallback_indent)?,
                     marker: ListMarker::Dash,
                 }),
             },
@@ -213,14 +210,32 @@ impl TodoDocument {
         }
     }
 
-    fn task_line(&self, id: TaskId) -> Option<&TaskLine> {
+    /// Returns the indentation of a new last subtask of the task `id`: that of its last
+    /// subtask, or one level of [`TodoDocument::indent_style`] beyond the task without one.
+    pub(super) fn child_indent(&self, id: TaskId, fallback_indent: IndentStyle) -> Option<String> {
+        match self.children(id).last() {
+            Some(last_child) => Some(self.task_line(last_child)?.indent().to_owned()),
+            None => Some(
+                self.task_line(id)?.indent().to_owned()
+                    + &indent_unit(self.indent_style(fallback_indent)),
+            ),
+        }
+    }
+
+    pub(super) fn task_line(&self, id: TaskId) -> Option<&TaskLine> {
         let (_, task) = self.lines[self.line_index(id)?].task()?;
         Some(task)
     }
 
+    /// Returns the line indices of the block of a task.
+    pub(super) fn block_range(&self, id: TaskId) -> Option<Range<usize>> {
+        let start = self.line_index(id)?;
+        Some(start..start + self.block(id)?.lines.len())
+    }
+
     /// Returns the index of the first line after the block of a task.
     fn block_end(&self, id: TaskId) -> Option<usize> {
-        Some(self.line_index(id)? + self.block(id)?.lines.len())
+        Some(self.block_range(id)?.end)
     }
 
     /// Inserts lines before `index` with the dominant line ending. Lines appended to a file
@@ -316,16 +331,9 @@ impl DetachedLine {
             }
             LineKind::Raw(text) if text.trim().is_empty() => Self::Blank(text),
             LineKind::Raw(mut text) => {
-                let width = indentation_width(&text);
-                let depth = owner_position(ancestors, width);
+                let depth = owner_position(ancestors, indentation_width(&text));
                 let owner = &ancestors[depth];
-                if text.starts_with(&owner.indent) {
-                    text.replace_range(..owner.indent.len(), "");
-                } else {
-                    let indent_length = text.len() - text.trim_start_matches(BLANKS).len();
-                    let extra_width = width.saturating_sub(owner.width);
-                    text.replace_range(..indent_length, &" ".repeat(extra_width));
-                }
+                replace_indent(&mut text, &owner.indent, owner.width, "");
                 Self::Text { depth, text }
             }
         }
@@ -344,6 +352,23 @@ impl DetachedLine {
             Self::Text { depth, text } => LineKind::Raw(indent(*depth) + text),
             Self::Blank(text) => LineKind::Raw(text.clone()),
         }
+    }
+}
+
+/// Replaces the indentation `old`, `old_width` columns wide, at the start of `text` with `new`.
+///
+/// Lines that do not start with `old`, because they mix tabs and spaces differently, keep
+/// the columns beyond `old_width` as spaces after `new`.
+pub(super) fn replace_indent(text: &mut String, old: &str, old_width: usize, new: &str) {
+    if text.starts_with(old) {
+        text.replace_range(..old.len(), new);
+    } else {
+        let indent_length = text.len() - text.trim_start_matches(BLANKS).len();
+        let extra_width = indentation_width(text).saturating_sub(old_width);
+        text.replace_range(
+            ..indent_length,
+            &(new.to_owned() + &" ".repeat(extra_width)),
+        );
     }
 }
 
@@ -723,6 +748,26 @@ mod tests {
             system_under_test.iter().collect::<HashSet<_>>().len(),
             expected_task_count
         );
+    }
+
+    #[rstest]
+    #[case::same_prefix("\t  text", "\t", 4, "  ", "    text")]
+    #[case::remove_prefix("  - [ ] a", "  ", 2, "", "- [ ] a")]
+    #[case::other_mix_keeps_extra_columns_as_spaces("      odd", "\t", 4, "\t\t", "\t\t  odd")]
+    #[case::other_mix_without_extra_columns("    x", "\t", 4, "", "x")]
+    fn replaces_indent_prefix(
+        #[case] text: &str,
+        #[case] old: &str,
+        #[case] old_width: usize,
+        #[case] new: &str,
+        #[case] expected: &str,
+    ) {
+        let mut edited = text.to_owned();
+        replace_indent(&mut edited, old, old_width, new);
+
+        let system_under_test = edited;
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[test]

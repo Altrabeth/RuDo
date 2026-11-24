@@ -23,6 +23,7 @@ use crate::markdown::task_line::{TaskLine, indentation_width};
 
 mod content;
 mod insert;
+mod reorder;
 
 pub use insert::{InsertPosition, TaskBlock};
 

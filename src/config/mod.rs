@@ -19,6 +19,7 @@ use serde::de::{self, Deserializer, Unexpected, Visitor};
 use serde_saphyr::{UserMessageFormatter, render_options};
 
 use self::theme::ThemeConfig;
+use crate::config::keymap::keymap::KeyBindings;
 use crate::paths::expand_tilde;
 
 /// The complete default configuration with comments, as printed by `rudo config default`.
@@ -67,6 +68,8 @@ pub struct Config {
     editor: Option<String>,
     #[serde(deserialize_with = "null_as_default")]
     theme: ThemeConfig,
+    #[serde(deserialize_with = "null_as_default")]
+    keybindings: KeyBindings,
 }
 
 impl Config {
@@ -156,6 +159,12 @@ impl Config {
     #[must_use]
     pub fn theme(&self) -> &ThemeConfig {
         &self.theme
+    }
+
+    /// Returns the `keybindings` section: the keys that replace the defaults of actions.
+    #[must_use]
+    pub fn keybindings(&self) -> &KeyBindings {
+        &self.keybindings
     }
 }
 
@@ -326,6 +335,8 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::config::keymap::action::Action;
+    use crate::config::keymap::keymap::Keymap;
 
     const HOME: &str = "/home/alice";
 
@@ -386,6 +397,7 @@ mod tests {
     #[case::workspace("workspace:\n  # root: ~/todo\n")]
     #[case::tasks("tasks:\n  # indent: 2\n")]
     #[case::theme("theme:\n  # tag: { fg: red }\n")]
+    #[case::keybindings("keybindings:\n  # quit: [q]\n")]
     #[case::explicit_null("tasks: null\n")]
     #[case::tilde("theme: ~\n")]
     fn null_section_means_defaults(#[case] yaml: &str) {
@@ -428,6 +440,7 @@ mod tests {
             },
             editor: Some("code --wait".to_owned()),
             theme: ThemeConfig::default(),
+            keybindings: KeyBindings::default(),
         };
 
         let system_under_test = Config::from_yaml(yaml, source()).unwrap();
@@ -442,6 +455,54 @@ mod tests {
         let system_under_test = Config::from_yaml(yaml, source()).unwrap();
 
         assert_eq!(system_under_test.workspace().root(), None);
+    }
+
+    #[test]
+    fn reads_keybindings() {
+        let yaml = "keybindings:\n  toggle-done: [x, space, ctrl-x]\n  set-due-date: \"t d\"\n  \
+                    open-in-editor: []\n";
+        let expected: KeyBindings = [
+            (Action::ToggleDone, &["x", "space", "ctrl-x"][..]),
+            (Action::SetDueDate, &["t d"]),
+            (Action::OpenInEditor, &[]),
+        ]
+        .into_iter()
+        .map(|(action, notations)| {
+            let keys = notations.iter().map(|key| key.parse().unwrap()).collect();
+            (action, keys)
+        })
+        .collect();
+
+        let system_under_test = Config::from_yaml(yaml, source()).unwrap();
+
+        assert_eq!(*system_under_test.keybindings(), expected);
+    }
+
+    #[test]
+    fn unknown_action_is_reported_with_location_and_valid_names() {
+        let yaml = "keybindings:\n  teleport: t\n";
+        let expected_location = "/etc/rudo/config.yaml:2:3";
+        let expected_names = "expected one of help, quit";
+
+        let system_under_test = report(Config::from_yaml(yaml, source()).unwrap_err());
+
+        assert!(
+            system_under_test.contains(expected_location),
+            "{system_under_test}"
+        );
+        assert!(
+            system_under_test.contains(expected_names),
+            "{system_under_test}"
+        );
+    }
+
+    #[test]
+    fn default_config_file_has_a_valid_keymap() {
+        let config = Config::from_yaml(DEFAULT_CONFIG_YAML, source()).unwrap();
+
+        let system_under_test = Keymap::new(config.keybindings());
+
+        assert_eq!(system_under_test.err(), None);
     }
 
     #[rstest]

@@ -286,8 +286,9 @@ keybindings:
 `keybindings` maps an action name (see the tables above) to one key or a list of keys. The
 keys you give *replace* the default keys of that action; actions you do not mention keep
 their defaults. RuDo refuses a configuration in which a key is bound to two actions in the
-same pane, or in which one binding is a prefix of another (`g` and `g g`), and tells you
-which actions collide.
+same pane, in which one binding is a prefix of another (`g` and `g g`), or in which `submit`
+or `cancel` starts with a key that types text (a character without `ctrl` or `alt`), and
+lists every collision with the actions involved.
 
 Key notation:
 

@@ -6,10 +6,13 @@
 //! so a chord parsed from the configuration and the same chord reported by the terminal
 //! compare equal.
 
+use std::borrow::Borrow;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use serde::Deserialize;
+use serde::de::{self, Deserializer, Visitor};
 use strum::IntoEnumIterator;
 
 /// Notation of the space bar; a literal space separates the chords of a sequence.
@@ -40,7 +43,7 @@ pub enum KeyNotationError {
 }
 
 /// A function key from `F1` to `F12`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FunctionKey(u8);
 
 impl FunctionKey {
@@ -78,7 +81,9 @@ impl Default for FunctionKey {
 ///
 /// Named keys print as their lowercase variant name (`pageup`, `backtab`); the space bar is
 /// `Char(' ')` and prints as `space`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter, strum::IntoStaticStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter, strum::IntoStaticStr,
+)]
 #[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum Key {
@@ -276,7 +281,7 @@ impl Modifier {
 }
 
 /// A set of [`Modifier`]s.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Modifiers(u8);
 
 impl Modifiers {
@@ -342,7 +347,7 @@ impl FromIterator<Modifier> for Modifiers {
 /// assert_eq!("shift-a".parse::<KeyChord>()?, "A".parse()?);
 /// # Ok::<(), KeyNotationError>(())
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KeyChord {
     key: Key,
     modifiers: Modifiers,
@@ -435,6 +440,10 @@ impl Display for KeyChord {
 /// A non-empty sequence of [`KeyChord`]s typed one after the other, written with spaces
 /// between the chords (`g g`, `z a`).
 ///
+/// Sequences compare chord by chord like the slices they borrow as, so a sequence sorts
+/// directly before the sequences that extend it. In a configuration file a sequence is a
+/// string in key notation; a plain number such as `1` is read as the keys of its digits.
+///
 /// # Examples
 ///
 /// ```
@@ -445,7 +454,7 @@ impl Display for KeyChord {
 /// assert_eq!(sequence.to_string(), "g g");
 /// # Ok::<(), KeyNotationError>(())
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KeySequence(Vec<KeyChord>);
 
 impl KeySequence {
@@ -487,6 +496,38 @@ impl Display for KeySequence {
             write!(formatter, "{first}")?;
         }
         chords.try_for_each(|chord| write!(formatter, " {chord}"))
+    }
+}
+
+/// Lets maps keyed by sequences be queried with the chords typed so far.
+impl Borrow<[KeyChord]> for KeySequence {
+    fn borrow(&self) -> &[KeyChord] {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for KeySequence {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(KeySequenceVisitor)
+    }
+}
+
+struct KeySequenceVisitor;
+
+impl Visitor<'_> for KeySequenceVisitor {
+    type Value = KeySequence;
+
+    fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
+        formatter.write_str("a key sequence such as `x`, `ctrl-d` or `g g`")
+    }
+
+    fn visit_str<E: de::Error>(self, notation: &str) -> Result<Self::Value, E> {
+        notation.parse().map_err(E::custom)
+    }
+
+    /// YAML reads a lone digit key such as `1` as a number.
+    fn visit_u64<E: de::Error>(self, digits: u64) -> Result<Self::Value, E> {
+        self.visit_str(&digits.to_string())
     }
 }
 
@@ -646,6 +687,47 @@ mod tests {
         let system_under_test = sequence.to_string();
 
         assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::character("x", "x")]
+    #[case::sequence("g g", "g g")]
+    #[case::quoted_modifier("\"ctrl-d\"", "ctrl-d")]
+    #[case::digit("1", "1")]
+    fn deserializes_sequence(#[case] yaml: &str, #[case] expected: &str) {
+        let expected: KeySequence = expected.parse().unwrap();
+
+        let system_under_test: KeySequence = serde_saphyr::from_str(yaml).unwrap();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::unknown_key("ctrl-foo", "unknown key `foo`")]
+    #[case::empty("\"\"", "key notation is empty")]
+    #[case::list("[x]", "a key sequence such as")]
+    fn rejects_invalid_sequence_in_yaml(#[case] yaml: &str, #[case] expected_message: &str) {
+        let system_under_test = serde_saphyr::from_str::<KeySequence>(yaml)
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            system_under_test.contains(expected_message),
+            "{system_under_test}"
+        );
+    }
+
+    #[rstest]
+    #[case::prefix_before_extension("g", "g g")]
+    #[case::extension_before_next_key("g g", "h")]
+    #[case::shorter_extension_first("z a", "z a a")]
+    fn sequences_sort_chord_by_chord(#[case] smaller: &str, #[case] larger: &str) {
+        let smaller: KeySequence = smaller.parse().unwrap();
+        let larger: KeySequence = larger.parse().unwrap();
+
+        let system_under_test = smaller.cmp(&larger);
+
+        assert_eq!(system_under_test, std::cmp::Ordering::Less);
     }
 
     #[rstest]

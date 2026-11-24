@@ -1,9 +1,12 @@
 //! The `rudo` binary: parses the command line, sets up logging, loads the configuration and
-//! chooses the workspace folder.
+//! the keymap and chooses the workspace folder.
 
-use anyhow::Context;
+use std::fmt::Write;
+
+use anyhow::{Context, anyhow};
 use clap::Parser;
 use rudo::cli::Cli;
+use rudo::config::keymap::keymap::{Keymap, KeymapError};
 use rudo::config::root::WorkspaceRoot;
 use rudo::config::{self, Config};
 use rudo::logging::{self, LOG_FILE_NAME};
@@ -28,6 +31,10 @@ fn main() -> anyhow::Result<()> {
         None => Config::default(),
     };
     tracing::info!(?config_file, ?config, "configuration loaded");
+    let keymap = Keymap::new(config.keybindings())
+        .map_err(|errors| anyhow!("invalid keybindings{}", keymap_report(&errors)))
+        .context("cannot load the configuration")?;
+    tracing::debug!(?keymap, "keymap built");
 
     let default_root = BaseDir::Data
         .app_dir()
@@ -37,4 +44,12 @@ fn main() -> anyhow::Result<()> {
         .context("cannot open the workspace folder")?;
     tracing::info!(?root, "workspace root resolved");
     Ok(())
+}
+
+/// Lists every keymap error on its own line, so that all of them can be fixed in one go.
+fn keymap_report(errors: &[KeymapError]) -> String {
+    errors.iter().fold(String::new(), |mut report, error| {
+        write!(report, "\n  {error}").expect("writing to a string cannot fail");
+        report
+    })
 }

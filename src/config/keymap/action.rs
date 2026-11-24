@@ -4,12 +4,16 @@
 //! Every property of an action is defined by one exhaustive `match`, so adding an action
 //! fails to compile until its description, label, contexts and default keys are defined.
 
+use std::fmt::{self, Display, Formatter};
+
 use serde::Deserialize;
 
 use crate::config::keymap::key::KeySequence;
 
 /// Where the user is when a key is pressed; bindings are looked up per context.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter)]
+///
+/// Displays as the place a user would name, such as `tasks pane`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
 #[non_exhaustive]
 pub enum Context {
     /// The lists pane is focused.
@@ -27,7 +31,7 @@ pub enum Context {
 /// Something a user can trigger with a key.
 ///
 /// The kebab-case names (`move-down`, `new-task-below`) are user-facing: they are the keys of
-/// the `keybindings` section of the configuration file.
+/// the `keybindings` section of the configuration file, and an action displays as its name.
 ///
 /// # Examples
 ///
@@ -39,8 +43,21 @@ pub enum Context {
 /// let keys: Vec<String> = action.default_keys().iter().map(ToString::to_string).collect();
 /// assert_eq!(keys, ["q", "ctrl-c"]);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, strum::EnumIter)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    strum::Display,
+    strum::EnumIter,
+)]
 #[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 #[non_exhaustive]
 pub enum Action {
     /// Open the help screen.
@@ -149,6 +166,18 @@ pub enum Action {
     Submit,
     /// Discard the typed text.
     Cancel,
+}
+
+impl Display for Context {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Lists => "lists pane",
+            Self::Tasks => "tasks pane",
+            Self::Help => "help screen",
+            Self::Dialog => "dialogs",
+            Self::Input => "text input",
+        })
+    }
 }
 
 const GLOBAL: &[Context] = &[Context::Lists, Context::Tasks];
@@ -506,6 +535,29 @@ mod tests {
     #[case::open_in_editor("open-in-editor", Action::OpenInEditor)]
     fn deserializes_kebab_case_names(#[case] name: &str, #[case] expected: Action) {
         let system_under_test = parse_action(name);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn every_action_displays_as_its_configuration_name() {
+        for action in Action::iter() {
+            let name = action.to_string();
+
+            let system_under_test = parse_action(&name);
+
+            assert_eq!(system_under_test, action, "{name}");
+        }
+    }
+
+    #[rstest]
+    #[case::lists(Context::Lists, "lists pane")]
+    #[case::tasks(Context::Tasks, "tasks pane")]
+    #[case::help(Context::Help, "help screen")]
+    #[case::dialog(Context::Dialog, "dialogs")]
+    #[case::input(Context::Input, "text input")]
+    fn context_displays_as_a_place(#[case] context: Context, #[case] expected: &str) {
+        let system_under_test = context.to_string();
 
         assert_eq!(system_under_test, expected);
     }

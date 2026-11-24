@@ -319,6 +319,8 @@ Colours are named ANSI colours (`black`, `red`, `green`, `yellow`, `blue`, `mage
 (`"#rrggbb"`, quoted because `#` starts a YAML comment) or 256-colour indices (`"238"`). The
 default theme only uses the 16 ANSI colours, so it follows your terminal's colour scheme. If
 the `NO_COLOR` environment variable is set, colours are ignored and only modifiers are used.
+Hex colours need a terminal with truecolour support; some setups, such as `tmux` without the
+`RGB` terminal feature, show them wrongly, so prefer 256-colour indices there.
 
 | Slot                                  | Used for                                         |
 | ------------------------------------- | ------------------------------------------------ |

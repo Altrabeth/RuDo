@@ -27,3 +27,52 @@ tasks:
 # Command used by `open-in-editor`, for example `nvim` or `code --wait`.
 # `null` uses $VISUAL, then $EDITOR, then `vi`.
 editor: null
+
+# Style of each interface element ("slot"): optional `fg` and `bg` colours and a list of
+# `modifiers` (bold, dim, italic, underlined, reversed, crossed-out). A slot you set replaces
+# its default style completely; uncomment a line to change it. Colours are `black`, `red`,
+# `green`, `yellow`, `blue`, `magenta`, `cyan`, `gray`, `dark-gray`, `light-red`,
+# `light-green`, `light-yellow`, `light-blue`, `light-magenta`, `light-cyan`, `white`, `reset`
+# (the terminal default), "#rrggbb" or a 256-colour index such as 238. The defaults only use
+# the 16 ANSI colours, so they follow your terminal's colour scheme. If the NO_COLOR
+# environment variable is set, colours are ignored and only modifiers are used.
+theme:
+  # text: {}
+  # border: { fg: dark-gray }
+  # border_focused: { fg: cyan }
+  # title: { fg: gray }
+  # title_focused: { fg: cyan, modifiers: [bold] }
+  # selection: { modifiers: [reversed] }
+  # selection_unfocused: { modifiers: [reversed, dim] }
+  # folder: { fg: blue }
+  # list: {}
+  # list_count: { fg: dark-gray }
+  # tree_guide: { fg: dark-gray }
+  # task_done: { fg: dark-gray }
+  # task_in_progress: { fg: yellow }
+  # task_cancelled: { fg: dark-gray, modifiers: [crossed-out] }
+  # priority_highest: { fg: light-red, modifiers: [bold] }
+  # priority_high: { fg: light-red }
+  # priority_medium: { fg: yellow }
+  # priority_low: { fg: green }
+  # priority_lowest: { fg: dark-gray }
+  # due: { fg: blue }
+  # due_soon: { fg: yellow }
+  # due_today: { fg: yellow, modifiers: [bold] }
+  # due_overdue: { fg: light-red, modifiers: [bold] }
+  # tag: { fg: magenta }
+  # recurrence: { fg: cyan }
+  # status_bar: {}
+  # key_hint: { fg: cyan, modifiers: [bold] }
+  # key_hint_label: { fg: gray }
+  # pending_keys: { fg: yellow, modifiers: [bold] }
+  # message_info: { fg: green }
+  # message_error: { fg: light-red, modifiers: [bold] }
+  # popup_border: { fg: cyan }
+  # popup_title: { fg: cyan, modifiers: [bold] }
+  # input_error: { fg: light-red }
+  # help_heading: { fg: yellow, modifiers: [bold] }
+  # help_key: { fg: cyan }
+  # help_description: {}
+  # search_match: { fg: yellow, modifiers: [reversed] }
+  # filter_context: { fg: dark-gray }

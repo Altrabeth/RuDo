@@ -6,6 +6,7 @@
 
 pub mod keymap;
 pub mod root;
+pub mod theme;
 
 use std::fmt;
 use std::fs;
@@ -17,6 +18,7 @@ use serde::Deserialize;
 use serde::de::{self, Deserializer, Unexpected, Visitor};
 use serde_saphyr::{UserMessageFormatter, render_options};
 
+use self::theme::ThemeConfig;
 use crate::paths::expand_tilde;
 
 /// The complete default configuration with comments, as printed by `rudo config default`.
@@ -58,9 +60,13 @@ pub enum ConfigError {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    #[serde(deserialize_with = "null_as_default")]
     workspace: WorkspaceConfig,
+    #[serde(deserialize_with = "null_as_default")]
     tasks: TasksConfig,
     editor: Option<String>,
+    #[serde(deserialize_with = "null_as_default")]
+    theme: ThemeConfig,
 }
 
 impl Config {
@@ -144,6 +150,23 @@ impl Config {
     pub fn editor(&self) -> Option<&str> {
         self.editor.as_deref()
     }
+
+    /// Returns the `theme` section, from which [`Theme::new`](theme::Theme::new) builds the
+    /// effective theme.
+    #[must_use]
+    pub fn theme(&self) -> &ThemeConfig {
+        &self.theme
+    }
+}
+
+/// Deserializes a section, reading null as the default section: a section whose entries are
+/// all commented out is null in YAML, and it means "change nothing".
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Option::<T>::deserialize(deserializer).map(Option::unwrap_or_default)
 }
 
 /// The `workspace` section of the configuration.
@@ -359,6 +382,20 @@ mod tests {
         assert_eq!(system_under_test, expected);
     }
 
+    #[rstest]
+    #[case::workspace("workspace:\n  # root: ~/todo\n")]
+    #[case::tasks("tasks:\n  # indent: 2\n")]
+    #[case::theme("theme:\n  # tag: { fg: red }\n")]
+    #[case::explicit_null("tasks: null\n")]
+    #[case::tilde("theme: ~\n")]
+    fn null_section_means_defaults(#[case] yaml: &str) {
+        let expected = Config::default();
+
+        let system_under_test = Config::from_yaml(yaml, source()).unwrap();
+
+        assert_eq!(system_under_test, expected);
+    }
+
     #[test]
     fn partial_configuration_keeps_other_defaults() {
         let yaml = "tasks:\n  show_completed: false\neditor: nvim\n";
@@ -390,6 +427,7 @@ mod tests {
                 indent: IndentStyle::Spaces(IndentWidth::new(2).unwrap()),
             },
             editor: Some("code --wait".to_owned()),
+            theme: ThemeConfig::default(),
         };
 
         let system_under_test = Config::from_yaml(yaml, source()).unwrap();

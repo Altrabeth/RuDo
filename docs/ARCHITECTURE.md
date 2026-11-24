@@ -177,8 +177,10 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
 - The effective `Keymap` is built once at start-up from the defaults and the user's
   overrides and validated per context: no key sequence bound twice, no binding that is a prefix
   of another, no printable characters in `Input`. Validation errors name both actions.
-- `KeyResolver` consumes one `KeyChord` at a time and answers `Action`, `Pending` or
-  `NoMatch`. Because prefixes are rejected at load time it needs no timeout.
+- `KeyResolver` consumes one `KeyChord` at a time and answers `Action`, `Pending`,
+  `Cancelled` (`esc` while a sequence is pending) or `NoMatch`. A chord that breaks a pending
+  sequence is retried once as the start of a new one, and pending chords never carry over into
+  another `Context`. Because prefixes are rejected at load time it needs no timeout.
 
 ## Persistence
 

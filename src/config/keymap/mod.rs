@@ -7,3 +7,4 @@ pub mod key;
     reason = "the effective keymap lives in its own file next to keys and actions"
 )]
 pub mod keymap;
+pub mod resolver;

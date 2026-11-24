@@ -21,6 +21,8 @@ use std::slice;
 use crate::config::{IndentStyle, IndentWidth};
 use crate::markdown::task_line::{TaskLine, indentation_width};
 
+mod content;
+
 /// The byte order mark, kept when a file starts with it.
 const BYTE_ORDER_MARK: char = '\u{feff}';
 

@@ -558,15 +558,23 @@ impl TaskLine {
         self.mark_modified();
     }
 
-    /// Replaces the value of the first field with the same key, or appends the field if there
-    /// is none, and marks the task as modified.
+    /// Replaces the first field with the same key and removes the others with that key, or
+    /// appends the field if there is none, and marks the task as modified.
     pub fn set_field(&mut self, field: InlineField) {
         match self
             .fields
-            .iter_mut()
-            .find(|existing| existing.key == field.key)
+            .iter()
+            .position(|existing| existing.key == field.key)
         {
-            Some(existing) => *existing = field,
+            Some(first) => {
+                let mut index = 0;
+                self.fields.retain(|existing| {
+                    let keep = index <= first || existing.key != field.key;
+                    index += 1;
+                    keep
+                });
+                self.fields[first] = field;
+            }
             None => self.fields.push(field),
         }
         self.mark_modified();
@@ -1083,6 +1091,17 @@ mod tests {
 
         assert_eq!(system_under_test.fields(), expected_fields);
         assert!(system_under_test.is_modified());
+    }
+
+    #[test]
+    fn set_field_replaces_first_duplicate_and_removes_the_others() {
+        let mut task = parse_task("- [ ] a [due:: 1] [priority:: low] [due:: 2] [due:: 3]");
+        task.set_field(field("due", "4"));
+        let expected_fields = fields(&[("due", "4"), ("priority", "low")]);
+
+        let system_under_test = task;
+
+        assert_eq!(system_under_test.fields(), expected_fields);
     }
 
     #[test]

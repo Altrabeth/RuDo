@@ -16,16 +16,13 @@ use std::iter;
 use std::slice;
 
 use crate::config::{IndentStyle, IndentWidth};
-use crate::markdown::task_line::TaskLine;
+use crate::markdown::task_line::{TaskLine, indentation_width};
 
 /// The byte order mark, kept when a file starts with it.
 const BYTE_ORDER_MARK: char = '\u{feff}';
 
 /// Characters that make up the indentation of a line.
 const BLANKS: [char; 2] = [' ', '\t'];
-
-/// Number of columns between two tab stops, as in [`TaskLine::indent_width`].
-const TAB_WIDTH: usize = 4;
 
 /// Minimum number of backticks or tildes that open a fenced code block.
 const MIN_FENCE_LENGTH: usize = 3;
@@ -323,7 +320,7 @@ impl DocumentLine {
 
     fn indent_width(&self) -> usize {
         match &self.kind {
-            LineKind::Raw(text) => raw_indent_width(text),
+            LineKind::Raw(text) => indentation_width(text),
             LineKind::Task(_, task) => task.indent_width(),
         }
     }
@@ -464,20 +461,6 @@ fn dominant_line_ending(lines: &[DocumentLine]) -> LineEnding {
     } else {
         LineEnding::Lf
     }
-}
-
-/// Returns the width of the leading spaces and tabs of a line that is not a task, measured
-/// like [`TaskLine::indent_width`] so that both kinds of lines compare.
-fn raw_indent_width(text: &str) -> usize {
-    text.chars()
-        .take_while(|character| BLANKS.contains(character))
-        .fold(0, |width, character| {
-            if character == '\t' {
-                (width / TAB_WIDTH + 1) * TAB_WIDTH
-            } else {
-                width + 1
-            }
-        })
 }
 
 fn write_lines(formatter: &mut Formatter<'_>, lines: &[DocumentLine]) -> fmt::Result {
@@ -815,15 +798,6 @@ mod tests {
             let system_under_test = TodoDocument::parse(&text);
 
             prop_assert_eq!(system_under_test.to_string(), text);
-        }
-
-        #[test]
-        fn raw_indent_width_matches_task_indent_width(indent in "[ \t]{0,8}") {
-            let task = TaskLine::parse(&format!("{indent}- [ ] a")).unwrap();
-
-            let system_under_test = raw_indent_width(&indent);
-
-            prop_assert_eq!(system_under_test, task.indent_width());
         }
     }
 }

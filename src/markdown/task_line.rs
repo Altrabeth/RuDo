@@ -24,6 +24,21 @@ use strum::IntoEnumIterator;
 /// Number of columns between two tab stops when measuring indentation.
 const TAB_WIDTH: usize = 4;
 
+/// Returns the width in columns of the leading spaces and tabs of `text`. A tab advances to the
+/// next multiple of [`TAB_WIDTH`] columns. Task lines and raw lines are measured with this one
+/// rule so that their indentations compare.
+pub(crate) fn indentation_width(text: &str) -> usize {
+    text.chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .fold(0, |width, character| {
+            if character == '\t' {
+                (width / TAB_WIDTH + 1) * TAB_WIDTH
+            } else {
+                width + 1
+            }
+        })
+}
+
 /// Maximum number of digits of an ordered list marker, as in `CommonMark`.
 const MAX_ORDERED_DIGITS: usize = 9;
 
@@ -483,13 +498,7 @@ impl TaskLine {
     /// four columns.
     #[must_use]
     pub fn indent_width(&self) -> usize {
-        self.indent.chars().fold(0, |width, character| {
-            if character == '\t' {
-                (width / TAB_WIDTH + 1) * TAB_WIDTH
-            } else {
-                width + 1
-            }
-        })
+        indentation_width(&self.indent)
     }
 
     /// Returns the list marker.
@@ -967,6 +976,19 @@ mod tests {
         let task = parse_task(line);
 
         let system_under_test = task.indent_width();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::empty("", 0)]
+    #[case::no_indentation("Some prose", 0)]
+    #[case::spaces_before_text("  continued note", 2)]
+    #[case::tab_then_space_before_text("\t text", 5)]
+    #[case::blank_line_of_spaces("   ", 3)]
+    #[case::stops_at_first_non_blank("  a\t", 2)]
+    fn indentation_width_measures_only_leading_blanks(#[case] text: &str, #[case] expected: usize) {
+        let system_under_test = indentation_width(text);
 
         assert_eq!(system_under_test, expected);
     }

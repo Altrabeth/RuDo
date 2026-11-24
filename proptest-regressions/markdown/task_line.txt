@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1fa97f88fa362ad24b4f6a30852d25c1b6f3f00eae9c3d80814b39f423ee2033 # shrinks to task = TaskLine { indent: "", marker: Asterisk, status: Other('¡'), description: "`[a::]``", fields: [InlineField { key: Other("A"), value: "" }], original: None }

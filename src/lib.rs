@@ -8,5 +8,6 @@ pub mod cli;
 pub mod config;
 pub mod domain;
 pub mod logging;
+pub mod markdown;
 pub mod paths;
 pub mod ui;

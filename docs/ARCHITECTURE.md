@@ -131,11 +131,10 @@ pub struct TodoDocument {
 
 enum Line {
     Raw(String),               // anything that is not a task, kept verbatim
-    Task(TaskLine),
+    Task(TaskId, TaskLine),    // the id is stable for the lifetime of the loaded document
 }
 
-pub struct TaskLine {
-    id: TaskId,                // stable for the lifetime of the loaded document
+pub struct TaskLine {          // a plain value: markdown::task_line knows nothing of ids
     indent: String,            // original indentation, verbatim
     marker: ListMarker,        // `-`, `*`, `+` or `1.` / `1)`
     status: TaskStatus,        // Todo, Done, InProgress, Cancelled, Other(char)

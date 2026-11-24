@@ -5,5 +5,6 @@
 //! layout and the data flow.
 
 pub mod cli;
+pub mod domain;
 pub mod logging;
 pub mod paths;

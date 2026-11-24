@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 anyhow = "1.0.105"
 clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+jiff = { version = "1.0.2", default-features = false, features = ["std"] }
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 thiserror = "2.0.21"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
@@ -26,5 +27,6 @@ allow_attributes = "warn"
 allow_attributes_without_reason = "warn"
 
 [dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 rstest = { version = "0.29.0", default-features = false }
 tempfile = "3.27.0"

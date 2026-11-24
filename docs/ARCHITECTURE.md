@@ -43,12 +43,13 @@ in the library so it can be unit tested and documented.
 src/
   main.rs                  binary: parse CLI, set up logging, load config, run (anyhow)
   lib.rs                   crate docs and module tree
-  cli.rs                   clap definitions
+  cli.rs                   clap definitions: options and `config` subcommands
   logging.rs               file logging with `tracing-subscriber`, `RUDO_LOG` filter
   paths.rs                 XDG config, data and state directories, `~` expansion
   config/
     mod.rs                 Config, loading, error reporting
     root.rs                WorkspaceRoot: `--root`, `workspace.root` or the default folder
+    settings.rs            Settings: config, theme and keymap loaded and validated together
     theme.rs               Theme, Slot, StyleConfig, NO_COLOR
     keymap/
       key.rs               KeyChord, KeySequence: notation parsing and Display

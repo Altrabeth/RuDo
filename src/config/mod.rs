@@ -6,6 +6,7 @@
 
 pub mod keymap;
 pub mod root;
+pub mod settings;
 pub mod theme;
 
 use std::fmt;

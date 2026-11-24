@@ -2,19 +2,41 @@
 
 use std::path::{Path, PathBuf};
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 /// Keyboard-driven terminal UI for todo lists stored as Markdown files.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Parser)]
 #[command(name = "rudo", version)]
 pub struct Cli {
     /// Workspace folder (overrides `workspace.root`)
-    #[arg(short, long, value_name = "DIR")]
+    #[arg(short, long, value_name = "DIR", global = true)]
     root: Option<PathBuf>,
 
     /// Configuration file (default: ~/.config/rudo/config.yaml)
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "FILE", global = true)]
     config: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+/// A subcommand that runs instead of the terminal interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Subcommand)]
+pub enum Command {
+    /// Inspect the configuration file
+    #[command(subcommand)]
+    Config(ConfigCommand),
+}
+
+/// A subcommand of `rudo config`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Subcommand)]
+pub enum ConfigCommand {
+    /// Print the path of the configuration file in use
+    Path,
+    /// Print the default configuration
+    Default,
+    /// Validate the configuration file
+    Check,
 }
 
 impl Cli {
@@ -28,6 +50,12 @@ impl Cli {
     #[must_use]
     pub fn config(&self) -> Option<&Path> {
         self.config.as_deref()
+    }
+
+    /// Returns the subcommand, or `None` if the terminal interface is to be started.
+    #[must_use]
+    pub const fn subcommand(&self) -> Option<Command> {
+        self.command
     }
 }
 
@@ -69,6 +97,7 @@ mod tests {
         let expected = Cli {
             root: expected_root.map(PathBuf::from),
             config: expected_config.map(PathBuf::from),
+            command: None,
         };
 
         let system_under_test = Cli::try_parse_from(arguments).unwrap();
@@ -83,10 +112,44 @@ mod tests {
     #[case::long_version(&["rudo", "--version"], ErrorKind::DisplayVersion)]
     #[case::root_without_value(&["rudo", "--root"], ErrorKind::InvalidValue)]
     #[case::unknown_flag(&["rudo", "--verbose"], ErrorKind::UnknownArgument)]
+    #[case::unknown_command(&["rudo", "edit"], ErrorKind::InvalidSubcommand)]
+    #[case::config_without_subcommand(
+        &["rudo", "config"],
+        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    )]
+    #[case::unknown_config_subcommand(&["rudo", "config", "edit"], ErrorKind::InvalidSubcommand)]
     fn stops_parsing_with_kind(#[case] arguments: &[&str], #[case] expected_kind: ErrorKind) {
         let system_under_test = Cli::try_parse_from(arguments).unwrap_err();
 
         assert_eq!(system_under_test.kind(), expected_kind);
+    }
+
+    #[rstest]
+    #[case::path(&["rudo", "config", "path"], ConfigCommand::Path)]
+    #[case::default(&["rudo", "config", "default"], ConfigCommand::Default)]
+    #[case::check(&["rudo", "config", "check"], ConfigCommand::Check)]
+    fn parses_config_subcommands(
+        #[case] arguments: &[&str],
+        #[case] expected_command: ConfigCommand,
+    ) {
+        let expected = Some(Command::Config(expected_command));
+
+        let system_under_test = Cli::try_parse_from(arguments).unwrap();
+
+        assert_eq!(system_under_test.subcommand(), expected);
+    }
+
+    #[rstest]
+    #[case::before_command(&["rudo", "-c", "my.yaml", "config", "check"])]
+    #[case::after_command(&["rudo", "config", "check", "--config", "my.yaml"])]
+    fn accepts_config_option_on_either_side_of_the_subcommand(#[case] arguments: &[&str]) {
+        let expected_config = Path::new("my.yaml");
+        let expected_command = Some(Command::Config(ConfigCommand::Check));
+
+        let system_under_test = Cli::try_parse_from(arguments).unwrap();
+
+        assert_eq!(system_under_test.config(), Some(expected_config));
+        assert_eq!(system_under_test.subcommand(), expected_command);
     }
 
     #[test]

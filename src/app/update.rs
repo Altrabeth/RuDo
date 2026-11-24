@@ -80,6 +80,7 @@ impl App {
             Action::NewFolder => self.open_prompt(PromptKind::NewFolder {
                 parent: self.lists.target_folder(),
             }),
+            Action::ToggleDone => return self.toggle_done(),
             Action::ClearFilter
             | Action::Undo
             | Action::Redo
@@ -91,7 +92,6 @@ impl App {
             | Action::NewTaskAbove
             | Action::NewSubtask
             | Action::Edit
-            | Action::ToggleDone
             | Action::Yank
             | Action::PasteBelow
             | Action::PasteAbove

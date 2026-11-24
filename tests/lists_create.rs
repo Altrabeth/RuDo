@@ -1,5 +1,9 @@
 //! Creating lists and folders from the lists pane with `o` and `O`.
 
+#[expect(
+    dead_code,
+    reason = "each test crate uses only part of the shared harness"
+)]
 mod common;
 
 use std::path::PathBuf;

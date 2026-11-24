@@ -32,22 +32,30 @@ impl TestApp {
     /// Creates a workspace from `(path, content)` pairs, relative to the workspace root, and
     /// starts the app with the default configuration on [`TODAY`].
     pub fn new(files: &[(&str, &str)]) -> Self {
+        Self::with_config(files, Config::default())
+    }
+
+    /// Like [`TestApp::new`], but with `config` instead of the default configuration.
+    pub fn with_config(files: &[(&str, &str)], config: Config) -> Self {
         let files: Vec<(&str, &[u8])> = files
             .iter()
             .map(|(path, content)| (*path, content.as_bytes()))
             .collect();
-        Self::from_bytes(&files)
+        Self::start(&files, config)
     }
 
     /// Like [`TestApp::new`], but with raw file contents, such as lists that are not UTF-8.
     pub fn from_bytes(files: &[(&str, &[u8])]) -> Self {
+        Self::start(files, Config::default())
+    }
+
+    fn start(files: &[(&str, &[u8])], config: Config) -> Self {
         let workspace_folder = TempDir::new().unwrap();
         for (path, content) in files {
             let path = workspace_folder.path().join(path);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, content).unwrap();
         }
-        let config = Config::default();
         let keymap = Keymap::new(config.keybindings()).unwrap();
         let workspace = Workspace::scan(workspace_folder.path(), config.tasks().indent()).unwrap();
         let mut app = App::new(workspace, config, Theme::default(), keymap, TODAY);

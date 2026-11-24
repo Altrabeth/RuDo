@@ -10,6 +10,9 @@
 //!
 //! Front matter (a first line `---` up to the next `---` or `...`) and fenced code blocks are
 //! never parsed as tasks.
+//!
+//! Editing operations live in child modules of this one, so that they can work on the private
+//! line storage while callers only ever see [`TaskId`]s.
 
 use std::fmt::{self, Display, Formatter};
 use std::iter;
@@ -33,6 +36,19 @@ const MIN_FENCE_LENGTH: usize = 3;
 /// their task while other lines change. Parsing the text again assigns new ids.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TaskId(u32);
+
+/// Whether an editing operation changed the document.
+///
+/// Callers save the document and record undo history only for [`EditOutcome::Changed`], so a
+/// no-op such as moving the first task up never touches the file.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EditOutcome {
+    /// The document was changed.
+    Changed,
+    /// The operation had no effect.
+    Unchanged,
+}
 
 /// A line terminator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, strum::EnumIter)]

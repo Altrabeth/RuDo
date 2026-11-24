@@ -62,9 +62,13 @@ src/
     tags.rs                Obsidian tag recognition
   markdown/
     task_line.rs           one task line: parse and render
-    document.rs            TodoDocument: lossless file model and task tree
-    edit.rs                pure editing operations on a TodoDocument
+    document/
+      mod.rs               TodoDocument: lossless file model and task tree, EditOutcome
+      insert.rs            inserting, removing, copying and pasting task blocks
+      reorder.rs           moving, indenting and outdenting task blocks
+      content.rs           description, status and inline field edits
   storage/
+    fingerprint.rs         content fingerprints for detecting external changes
     workspace.rs           scanning the workspace into a tree of folders and lists
     save.rs                atomic saving, external modification detection
     entries.rs             create, rename and delete lists and folders

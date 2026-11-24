@@ -1,0 +1,4 @@
+//! The connection between documents and the disk: scanning the workspace, saving lists and
+//! managing list files and folders.
+
+pub mod fingerprint;

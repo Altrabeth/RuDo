@@ -3,3 +3,4 @@
 
 pub mod fingerprint;
 pub mod save;
+pub mod workspace;

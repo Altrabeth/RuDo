@@ -1,0 +1,10 @@
+---
+source: tests/status_bar.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Tasks ───────────────────────────╮"
+"│                      ││                                  │"
+"│                      ││                                  │"
+"│                      ││                                  │"
+"╰──────────────────────╯╰──────────────────────────────────╯"
+" cannot save groceries.md                            ? help "

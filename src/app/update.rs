@@ -14,8 +14,10 @@ impl App {
     /// action it completes.
     ///
     /// A chord that only begins a key sequence is remembered until the sequence is complete.
+    /// Any key press hides an error message.
     #[must_use]
     pub fn handle_key(&mut self, chord: KeyChord) -> Vec<Effect> {
+        self.status.key_pressed();
         match self.resolver.feed(&self.keymap, self.context(), chord) {
             Resolution::Action(action) => self.update(action),
             Resolution::Pending | Resolution::Cancelled | Resolution::NoMatch => Vec::new(),

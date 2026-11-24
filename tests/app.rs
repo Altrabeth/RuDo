@@ -7,7 +7,7 @@
 mod common;
 
 use rstest::rstest;
-use rudo::app::{Focus, StatusMessage};
+use rudo::app::{Focus, Severity};
 use rudo::markdown::document::{EditOutcome, TodoDocument};
 
 use crate::common::TestApp;
@@ -99,8 +99,13 @@ fn edit_of_an_externally_modified_list_is_reported_and_not_saved() {
     let system_under_test = test_app.run(|app| app.edit_list(&list, toggle_first_task));
 
     assert_eq!(system_under_test.read("groceries.md"), external);
-    assert!(matches!(
-        system_under_test.app().status_message(),
-        Some(StatusMessage::Error(message)) if message.contains("modified by another program")
-    ));
+    assert!(
+        system_under_test
+            .app()
+            .status_message()
+            .is_some_and(|message| {
+                message.severity() == Severity::Error
+                    && message.text().contains("modified by another program")
+            })
+    );
 }

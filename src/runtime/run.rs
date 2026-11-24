@@ -3,7 +3,7 @@
 
 use std::io;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use jiff::ZonedDateTime;
 
@@ -38,7 +38,8 @@ pub enum RuntimeError {
 /// Runs RuDo in the terminal until the user quits.
 ///
 /// The terminal is restored when this function returns, also with an error or by a panic.
-/// While the loop waits for input, it wakes up at the start of the next day to update
+/// Before every draw the loop passes the current time to [`App::tick`]; while it waits for
+/// input, it wakes up at [`App::next_deadline`] and at the start of the next day to update
 /// [`App::today`].
 ///
 /// # Errors
@@ -50,11 +51,13 @@ pub fn run(app: &mut App) -> Result<(), RuntimeError> {
     // Declared after the terminal so that it is dropped, and stops reading, first.
     let _input = InputThread::spawn(sender).map_err(RuntimeError::SpawnInput)?;
     loop {
+        let instant = Instant::now();
         let now = ZonedDateTime::now();
+        app.tick(instant);
         app.set_today(now.date());
         terminal.draw(app).map_err(RuntimeError::Draw)?;
-        let batch = next_batch(&receiver, time_until_next_day(&now))
-            .map_err(|_| RuntimeError::InputClosed)?;
+        let timeout = time_until_wake_up(instant, app.next_deadline(), time_until_next_day(&now));
+        let batch = next_batch(&receiver, timeout).map_err(|_| RuntimeError::InputClosed)?;
         for event in batch {
             handle_event(app, event.map_err(RuntimeError::Input)?);
             if app.should_quit() {
@@ -74,6 +77,18 @@ fn handle_event(app: &mut App, event: Event) {
     for effect in effects {
         execute(app, effect);
     }
+}
+
+/// Returns how long the loop may wait at `now` for input: until `deadline` of the app if it
+/// has one and comes first, otherwise for `until_next_day`.
+fn time_until_wake_up(
+    now: Instant,
+    deadline: Option<Instant>,
+    until_next_day: Duration,
+) -> Duration {
+    deadline.map_or(until_next_day, |deadline| {
+        deadline.saturating_duration_since(now).min(until_next_day)
+    })
 }
 
 /// Returns how long it is from `now` until the next day starts in its time zone, taking
@@ -126,6 +141,35 @@ mod tests {
         let system_under_test = time_until_next_day(&now);
 
         assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::no_deadline(None, 10 * HOUR)]
+    #[case::deadline_first(Some(3), 3)]
+    #[case::next_day_first(Some(11 * HOUR), 10 * HOUR)]
+    #[case::deadline_passed(Some(0), 0)]
+    fn wakes_up_at_the_earlier_of_deadline_and_next_day(
+        #[case] seconds_until_deadline: Option<u64>,
+        #[case] expected_seconds: u64,
+    ) {
+        let now = Instant::now();
+        let deadline = seconds_until_deadline.map(|seconds| now + Duration::from_secs(seconds));
+        let until_next_day = Duration::from_secs(10 * HOUR);
+        let expected = Duration::from_secs(expected_seconds);
+
+        let system_under_test = time_until_wake_up(now, deadline, until_next_day);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn deadline_in_the_past_wakes_up_at_once() {
+        let deadline = Instant::now();
+        let now = deadline + Duration::from_secs(1);
+
+        let system_under_test = time_until_wake_up(now, Some(deadline), Duration::from_secs(HOUR));
+
+        assert_eq!(system_under_test, Duration::ZERO);
     }
 
     #[test]

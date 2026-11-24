@@ -1,10 +1,11 @@
-//! Everything the application knows: [`App`] with its [`Focus`], [`Mode`] and
-//! [`StatusMessage`].
+//! Everything the application knows: [`App`] with its [`Focus`] and [`Mode`].
 
 use jiff::civil::Date;
 
+use crate::app::status::Status;
 use crate::config::Config;
 use crate::config::keymap::action::Context;
+use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::keymap::resolver::KeyResolver;
 use crate::config::theme::Theme;
@@ -26,7 +27,7 @@ pub struct App {
     pub(super) focus: Focus,
     pub(super) mode: Mode,
     pub(super) today: Date,
-    pub(super) status_message: Option<StatusMessage>,
+    pub(super) status: Status,
     pub(super) should_quit: bool,
 }
 
@@ -53,7 +54,7 @@ impl App {
             focus: Focus::Lists,
             mode: Mode::Normal,
             today,
-            status_message: None,
+            status: Status::default(),
             should_quit: false,
         }
     }
@@ -80,6 +81,12 @@ impl App {
     #[must_use]
     pub fn keymap(&self) -> &Keymap {
         &self.keymap
+    }
+
+    /// Returns the keys typed so far of an unfinished key sequence, empty if none is pending.
+    #[must_use]
+    pub fn pending_keys(&self) -> &[KeyChord] {
+        self.resolver.pending()
     }
 
     /// Returns the focused pane.
@@ -113,12 +120,6 @@ impl App {
     /// changes, because the core never reads the clock.
     pub fn set_today(&mut self, today: Date) {
         self.today = today;
-    }
-
-    /// Returns the message shown in the status bar, if any.
-    #[must_use]
-    pub fn status_message(&self) -> Option<&StatusMessage> {
-        self.status_message.as_ref()
     }
 
     /// Returns whether the user asked to quit; the runtime stops when it is set.
@@ -170,14 +171,6 @@ pub enum Mode {
     /// Keys trigger the actions bound in the focused pane.
     #[default]
     Normal,
-}
-
-/// A message for the user in the status bar.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum StatusMessage {
-    /// Something the user asked for failed; the text says what and why.
-    Error(String),
 }
 
 #[cfg(test)]

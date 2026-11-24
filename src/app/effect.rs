@@ -7,7 +7,8 @@ use std::error::Error;
 use std::fmt::Write;
 use std::iter;
 
-use crate::app::state::{App, StatusMessage};
+use crate::app::state::App;
+use crate::app::status::StatusMessage;
 use crate::storage::fingerprint::Fingerprint;
 use crate::storage::save::{SaveError, save};
 use crate::storage::workspace::{List, ListPath};
@@ -55,7 +56,7 @@ impl App {
     pub fn save_failed(&mut self, error: &SaveError) {
         let report = error_report(error);
         tracing::warn!(%report, "cannot save list");
-        self.status_message = Some(StatusMessage::Error(report));
+        self.show_message(StatusMessage::error(report));
     }
 }
 
@@ -112,7 +113,7 @@ mod tests {
         let list = only_list_path(&app);
         fs::remove_file(&file).unwrap();
         let expected =
-            StatusMessage::Error(format!("list file {} no longer exists", file.display()));
+            StatusMessage::error(format!("list file {} no longer exists", file.display()));
         execute(&mut app, Effect::Save(list));
 
         let system_under_test = app.status_message();
@@ -144,8 +145,7 @@ mod tests {
             path: PathBuf::from("/todo/groceries.md"),
             source: io::Error::other("disk full"),
         };
-        let expected =
-            StatusMessage::Error("cannot write list file /todo/groceries.md: disk full".into());
+        let expected = StatusMessage::error("cannot write list file /todo/groceries.md: disk full");
         app.save_failed(&error);
 
         let system_under_test = app.status_message();

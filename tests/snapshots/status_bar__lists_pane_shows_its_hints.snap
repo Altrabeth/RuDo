@@ -1,0 +1,10 @@
+---
+source: tests/status_bar.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new list  O new folder  enter open  r rename  dd delete               ? help "

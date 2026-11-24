@@ -8,7 +8,9 @@
 pub mod effect;
 pub mod filter;
 pub mod state;
+pub mod status;
 mod update;
 
 pub use self::effect::{Effect, execute};
-pub use self::state::{App, Focus, Mode, StatusMessage};
+pub use self::state::{App, Focus, Mode};
+pub use self::status::{Severity, StatusMessage};

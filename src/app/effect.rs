@@ -6,6 +6,7 @@
 use std::error::Error;
 use std::fmt::Write;
 use std::iter;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 use crate::app::lists::{EntryChange, EntryKey};
@@ -48,17 +49,32 @@ pub enum Effect {
         /// The entry to delete, relative to the workspace root.
         path: PathBuf,
     },
+    /// Open the list at this path in the external editor, at the 1-based `line` if given,
+    /// and reload it when the editor exits.
+    ///
+    /// The editor needs the terminal, so the runtime performs this effect, not [`execute`].
+    OpenInEditor {
+        /// The list to edit.
+        list: ListPath,
+        /// The line of the selected task.
+        line: Option<NonZeroUsize>,
+    },
 }
 
 /// Performs `effect` and reports its result to `app`.
 ///
-/// Failures never abort: they become a [`StatusMessage`] on `app`.
+/// Failures never abort: they become a [`StatusMessage`] on `app`. Effects that need the
+/// terminal, such as [`Effect::OpenInEditor`], are performed by the runtime and only logged
+/// here.
 pub fn execute(app: &mut App, effect: Effect) {
     match effect {
         Effect::Save(list) => save_list(app, &list),
         Effect::CreateEntry { kind, parent, name } => create_entry(app, kind, &parent, &name),
         Effect::RenameEntry { path, name } => rename_entry(app, &path, &name),
         Effect::DeleteEntry { kind, path } => delete_entry(app, kind, &path),
+        Effect::OpenInEditor { list, .. } => {
+            tracing::warn!(%list, "the editor can only be opened by the runtime");
+        }
     }
 }
 
@@ -171,7 +187,7 @@ impl App {
 }
 
 /// Describes `error` and all its sources in one line, separated by `: `.
-fn error_report(error: &dyn Error) -> String {
+pub(super) fn error_report(error: &dyn Error) -> String {
     iter::successors(error.source(), |&cause| cause.source()).fold(
         error.to_string(),
         |mut report, cause| {

@@ -56,12 +56,14 @@ impl Event {
 /// A thread that reads terminal input and sends it as [`Event`]s over a channel.
 ///
 /// Dropping it stops the thread and waits for it, so that no keystroke is read afterwards.
-/// To hand the terminal to another program, such as an external editor, drop the
-/// [`InputThread`] and spawn a new one on the same channel when the program has exited.
+/// To hand the terminal to another program, such as an external editor, [`stop`] the
+/// [`InputThread`] and spawn a new one with the returned sender when the program has exited.
+///
+/// [`stop`]: InputThread::stop
 #[derive(Debug)]
 pub struct InputThread {
     stop: Arc<AtomicBool>,
-    handle: Option<JoinHandle<()>>,
+    handle: Option<JoinHandle<Sender<io::Result<Event>>>>,
 }
 
 impl InputThread {
@@ -78,23 +80,40 @@ impl InputThread {
             .name("terminal input".into())
             .spawn({
                 let stop = Arc::clone(&stop);
-                move || read_events(&sender, &stop)
+                move || {
+                    read_events(&sender, &stop);
+                    sender
+                }
             })?;
         Ok(Self {
             stop,
             handle: Some(handle),
         })
     }
+
+    /// Stops reading terminal input, waits for the thread and returns its sender, so that a
+    /// new [`InputThread`] can later continue on the same channel.
+    ///
+    /// Returns `None` if the thread panicked, which dropped the sender.
+    #[must_use]
+    pub fn stop(mut self) -> Option<Sender<io::Result<Event>>> {
+        self.join()
+    }
+
+    fn join(&mut self) -> Option<Sender<io::Result<Event>>> {
+        self.stop.store(true, Ordering::Relaxed);
+        let handle = self.handle.take()?;
+        handle
+            .join()
+            .inspect_err(|_| tracing::error!("terminal input thread panicked"))
+            .ok()
+    }
 }
 
 impl Drop for InputThread {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take()
-            && handle.join().is_err()
-        {
-            tracing::error!("terminal input thread panicked");
-        }
+        // Dropping the sender closes the channel unless another sender is left.
+        drop(self.join());
     }
 }
 
@@ -208,6 +227,16 @@ mod tests {
         let system_under_test = Event::from_terminal(event);
 
         assert_eq!(system_under_test, Some(Event::Paste(text.into())));
+    }
+
+    #[test]
+    fn stopped_input_thread_returns_its_sender() {
+        let (sender, _receiver) = mpsc::channel();
+        let input = InputThread::spawn(sender).unwrap();
+
+        let system_under_test = input.stop();
+
+        assert!(system_under_test.is_some());
     }
 
     #[test]

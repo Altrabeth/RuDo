@@ -76,6 +76,8 @@ src/
     watch.rs               file system watching
   app/
     state.rs               App, Focus, Mode
+    editor.rs              open-in-editor: choosing the editor, its command line with the line
+    reload.rs              App::reload_list: re-reading a list changed by another program
     lists.rs               lists pane state: workspace tree navigation, active list
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
@@ -131,6 +133,12 @@ keep the names above unless there is a reason to deviate.
 - The input thread polls with a short timeout and stops when its `InputThread` handle is
   dropped, so the terminal can be handed to an external editor and input resumed afterwards
   by spawning a new one.
+- `Effect::OpenInEditor` needs the terminal, so the runtime performs it instead of `execute`:
+  it stops the input thread (`InputThread::stop` returns the sender), restores the terminal
+  with `TerminalGuard::suspend`, runs the `EditorCommand` and waits, sets the terminal up
+  again, spawns a new input thread on the same channel and calls `App::reload_list`, which
+  replaces the document only if the file's fingerprint changed. Only the runtime reads
+  `$VISUAL` and `$EDITOR`; choosing the editor and building its command line are pure.
 - Only `KeyEventKind::Press` and `Repeat` are handled; `Release` events (Windows, kitty
   keyboard protocol) are dropped at the boundary.
 - The runtime reports the terminal size with `App::resize` at start-up and on every resize

@@ -238,6 +238,21 @@ impl TodoDocument {
         self.line_index(id).map(|index| index + 1)
     }
 
+    /// Returns the task on the 1-based line `line_number`, or else the last task before it,
+    /// or `None` if no task starts on or before that line.
+    ///
+    /// After a document was parsed again, this finds the task that took the place of a task
+    /// remembered by its [`TodoDocument::line_number`], because re-parsing assigns new ids.
+    #[must_use]
+    pub fn task_at_or_before(&self, line_number: usize) -> Option<TaskId> {
+        self.lines
+            .iter()
+            .take(line_number)
+            .rev()
+            .find_map(DocumentLine::task)
+            .map(|(id, _)| id)
+    }
+
     fn node(&self, id: TaskId) -> Option<TaskNode<'_>> {
         self.tasks().find(|node| node.id == id)
     }
@@ -835,6 +850,20 @@ mod tests {
         let document = TodoDocument::parse(TREE);
 
         let system_under_test = document.line_number(id);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::task_on_the_line(2, Some(TaskId(0)))]
+    #[case::line_after_a_task(7, Some(TaskId(2)))]
+    #[case::beyond_the_end(100, Some(TaskId(5)))]
+    #[case::before_the_first_task(1, None)]
+    #[case::line_zero(0, None)]
+    fn task_at_or_before_line(#[case] line_number: usize, #[case] expected: Option<TaskId>) {
+        let document = TodoDocument::parse(TREE);
+
+        let system_under_test = document.task_at_or_before(line_number);
 
         assert_eq!(system_under_test, expected);
     }

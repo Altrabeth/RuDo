@@ -6,6 +6,7 @@ use std::io;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
 use ratatui::layout::Size;
 
 use crate::app::App;
@@ -43,6 +44,25 @@ impl TerminalGuard {
     /// Returns the I/O error if the terminal cannot report its size.
     pub fn size(&self) -> io::Result<Size> {
         self.terminal.size()
+    }
+
+    /// Restores the terminal, runs `program` with it, such as an external editor, and switches
+    /// it back to the interface, which is drawn completely at the next draw.
+    ///
+    /// Stop reading terminal input before, so that no keystroke meant for `program` is taken.
+    ///
+    /// # Errors
+    ///
+    /// Returns the I/O error if the terminal cannot be restored or set up again; `program`
+    /// has not run if restoring failed. Dropping the guard still restores the terminal.
+    pub fn suspend<T>(&mut self, program: impl FnOnce() -> T) -> io::Result<T> {
+        execute!(io::stdout(), DisableBracketedPaste)?;
+        ratatui::try_restore()?;
+        let result = program();
+        enable_raw_mode()?;
+        execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)?;
+        self.terminal.clear()?;
+        Ok(result)
     }
 
     /// Draws `app` with [`ui::view`].

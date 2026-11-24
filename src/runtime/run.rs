@@ -1,15 +1,20 @@
 //! The event loop: wait for a batch of events, let the [`App`] decide, execute the effects and
 //! draw once per batch.
 
+use std::env::{self, VarError};
 use std::io;
+use std::num::NonZeroUsize;
+use std::process::Command;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use jiff::ZonedDateTime;
 
-use crate::app::{App, execute};
+use crate::app::editor::{EditorCommand, EditorError, choose_editor};
+use crate::app::{App, Effect, execute};
 use crate::runtime::event::{Event, InputThread, next_batch};
 use crate::runtime::terminal::TerminalGuard;
+use crate::storage::workspace::ListPath;
 
 /// How long the loop waits at most if the start of the next day cannot be computed.
 const FALLBACK_WAIT: Duration = Duration::from_hours(1);
@@ -33,6 +38,9 @@ pub enum RuntimeError {
     /// Drawing the interface failed.
     #[error("cannot draw the interface")]
     Draw(#[source] io::Error),
+    /// The terminal cannot be handed to the editor or taken back from it.
+    #[error("cannot hand the terminal to the editor")]
+    Suspend(#[source] io::Error),
 }
 
 /// Runs RuDo in the terminal until the user quits.
@@ -40,17 +48,18 @@ pub enum RuntimeError {
 /// The terminal is restored when this function returns, also with an error or by a panic.
 /// Before every draw the loop passes the current time to [`App::tick`]; while it waits for
 /// input, it wakes up at [`App::next_deadline`] and at the start of the next day to update
-/// [`App::today`].
+/// [`App::today`]. For [`Effect::OpenInEditor`] it hands the terminal to the editor.
 ///
 /// # Errors
 ///
-/// Returns a [`RuntimeError`] if the terminal cannot be set up, read or drawn.
+/// Returns a [`RuntimeError`] if the terminal cannot be set up, read, drawn or handed to the
+/// editor.
 pub fn run(app: &mut App) -> Result<(), RuntimeError> {
     let mut terminal = TerminalGuard::init().map_err(RuntimeError::Setup)?;
     app.resize(terminal.size().map_err(RuntimeError::Setup)?);
     let (sender, receiver) = mpsc::channel();
     // Declared after the terminal so that it is dropped, and stops reading, first.
-    let _input = InputThread::spawn(sender).map_err(RuntimeError::SpawnInput)?;
+    let mut input = InputThread::spawn(sender).map_err(RuntimeError::SpawnInput)?;
     loop {
         let instant = Instant::now();
         let now = ZonedDateTime::now();
@@ -60,7 +69,9 @@ pub fn run(app: &mut App) -> Result<(), RuntimeError> {
         let timeout = time_until_wake_up(instant, app.next_deadline(), time_until_next_day(&now));
         let batch = next_batch(&receiver, timeout).map_err(|_| RuntimeError::InputClosed)?;
         for event in batch {
-            handle_event(app, event.map_err(RuntimeError::Input)?);
+            for effect in handle_event(app, event.map_err(RuntimeError::Input)?) {
+                input = perform(app, effect, &mut terminal, input)?;
+            }
             if app.should_quit() {
                 return Ok(());
             }
@@ -68,18 +79,108 @@ pub fn run(app: &mut App) -> Result<(), RuntimeError> {
     }
 }
 
-/// Lets `app` handle `event` and executes the effects it returns.
-fn handle_event(app: &mut App, event: Event) {
-    let effects = match event {
+/// Lets `app` handle `event` and returns the effects to perform.
+fn handle_event(app: &mut App, event: Event) -> Vec<Effect> {
+    match event {
         Event::Key(chord) => app.handle_key(chord),
         Event::Paste(text) => app.handle_paste(&text),
         Event::Resize(size) => {
             app.resize(size);
             Vec::new()
         }
+    }
+}
+
+/// Performs `effect` and returns the thread that reads terminal input from now on: effects
+/// that need the terminal are performed here, all others by [`execute`].
+fn perform(
+    app: &mut App,
+    effect: Effect,
+    terminal: &mut TerminalGuard,
+    input: InputThread,
+) -> Result<InputThread, RuntimeError> {
+    match effect {
+        Effect::OpenInEditor { list, line } => edit(app, terminal, input, &list, line),
+        effect @ (Effect::Save(_)
+        | Effect::CreateEntry { .. }
+        | Effect::RenameEntry { .. }
+        | Effect::DeleteEntry { .. }) => {
+            execute(app, effect);
+            Ok(input)
+        }
+    }
+}
+
+/// Opens the list at `list` in the editor at `line`, waits for it and reloads the list.
+///
+/// Input is stopped while the editor runs, so that the keys typed in the editor never reach
+/// RuDo, and resumed on the same channel afterwards. Editor failures become a message.
+fn edit(
+    app: &mut App,
+    terminal: &mut TerminalGuard,
+    input: InputThread,
+    list: &ListPath,
+    line: Option<NonZeroUsize>,
+) -> Result<InputThread, RuntimeError> {
+    let visual = environment_variable("VISUAL");
+    let editor = environment_variable("EDITOR");
+    let command_line = choose_editor(app.config().editor(), visual.as_deref(), editor.as_deref());
+    let file = app.workspace().absolute_path(list);
+    let command = match EditorCommand::new(command_line, &file, line) {
+        Ok(command) => command,
+        Err(error) => {
+            app.editor_failed(&error);
+            return Ok(input);
+        }
     };
-    for effect in effects {
-        execute(app, effect);
+    let sender = input.stop().ok_or(RuntimeError::InputClosed)?;
+    let outcome = terminal
+        .suspend(|| run_editor(&command))
+        .map_err(RuntimeError::Suspend)?;
+    let input = InputThread::spawn(sender).map_err(RuntimeError::SpawnInput)?;
+    if let Err(error) = outcome {
+        app.editor_failed(&error);
+    }
+    app.reload_list(list);
+    Ok(input)
+}
+
+/// Runs `command` in the current terminal and waits until it exits.
+fn run_editor(command: &EditorCommand) -> Result<(), EditorError> {
+    let program = command.program();
+    tracing::info!(?command, "starting the editor");
+    let status = Command::new(program)
+        .args(command.arguments())
+        .status()
+        .map_err(|source| match source.kind() {
+            io::ErrorKind::NotFound => EditorError::NotFound {
+                program: program.to_owned(),
+            },
+            _ => EditorError::Start {
+                program: program.to_owned(),
+                source,
+            },
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(EditorError::Failed {
+            program: program.to_owned(),
+            status,
+        })
+    }
+}
+
+/// Returns the value of the environment variable `name`, or `None` if it is not set or not
+/// valid Unicode, which is logged.
+fn environment_variable(name: &str) -> Option<String> {
+    match env::var(name) {
+        Ok(value) => Some(value),
+        Err(VarError::NotPresent) => None,
+        Err(error @ VarError::NotUnicode(_)) => {
+            tracing::warn!(name, %error, "ignoring environment variable");
+            None
+        }
     }
 }
 

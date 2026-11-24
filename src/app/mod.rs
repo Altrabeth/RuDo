@@ -3,14 +3,16 @@
 //! that decide what the panes show, such as filtering.
 //!
 //! Nothing in this module reads the terminal, the clock or the environment; only [`execute`]
-//! touches the file system.
+//! and [`App::reload_list`] touch the file system.
 
 pub mod confirm;
+pub mod editor;
 pub mod effect;
 pub mod filter;
 pub mod help;
 pub mod lists;
 pub mod prompt;
+mod reload;
 pub mod state;
 pub mod status;
 pub mod task_input;

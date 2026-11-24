@@ -59,7 +59,7 @@ pub fn task_items(document: &TodoDocument) -> Vec<TaskItem<'_>> {
 
 /// Returns the tasks of the list at `path`; none if it is missing or could not be loaded,
 /// which the tasks pane shows instead.
-fn list_items<'workspace>(
+pub(super) fn list_items<'workspace>(
     workspace: &'workspace Workspace,
     path: &ListPath,
 ) -> Vec<TaskItem<'workspace>> {
@@ -82,6 +82,15 @@ impl TasksPane {
     #[must_use]
     pub fn outline(&self, path: &ListPath) -> Option<&Outline<TaskId>> {
         self.outlines.get(path)
+    }
+
+    /// Forgets the selection and folding of the list at `path`, whose task ids are void
+    /// because its document was parsed again, and returns its fresh navigation state, or
+    /// `None` if the list was never opened.
+    pub(super) fn reset(&mut self, path: &ListPath) -> Option<&mut Outline<TaskId>> {
+        let outline = self.outlines.get_mut(path)?;
+        *outline = Outline::new();
+        Some(outline)
     }
 
     /// Returns the navigation state of the list at `path`, creating it on first use.

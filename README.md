@@ -268,6 +268,8 @@ tasks:
   indent: tab
 
 # Command used by `open-in-editor`. Defaults to $VISUAL, then $EDITOR, then `vi`.
+# Arguments are allowed (`code --wait`). vi, vim, nvim, nano, emacs, kak, hx and micro open
+# the list at the selected task; RuDo reloads the list when the editor exits.
 editor: nvim
 
 theme:

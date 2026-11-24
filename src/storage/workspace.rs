@@ -104,6 +104,16 @@ impl Workspace {
         self.root.join(&path.0)
     }
 
+    /// Reads the list file at `path` again, as a scan would, and replaces its content if the
+    /// file changed since RuDo last loaded or saved it, judged by its [`Fingerprint`].
+    ///
+    /// A file that cannot be loaded any more replaces the content with its [`LoadError`].
+    /// Returns `None` if the workspace has no list at `path`.
+    pub fn reload(&mut self, path: &ListPath) -> Option<Reload> {
+        let file = self.absolute_path(path);
+        Some(self.list_mut(path)?.reload(&file))
+    }
+
     /// Adds an empty folder or list named `name` to the folder `parent` in display order and
     /// returns it, after it was created on disk, so that the workspace need not be scanned
     /// again.
@@ -344,6 +354,36 @@ impl List {
     pub fn content_mut(&mut self) -> Result<&mut LoadedList, &LoadError> {
         self.content.as_mut().map_err(|error| &*error)
     }
+
+    /// Loads the list file at `file` again if its content differs from the loaded one.
+    fn reload(&mut self, file: &Path) -> Reload {
+        let bytes = match fs::read(file) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.content = Err(LoadError::Read(error));
+                return Reload::Replaced;
+            }
+        };
+        let fingerprint = Fingerprint::of(&bytes);
+        if self
+            .content
+            .as_ref()
+            .is_ok_and(|loaded| loaded.fingerprint == fingerprint)
+        {
+            return Reload::Unchanged;
+        }
+        self.content = parse_list(&bytes, fingerprint);
+        Reload::Replaced
+    }
+}
+
+/// Whether [`Workspace::reload`] replaced the content of a list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Reload {
+    /// The file still has the content RuDo last loaded or saved, which was kept.
+    Unchanged,
+    /// The file changed or cannot be loaded any more, and its content was replaced.
+    Replaced,
 }
 
 /// The parsed document of a list and the fingerprint of the bytes it was parsed from.
@@ -559,10 +599,15 @@ fn load_entries(root: &Path, pending: Vec<PendingEntry>) -> Vec<Entry> {
 
 fn load_list(path: &Path) -> Result<LoadedList, LoadError> {
     let bytes = fs::read(path).map_err(LoadError::Read)?;
-    let text = str::from_utf8(&bytes).map_err(LoadError::NotUtf8)?;
+    parse_list(&bytes, Fingerprint::of(&bytes))
+}
+
+/// Parses the content `bytes` of a list file, whose fingerprint is `fingerprint`.
+fn parse_list(bytes: &[u8], fingerprint: Fingerprint) -> Result<LoadedList, LoadError> {
+    let text = str::from_utf8(bytes).map_err(LoadError::NotUtf8)?;
     Ok(LoadedList {
         document: TodoDocument::parse(text),
-        fingerprint: Fingerprint::of(&bytes),
+        fingerprint,
     })
 }
 
@@ -717,6 +762,68 @@ mod tests {
         let system_under_test = scan(&root);
 
         assert_eq!(outline(system_under_test.entries()), expected);
+    }
+
+    #[test]
+    fn reload_of_an_unchanged_file_keeps_the_document() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"- [ ] a\n");
+        let mut workspace = scan(&root);
+        let path = list_path("inbox.md");
+        let expected = workspace.list(&path).unwrap().content().unwrap().clone();
+
+        let system_under_test = workspace.reload(&path);
+
+        assert_eq!(system_under_test, Some(Reload::Unchanged));
+        assert_eq!(workspace.list(&path).unwrap().content().unwrap(), &expected);
+    }
+
+    #[test]
+    fn reload_of_a_changed_file_replaces_document_and_fingerprint() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"- [ ] a\n");
+        let mut workspace = scan(&root);
+        let path = list_path("inbox.md");
+        let content = b"- [x] a\n- [ ] b\n";
+        write_file(root.path(), "inbox.md", content);
+
+        let system_under_test = workspace.reload(&path);
+
+        assert_eq!(system_under_test, Some(Reload::Replaced));
+        let loaded = workspace.list(&path).unwrap().content().unwrap();
+        assert_eq!(loaded.document().to_string(), "- [x] a\n- [ ] b\n");
+        assert_eq!(loaded.fingerprint(), Fingerprint::of(content));
+    }
+
+    #[rstest]
+    #[case::not_utf8(Some(&[0xff][..]))]
+    #[case::deleted(None)]
+    fn reload_of_a_file_that_cannot_be_loaded_keeps_its_error(#[case] content: Option<&[u8]>) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"- [ ] a\n");
+        let mut workspace = scan(&root);
+        let path = list_path("inbox.md");
+        let file = root.path().join("inbox.md");
+        match content {
+            Some(content) => fs::write(&file, content).unwrap(),
+            None => fs::remove_file(&file).unwrap(),
+        }
+
+        let system_under_test = workspace.reload(&path);
+
+        assert_eq!(system_under_test, Some(Reload::Replaced));
+        assert!(workspace.list(&path).unwrap().content().is_err());
+    }
+
+    #[test]
+    fn reload_of_an_unknown_list_does_nothing() {
+        let root = TempDir::new().unwrap();
+        let mut workspace = scan(&root);
+        let path = list_path("missing.md");
+
+        let system_under_test = workspace.reload(&path);
+
+        assert_eq!(system_under_test, None);
     }
 
     #[test]

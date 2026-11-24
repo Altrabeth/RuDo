@@ -106,11 +106,11 @@ impl App {
             Action::NewTaskBelow => self.add_task(InsertPosition::Below),
             Action::NewTaskAbove => self.add_task(InsertPosition::Above),
             Action::NewSubtask => self.add_subtask(),
+            Action::OpenInEditor => return self.open_in_editor(),
             Action::ClearFilter
             | Action::Undo
             | Action::Redo
             | Action::ToggleCompleted
-            | Action::OpenInEditor
             | Action::Edit
             | Action::Yank
             | Action::PasteBelow

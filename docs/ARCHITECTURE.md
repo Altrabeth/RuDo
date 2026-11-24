@@ -12,7 +12,7 @@ in the same change.
   a `ratatui` buffer. Only a thin shell touches the terminal, the clock and the file system.
   The core is therefore tested with fast, output-based unit tests and needs no mocks.
 - **The Elm architecture.** Input becomes an `Action`; `App::update(action)` changes the
-  in-memory `AppState` and returns a list of `Effect`s (save a file, create a folder, open the
+  in-memory `App` and returns a list of `Effect`s (save a file, create a folder, open the
   editor). The shell executes the effects and feeds their results back as events. `view`
   renders the state and never changes it.
 - **Parse, don't validate.** Text from outside (configuration, Markdown files, typed names,
@@ -75,14 +75,14 @@ src/
     entries.rs             create, rename and delete lists and folders
     watch.rs               file system watching
   app/
-    state.rs               AppState, Focus, Mode
+    state.rs               App, Focus, Mode
     update.rs              App::update(Action) -> Vec<Effect>
     effect.rs              Effect and its executor
     history.rs             undo and redo
     register.rs            yank register
     filter.rs              smart-case search and filtering
   ui/
-    mod.rs                 view(&AppState, &mut Frame)
+    mod.rs                 view(&App, &mut Frame)
     outline.rs             generic tree navigation: selection, folding, scrolling
     layout.rs              panes, focus, responsive layout
     lists_pane.rs          workspace tree
@@ -111,7 +111,7 @@ keep the names above unless there is a reason to deviate.
                            │                                          │
                            └────────── Effect executor ◄──────────────┘
                                        (storage::*, editor)
- after each batch of events: terminal.draw(|frame| ui::view(&app.state, frame))
+ after each batch of events: terminal.draw(|frame| ui::view(&app, frame))
 ```
 
 - Events are read on a dedicated thread and sent over a `std::sync::mpsc` channel. RuDo has
@@ -185,9 +185,11 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
 
 ## Persistence
 
-- Every mutation of a document returns `Effect::Save`. The executor writes atomically: a
-  temporary file in the same directory, `fsync`, then `rename` over the target. Symlinks are
-  resolved first so the link survives, and the original file permissions are kept.
+- Features change documents only through `App::edit_list`, the single mutation choke point:
+  it applies the edit and returns `Effect::Save` when the document changed. The executor
+  writes atomically: a temporary file in the same directory, `fsync`, then `rename` over the
+  target. Symlinks are resolved first so the link survives, and the original file permissions
+  are kept.
 - Before writing, the executor compares the file on disk with the content RuDo loaded. If it
   differs, RuDo does not overwrite it, reloads the file and reports that the last change was
   not applied.

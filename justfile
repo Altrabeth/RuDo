@@ -39,6 +39,10 @@ install-tools:
 build *args:
     cargo build "$@"
 
+# Install the rudo binary into ~/.cargo/bin
+install:
+    cargo install --path . --locked
+
 # Run the binary with the given arguments
 run *args:
     cargo run -- "$@"

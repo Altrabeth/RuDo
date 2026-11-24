@@ -44,6 +44,7 @@ src/
   main.rs                  binary: parse CLI, set up logging, load config, run (anyhow)
   lib.rs                   crate docs and module tree
   cli.rs                   clap definitions
+  logging.rs               file logging with `tracing-subscriber`, `RUDO_LOG` filter
   paths.rs                 XDG config, data and state directories, `~` expansion
   config/
     mod.rs                 Config, loading, error reporting

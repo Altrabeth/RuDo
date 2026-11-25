@@ -9,9 +9,8 @@ use crate::app::prompt::PromptKind;
 use crate::app::state::App;
 use crate::domain::date::{RelativeDue, parse_due};
 use crate::markdown::document::TaskId;
-use crate::markdown::task_line::{FieldKey, InlineField};
+use crate::markdown::task_line::FieldKey;
 use crate::storage::workspace::ListPath;
-use crate::ui::text_input::TextInput;
 
 /// The hint of the due date prompt: examples of the accepted expressions.
 pub(super) const DUE_DATE_HINT: &str = "today, tomorrow, +3d, fri, 2026-12-24; empty clears";
@@ -40,21 +39,10 @@ impl App {
     /// Opens the due date prompt for the selected task of the active list, holding the due
     /// date it already has.
     pub(super) fn open_due_date_prompt(&mut self) {
-        let Some(list) = self.lists.active().cloned() else {
-            return;
-        };
-        let Some(&task) = self.task_outline().and_then(|outline| outline.selected()) else {
-            return;
-        };
-        let input = TextInput::with_value(self.stored_due(task).unwrap_or_default());
-        self.open_prompt(PromptKind::DueDate { list, task }, input);
-    }
-
-    /// Returns the stored due date value of `task` in the active list, if it has one.
-    fn stored_due(&self, task: TaskId) -> Option<&str> {
-        let document = self.active_list()?.content().ok()?.document();
-        let node = document.tasks().find(|node| node.id() == task)?;
-        node.task().field(&FieldKey::Due).map(InlineField::value)
+        self.open_field_prompt(&FieldKey::Due, |list, task| PromptKind::DueDate {
+            list,
+            task,
+        });
     }
 
     /// Sets the due date of `task` in the list at `list` to `due`, or removes it if `due` is
@@ -66,13 +54,7 @@ impl App {
         due: Option<Date>,
     ) -> Vec<Effect> {
         let value = due.map(|due| due.to_string());
-        let effects = self.edit_list(list, |document| {
-            document
-                .set_field(task, FieldKey::Due, value.as_deref())
-                .expect("an ISO date is a valid inline field value")
-        });
-        self.refresh_tasks();
-        effects
+        self.set_task_field(list, task, FieldKey::Due, value.as_deref())
     }
 }
 

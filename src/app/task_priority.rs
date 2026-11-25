@@ -19,11 +19,7 @@ impl App {
 
     /// Steps the priority of the selected task of the active list in `direction`.
     fn step_priority(&mut self, direction: Step) -> Vec<Effect> {
-        let Some(&task) = self.task_outline().and_then(|outline| outline.selected()) else {
-            return Vec::new();
-        };
-        // `edit_list` borrows the whole app mutably, so the path cannot stay borrowed from it.
-        let Some(list) = self.lists.active().cloned() else {
+        let Some((list, task)) = self.selected_task_in_active_list() else {
             return Vec::new();
         };
         self.edit_list(&list, |document| {

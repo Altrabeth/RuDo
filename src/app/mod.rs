@@ -18,6 +18,7 @@ pub mod state;
 pub mod status;
 mod task_delete;
 mod task_due;
+mod task_fields;
 pub mod task_input;
 mod task_priority;
 mod task_recurrence;

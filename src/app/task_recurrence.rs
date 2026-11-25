@@ -14,7 +14,6 @@ use crate::domain::recurrence::{Recurrence, RecurrenceError};
 use crate::markdown::document::{InsertPosition, TaskId, TodoDocument};
 use crate::markdown::task_line::{FieldKey, InlineField, TaskLine, TaskStatus};
 use crate::storage::workspace::ListPath;
-use crate::ui::text_input::TextInput;
 
 /// The hint of the recurrence prompt: examples of the accepted rules.
 pub(super) const RECURRENCE_HINT: &str = "every day, every 2 weeks, every month; empty clears";
@@ -101,25 +100,10 @@ impl App {
     /// Opens the recurrence prompt for the selected task of the active list, holding the rule
     /// it already has.
     pub(super) fn open_recurrence_prompt(&mut self) {
-        let Some(list) = self.lists.active().cloned() else {
-            return;
-        };
-        let Some(&task) = self.task_outline().and_then(|outline| outline.selected()) else {
-            return;
-        };
-        let stored = self
-            .active_task(task)
-            .and_then(|line| line.field(&FieldKey::Repeat))
-            .map_or("", InlineField::value);
-        let input = TextInput::with_value(stored);
-        self.open_prompt(PromptKind::Recurrence { list, task }, input);
-    }
-
-    /// Returns the task `task` of the active list, if it is there.
-    fn active_task(&self, task: TaskId) -> Option<&TaskLine> {
-        let document = self.active_list()?.content().ok()?.document();
-        let node = document.tasks().find(|node| node.id() == task)?;
-        Some(node.task())
+        self.open_field_prompt(&FieldKey::Repeat, |list, task| PromptKind::Recurrence {
+            list,
+            task,
+        });
     }
 
     /// Sets the recurrence rule of `task` in the list at `list` to `recurrence`, or removes
@@ -131,13 +115,7 @@ impl App {
         recurrence: Option<Recurrence>,
     ) -> Vec<Effect> {
         let value = recurrence.map(|rule| rule.to_string());
-        let effects = self.edit_list(list, |document| {
-            document
-                .set_field(task, FieldKey::Repeat, value.as_deref())
-                .expect("a recurrence rule is a valid inline field value")
-        });
-        self.refresh_tasks();
-        effects
+        self.set_task_field(list, task, FieldKey::Repeat, value.as_deref())
     }
 
     /// Returns the text of the occurrence that marking `task` of the active list done

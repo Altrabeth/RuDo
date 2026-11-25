@@ -21,6 +21,7 @@ use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_visibility::CompletedTasks;
 use crate::app::tasks::unfiltered_list_items;
+use crate::config::ListOrder;
 use crate::config::theme::Slot;
 use crate::markdown::document::{TaskId, TodoDocument};
 use crate::markdown::task_line::TaskStatus;
@@ -163,7 +164,7 @@ impl TaskCandidates {
 fn go_to_candidates(workspace: &Workspace, hidden_entries: HiddenEntries) -> Vec<GoToCandidate> {
     let mut entries = Vec::new();
     let mut tasks = TaskCandidates::default();
-    for item in tree_items(workspace, hidden_entries) {
+    for item in tree_items(workspace, hidden_entries, ListOrder::Name) {
         match item.row() {
             TreeRow::Entry(Entry::Folder(folder)) => entries.push(GoToCandidate::folder(folder)),
             TreeRow::Entry(Entry::List(list)) => {

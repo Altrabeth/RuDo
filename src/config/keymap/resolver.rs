@@ -240,7 +240,7 @@ mod tests {
 
     #[rstest]
     #[case::unbound(Context::Tasks, "w")]
-    #[case::bound_in_other_context(Context::Lists, "s")]
+    #[case::bound_in_other_context(Context::Lists, "y")]
     #[case::printable_in_input(Context::Input, "x")]
     #[case::sequence_of_other_context(Context::Dialog, "g")]
     fn unknown_keys_do_not_match(#[case] context: Context, #[case] notation: &str) {

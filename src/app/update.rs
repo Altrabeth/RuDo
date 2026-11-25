@@ -9,6 +9,7 @@ use crate::app::picker::PickerCommand;
 use crate::app::prompt::PromptKind;
 use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
+use crate::config::ListOrder;
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::resolver::Resolution;
@@ -128,10 +129,18 @@ impl App {
             Action::ToggleCompleted => self.toggle_completed(),
             Action::ToggleHidden => self.toggle_hidden(),
             Action::SetRecurrence => self.open_recurrence_prompt(),
-            Action::SortAlphabetically => return self.sort_tasks(SortKey::Alphabetical),
-            Action::SortByDueDate => return self.sort_tasks(SortKey::DueDate),
-            Action::SortByPriority => return self.sort_tasks(SortKey::Priority),
+            Action::SortAlphabetically => {
+                return self.sort_focused_pane(ListOrder::Name, SortKey::Alphabetical);
+            }
+            Action::SortByDueDate => {
+                return self.sort_focused_pane(ListOrder::Due, SortKey::DueDate);
+            }
+            Action::SortByPriority => {
+                return self.sort_focused_pane(ListOrder::Priority, SortKey::Priority);
+            }
             Action::SortByStatus => return self.sort_tasks(SortKey::Status),
+            Action::SortByOpenTasks => self.sort_lists(ListOrder::OpenTasks),
+            Action::SortByTotalTasks => self.sort_lists(ListOrder::TotalTasks),
             Action::Yank => self.yank_task(),
             Action::PasteBelow => return self.paste(InsertPosition::Below),
             Action::PasteAbove => return self.paste(InsertPosition::Above),
@@ -145,6 +154,18 @@ impl App {
             Action::Complete => self.complete(),
         }
         Vec::new()
+    }
+
+    /// Orders the lists pane by `order` while it is focused, which writes nothing, and sorts the
+    /// selected task and its siblings by `key` otherwise.
+    fn sort_focused_pane(&mut self, order: ListOrder, key: SortKey) -> Vec<Effect> {
+        match self.focus {
+            Focus::Lists => {
+                self.sort_lists(order);
+                Vec::new()
+            }
+            Focus::Tasks => self.sort_tasks(key),
+        }
     }
 
     /// Routes a navigation or tree action to whatever takes the keys: the help screen if it is
@@ -275,6 +296,7 @@ impl App {
         let before = document.clone();
         match edit(document) {
             EditOutcome::Changed => {
+                self.list_contents_changed();
                 self.history
                     .record(HistoryEntry::Document(DocumentSnapshot {
                         list: list.clone(),
@@ -332,6 +354,7 @@ impl App {
             return Vec::new();
         };
         mem::swap(loaded.document_mut(), &mut snapshot.document);
+        self.list_contents_changed();
         let selection = self.selected_task_of(&snapshot.list);
         let restored_selection = mem::replace(&mut snapshot.selection, selection);
         self.show_restored(&snapshot.list, restored_selection);

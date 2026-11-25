@@ -22,6 +22,8 @@ use std::str::FromStr;
 use jiff::civil::Date;
 use strum::IntoEnumIterator;
 
+use crate::domain::priority::Priority;
+
 /// Number of columns between two tab stops when measuring indentation.
 const TAB_WIDTH: usize = 4;
 
@@ -580,7 +582,26 @@ impl TaskLine {
     /// has no such field or its value is not a `YYYY-MM-DD` date.
     #[must_use]
     pub fn created(&self) -> Option<Date> {
-        self.field(&FieldKey::Created)?.value().parse().ok()
+        self.date(&FieldKey::Created)
+    }
+
+    /// Returns the due date, or `None` if the task has no due field or its value is no date.
+    #[must_use]
+    pub fn due(&self) -> Option<Date> {
+        self.date(&FieldKey::Due)
+    }
+
+    /// Returns the date in the first field with `key`, or `None` if there is no such field or
+    /// its value is no date.
+    fn date(&self, key: &FieldKey) -> Option<Date> {
+        self.field(key)?.value().parse().ok()
+    }
+
+    /// Returns the priority, or `None` for normal priority: the task has no priority field or
+    /// its value is no priority, which is shown as written but counts as normal.
+    #[must_use]
+    pub fn priority(&self) -> Option<Priority> {
+        self.field(&FieldKey::Priority)?.value().parse().ok()
     }
 
     /// Returns whether the task was changed since it was parsed, in which case it renders
@@ -1191,6 +1212,34 @@ mod tests {
         let system_under_test = task.field(&FieldKey::Due);
 
         assert_eq!(system_under_test, Some(&expected));
+    }
+
+    #[rstest]
+    #[case::date("- [ ] a [due:: 2026-03-14]", Some(jiff::civil::date(2026, 3, 14)))]
+    #[case::first_of_two(
+        "- [ ] a [due:: 2026-03-14] [due:: 2026-01-01]",
+        Some(jiff::civil::date(2026, 3, 14))
+    )]
+    #[case::no_date("- [ ] a [due:: someday]", None)]
+    #[case::missing("- [ ] a", None)]
+    fn due_parses_the_due_field(#[case] line: &str, #[case] expected: Option<Date>) {
+        let task = parse_task(line);
+
+        let system_under_test = task.due();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::high("- [ ] a [priority:: high]", Some(Priority::High))]
+    #[case::unknown("- [ ] a [priority:: urgent]", None)]
+    #[case::missing("- [ ] a", None)]
+    fn priority_parses_the_priority_field(#[case] line: &str, #[case] expected: Option<Priority>) {
+        let task = parse_task(line);
+
+        let system_under_test = task.priority();
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[test]

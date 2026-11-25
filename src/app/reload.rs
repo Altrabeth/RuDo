@@ -151,6 +151,7 @@ impl App {
             Some(Reload::Replaced) => {
                 tracing::info!(%list, "list changed on disk and was reloaded");
                 self.list_replaced(list, selected_line);
+                self.list_contents_changed();
                 let message = format!("{} reloaded", self.list_name(list));
                 self.show_message(StatusMessage::info(message));
                 self.end_visual_mode_without_anchor();

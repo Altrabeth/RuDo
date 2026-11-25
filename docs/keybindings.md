@@ -112,18 +112,12 @@ command is split); in the tasks pane at the line of the selected task. RuDo relo
 | `-`            | `priority-down`       | lower the priority                               |
 | `D`            | `set-due-date`        | set or clear the due date                        |
 | `r`            | `set-recurrence`      | set or clear the recurrence                      |
-| `s p`          | `sort-by-priority`    | sort the selected task and its siblings          |
-| `s d`          | `sort-by-due-date`    | sort by due date, tasks without one last         |
-| `s a`          | `sort-alphabetically` | sort by text                                     |
-| `s s`          | `sort-by-status`      | open tasks first                                 |
 | `H`            | `toggle-completed`    | show or hide completed tasks                     |
 
 The task text is edited in its row; `enter` saves it, `esc` discards it, and empty text
 changes nothing. A new task gets today's creation date (see
 [Task syntax](files-and-obsidian.md#task-syntax)), a pasted one keeps its fields. Deleting a task does not ask: `u` brings it back and `p` pastes it. Every
-action moves, deletes or copies a task together with its subtasks. Sorting is stable and
-only sorts the siblings that no heading or text separates from the selected task; priority
-sorts highest first, alphabetical sorting ignores case.
+action moves, deletes or copies a task together with its subtasks.
 
 While completed (done and cancelled) tasks are hidden with `H`, the pane title says
 `completed hidden` and the counter still counts every task. An open subtask of a completed
@@ -136,6 +130,42 @@ binding of `toggle-completed` in your configuration only applies in the tasks pa
 [picker](#picker-go-to-anything-and-folders): type a few letters of the folder, such as `gar`
 for `Home/Garden`, and press `enter`; `/` is the top level of the workspace. A folder cannot
 be moved into itself, and an entry with the same name in the target folder is never replaced.
+
+## Sorting (lists pane and tasks pane)
+
+| Keys  | Action                | Description                                        |
+| ----- | --------------------- | -------------------------------------------------- |
+| `s p` | `sort-by-priority`    | sort by priority, highest first                    |
+| `s d` | `sort-by-due-date`    | sort by due date, earliest first, without one last |
+| `s a` | `sort-alphabetically` | sort by text or name                               |
+| `s s` | `sort-by-status`      | sort tasks: open tasks first                       |
+| `s o` | `sort-by-open-tasks`  | sort lists: most open tasks first                  |
+| `s t` | `sort-by-total-tasks` | sort lists: most tasks first                       |
+
+In the tasks pane, sorting changes the list file: it sorts the selected task and its
+siblings, together with their subtasks. Sorting is stable and only sorts the siblings that no
+heading or text separates from the selected task; priority sorts highest first, alphabetical
+sorting ignores case.
+
+In the lists pane, sorting is a view that never changes a file: `s a`, `s d`, `s p`, `s o`
+and `s t` order the folders and lists of every folder, the pane title names the order
+(`Lists by due`), and the order stays for the session, also when lists are edited, reloaded
+or added. `lists.sort` in the [configuration](configuration.md) sets the order at start.
+Only open tasks, those neither done nor cancelled, count for urgency and priority:
+
+- `s a` (`name`, the default): by name, ignoring case.
+- `s d` (`due`): most urgent first, by the earliest due date of the open tasks, so overdue
+  lists come first; lists without an open task with a due date follow.
+- `s p` (`priority`): by the highest priority of the open tasks, a task without a priority
+  counting as normal (between medium and low); equal priorities by urgency as with `s d`;
+  lists without open tasks follow.
+- `s o` (`open-tasks`) and `s t` (`total-tasks`): most open tasks, or most tasks, first.
+
+Folders always come before lists and are ordered among themselves by everything the pane
+shows below them: the sum of the counts, the earliest due date and the highest priority. Equal
+entries are ordered by name, lists that cannot be read come last (except by name), hidden
+entries sort like the others and the `Bin` row stays at the end. The selection, folded
+folders and a visual selection stay with their entries when the order changes.
 
 ## Visual mode (lists pane, tasks pane and bin)
 

@@ -3,7 +3,9 @@
 ## How your files are organised
 
 The **workspace** is a directory. RuDo shows its content as a tree in the lists pane, folders
-first, then lists, each sorted by name ignoring case:
+first, then lists, each sorted by name ignoring case; `s d`, `s p`, `s o` and `s t` order them
+by urgency, priority, open or total tasks instead, without changing any file (see
+[Sorting](keybindings.md#sorting-lists-pane-and-tasks-pane)):
 
 | On disk                         | In RuDo                                               |
 | ------------------------------- | ----------------------------------------------------- |

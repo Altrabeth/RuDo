@@ -34,9 +34,8 @@ impl App {
 /// Returns the priority of `task`, where a missing or unknown value means normal priority.
 fn current_priority(document: &TodoDocument, task: TaskId) -> Option<Priority> {
     let node = document.tasks().find(|node| node.id() == task)?;
-    let value = node.task().field(&FieldKey::Priority)?.value();
     // An unknown value stays visible in the row and counts as normal priority when stepping.
-    value.parse().ok()
+    node.task().priority()
 }
 
 #[cfg(test)]

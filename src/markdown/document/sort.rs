@@ -10,8 +10,8 @@ use std::ops::Range;
 
 use jiff::civil::Date;
 
-use crate::domain::priority::{self, Priority};
-use crate::markdown::task_line::{FieldKey, TaskLine};
+use crate::domain::priority;
+use crate::markdown::task_line::TaskLine;
 
 use super::{DocumentLine, EditOutcome, TaskId, TodoDocument};
 
@@ -132,17 +132,12 @@ fn stable_order<K: Ord>(tasks: &[&TaskLine], key: impl Fn(&TaskLine) -> K) -> Ve
 
 /// Highest priority first; an unknown value counts as normal priority, as when stepping it.
 fn priority_key(task: &TaskLine) -> Reverse<usize> {
-    let priority = task
-        .field(&FieldKey::Priority)
-        .and_then(|field| field.value().parse::<Priority>().ok());
-    Reverse(priority::level(priority))
+    Reverse(priority::level(task.priority()))
 }
 
 /// Earliest due date first; a task without a due date, or with a value that is no date, last.
 fn due_key(task: &TaskLine) -> (bool, Option<Date>) {
-    let due = task
-        .field(&FieldKey::Due)
-        .and_then(|field| field.value().parse::<Date>().ok());
+    let due = task.due();
     (due.is_none(), due)
 }
 

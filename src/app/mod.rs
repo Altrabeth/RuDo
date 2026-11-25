@@ -18,6 +18,7 @@ pub mod go_to;
 pub mod help;
 pub mod history;
 pub mod lists;
+mod lists_order;
 pub mod picker;
 pub mod prompt;
 mod register;

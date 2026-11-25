@@ -49,6 +49,11 @@ impl TestApp {
         Self::start(files, Config::default())
     }
 
+    /// Like [`TestApp::from_bytes`], but with `config` instead of the default configuration.
+    pub fn from_bytes_with_config(files: &[(&str, &[u8])], config: Config) -> Self {
+        Self::start(files, config)
+    }
+
     fn start(files: &[(&str, &[u8])], config: Config) -> Self {
         let workspace_folder = TempDir::new().unwrap();
         for (path, content) in files {

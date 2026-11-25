@@ -161,16 +161,20 @@ pub enum Action {
     SetDueDate,
     /// Set or clear the recurrence.
     SetRecurrence,
-    /// Sort the selected task and its siblings by priority.
+    /// Show or hide completed tasks.
+    ToggleCompleted,
+    /// Sort the selected task and its siblings, or the lists pane, by priority.
     SortByPriority,
     /// Sort by due date.
     SortByDueDate,
-    /// Sort by text.
+    /// Sort by text or name.
     SortAlphabetically,
-    /// Sort by status.
+    /// Sort tasks by status.
     SortByStatus,
-    /// Show or hide completed tasks.
-    ToggleCompleted,
+    /// Sort the lists pane by the number of open tasks.
+    SortByOpenTasks,
+    /// Sort the lists pane by the number of tasks.
+    SortByTotalTasks,
     /// Start or end selecting several rows.
     VisualMode,
     /// Delete the selected tasks, lists or folders.
@@ -310,10 +314,12 @@ impl Action {
             Self::PriorityDown => "lower the priority",
             Self::SetDueDate => "set or clear the due date",
             Self::SetRecurrence => "set or clear the recurrence",
-            Self::SortByPriority => "sort the selected task and its siblings",
-            Self::SortByDueDate => "sort by due date, tasks without one last",
-            Self::SortAlphabetically => "sort by text",
-            Self::SortByStatus => "open tasks first",
+            Self::SortByPriority => "sort by priority, highest first",
+            Self::SortByDueDate => "sort by due date, earliest first, without one last",
+            Self::SortAlphabetically => "sort by text or name",
+            Self::SortByStatus => "sort tasks: open tasks first",
+            Self::SortByOpenTasks => "sort lists: most open tasks first",
+            Self::SortByTotalTasks => "sort lists: most tasks first",
             Self::VisualMode => "select several rows from here on, or stop selecting",
             Self::DeleteSelection => "delete the selected tasks, lists or folders",
             Self::YankSelection => "copy the selected tasks and their subtasks",
@@ -386,6 +392,8 @@ impl Action {
             Self::SortByDueDate => "sort due",
             Self::SortAlphabetically => "sort a-z",
             Self::SortByStatus => "sort status",
+            Self::SortByOpenTasks => "sort open",
+            Self::SortByTotalTasks => "sort total",
             Self::VisualMode => "visual",
             Self::RestoreFromBin => "restore",
             Self::EmptyBin => "empty bin",
@@ -423,13 +431,22 @@ impl Action {
             | Self::MoveToBottom
             | Self::HalfPageDown
             | Self::HalfPageUp => NAVIGATION,
-            Self::Collapse | Self::Expand | Self::ToggleFold | Self::FoldAll | Self::UnfoldAll => {
-                TREE
-            }
+            Self::Collapse
+            | Self::Expand
+            | Self::ToggleFold
+            | Self::FoldAll
+            | Self::UnfoldAll
+            | Self::SortByPriority
+            | Self::SortByDueDate
+            | Self::SortAlphabetically => TREE,
             Self::Delete => TREE_AND_BIN,
-            Self::Open | Self::NewList | Self::NewFolder | Self::Rename | Self::ToggleHidden => {
-                LISTS
-            }
+            Self::Open
+            | Self::NewList
+            | Self::NewFolder
+            | Self::Rename
+            | Self::ToggleHidden
+            | Self::SortByOpenTasks
+            | Self::SortByTotalTasks => LISTS,
             Self::MoveToFolder => LISTS_AND_VISUAL,
             Self::NewTaskBelow
             | Self::NewTaskAbove
@@ -447,9 +464,6 @@ impl Action {
             | Self::PriorityDown
             | Self::SetDueDate
             | Self::SetRecurrence
-            | Self::SortByPriority
-            | Self::SortByDueDate
-            | Self::SortAlphabetically
             | Self::SortByStatus
             | Self::ToggleCompleted => TASKS,
             Self::VisualMode => VISUAL_TOGGLE,
@@ -534,6 +548,8 @@ impl Action {
             Self::SortByDueDate => &["s d"],
             Self::SortAlphabetically => &["s a"],
             Self::SortByStatus => &["s s"],
+            Self::SortByOpenTasks => &["s o"],
+            Self::SortByTotalTasks => &["s t"],
             Self::CloseHelp => &["?", "q", "esc"],
             Self::ConfirmYes => &["y", "enter"],
             Self::ConfirmNo => &["n", "esc"],
@@ -628,6 +644,8 @@ mod tests {
     #[case::picker_previous(Action::PickerPrevious, &["up", "ctrl-p"])]
     #[case::complete(Action::Complete, &["tab"])]
     #[case::go_to(Action::GoTo, &["ctrl-p"])]
+    #[case::sort_by_open_tasks(Action::SortByOpenTasks, &["s o"])]
+    #[case::sort_by_total_tasks(Action::SortByTotalTasks, &["s t"])]
     fn default_keys_match_the_documentation(#[case] action: Action, #[case] notations: &[&str]) {
         let expected = sequences(notations);
 
@@ -660,6 +678,9 @@ mod tests {
     #[case::tasks(Action::NewTaskBelow, &[Context::Tasks])]
     #[case::toggle_completed(Action::ToggleCompleted, &[Context::Tasks])]
     #[case::toggle_hidden(Action::ToggleHidden, &[Context::Lists])]
+    #[case::sort_both_panes(Action::SortByDueDate, &[Context::Lists, Context::Tasks])]
+    #[case::sort_tasks(Action::SortByStatus, &[Context::Tasks])]
+    #[case::sort_lists(Action::SortByOpenTasks, &[Context::Lists])]
     #[case::help(Action::CloseHelp, &[Context::Help])]
     #[case::dialog(Action::ConfirmYes, &[Context::Dialog])]
     #[case::input(Action::Submit, &[Context::Input, Context::Picker])]

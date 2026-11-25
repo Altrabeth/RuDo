@@ -31,6 +31,11 @@ workspace:
   # Folder inside the workspace for deleted lists and folders (default: `.trash`).
   bin: .trash
 
+lists:
+  # Order of the lists pane at start: name (default), due, priority, open-tasks or
+  # total-tasks (change it with `s a`, `s d`, `s p`, `s o` and `s t`).
+  sort: due
+
 tasks:
   # Show completed tasks on start-up (toggle with `H` in the tasks pane).
   show_completed: false

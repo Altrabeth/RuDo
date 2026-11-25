@@ -63,10 +63,7 @@ fn occurrence_text(
     rule: Recurrence,
     today: Date,
 ) -> Result<String, RecurrenceError> {
-    let base = task
-        .field(&FieldKey::Due)
-        .and_then(|due| due.value().parse::<Date>().ok())
-        .unwrap_or(today);
+    let base = task.due().unwrap_or(today);
     let due = InlineField::with_date(FieldKey::Due, rule.next_after(base)?);
     let mut text = task.description().to_owned();
     // The new due date comes last: setting the fields in order replaces an old due date in

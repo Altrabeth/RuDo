@@ -17,6 +17,7 @@ use crate::app::bin::{BinView, bin_items};
 use crate::app::entry_visibility::HiddenEntries;
 use crate::app::lists::{TreeItem, TreeRow};
 use crate::app::{App, Focus};
+use crate::config::ListOrder;
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::Slot;
@@ -52,23 +53,29 @@ const UNREADABLE: &str = "unreadable";
 /// Added to the title while hidden entries are shown.
 const HIDDEN_SHOWN: &str = "hidden shown";
 
-/// Returns the title of the lists pane of `app`: [`TITLE`], followed by `hidden shown` while
-/// hidden entries are shown and by the search filter while one is active, such as
-/// `Lists  hidden shown  /milk`, or [`BIN_TITLE`] while the bin is open.
+/// Returns the title of the lists pane of `app`: [`TITLE`] with the order unless it is by name,
+/// followed by `hidden shown` while hidden entries are shown and by the search filter while
+/// one is active, such as `Lists by due  hidden shown  /milk`, or [`BIN_TITLE`] while the bin
+/// is open.
 #[must_use]
 pub fn title(app: &App) -> Cow<'_, str> {
     if app.lists().bin_view().is_some() {
         return Cow::Borrowed(BIN_TITLE);
     }
     let filter = app.lists().filter();
+    let order = order_label(app.lists().order());
     let hidden_shown = match app.hidden_entries() {
         HiddenEntries::Shown => Some(HIDDEN_SHOWN),
         HiddenEntries::Hidden => None,
     };
-    if !filter.is_active() && hidden_shown.is_none() {
+    if !filter.is_active() && hidden_shown.is_none() && order.is_none() {
         return Cow::Borrowed(TITLE);
     }
     let mut title = TITLE.to_owned();
+    if let Some(order) = order {
+        title.push(' ');
+        title.push_str(order);
+    }
     if let Some(hidden_shown) = hidden_shown {
         title.push_str(TITLE_SEPARATOR);
         title.push_str(hidden_shown);
@@ -78,6 +85,18 @@ pub fn title(app: &App) -> Cow<'_, str> {
         title.push_str(&filter.to_string());
     }
     Cow::Owned(title)
+}
+
+/// Names `order` after the title of the pane, such as `by due`; the order by name goes
+/// without saying.
+const fn order_label(order: ListOrder) -> Option<&'static str> {
+    match order {
+        ListOrder::Name => None,
+        ListOrder::Due => Some("by due"),
+        ListOrder::Priority => Some("by priority"),
+        ListOrder::OpenTasks => Some("by open tasks"),
+        ListOrder::TotalTasks => Some("by total tasks"),
+    }
 }
 
 /// Renders the contents of the lists pane of `app` into `area`, the inside of its border.

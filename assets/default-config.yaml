@@ -24,6 +24,14 @@ workspace:
   # `root` itself or lie outside it.
   bin: .trash
 
+lists:
+  # Order of the folders and lists of every folder in the lists pane on start-up: `name`,
+  # `due` (earliest due date of the open tasks first), `priority` (highest priority of the
+  # open tasks first), `open-tasks` or `total-tasks` (most first). Folders stay before lists
+  # and count everything below them; ties are ordered by name. Sorting the lists pane
+  # (`s a`, `s d`, `s p`, `s o`, `s t`) never changes a file.
+  sort: name
+
 tasks:
   # Show completed tasks on start-up (toggle with `H` in the tasks pane).
   show_completed: true

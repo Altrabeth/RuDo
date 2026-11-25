@@ -39,6 +39,8 @@ pub enum HelpHeading {
     ListsPane,
     /// Actions on tasks.
     TasksPane,
+    /// Sorting tasks, and the lists pane as a view.
+    Sorting,
     /// Selecting several rows and acting on them.
     VisualMode,
     /// Restoring and deleting the entries of the bin.
@@ -59,6 +61,7 @@ impl Display for HelpHeading {
             Self::Trees => "Trees (lists pane and tasks pane)",
             Self::ListsPane => "Lists pane",
             Self::TasksPane => "Tasks pane",
+            Self::Sorting => "Sorting (lists pane and tasks pane)",
             Self::VisualMode => "Visual mode (lists pane, tasks pane and bin)",
             Self::Bin => "Bin (lists pane)",
             Self::HelpAndDialogs => "Help screen, dialogs and text input",
@@ -281,6 +284,7 @@ fn section_entries(heading: HelpHeading, keymap: &Keymap) -> Vec<HelpEntry> {
         | HelpHeading::Trees
         | HelpHeading::ListsPane
         | HelpHeading::TasksPane
+        | HelpHeading::Sorting
         | HelpHeading::VisualMode
         | HelpHeading::Bin
         | HelpHeading::HelpAndDialogs
@@ -341,11 +345,13 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::PriorityDown
         | Action::SetDueDate
         | Action::SetRecurrence
-        | Action::SortByPriority
+        | Action::ToggleCompleted => HelpHeading::TasksPane,
+        Action::SortByPriority
         | Action::SortByDueDate
         | Action::SortAlphabetically
         | Action::SortByStatus
-        | Action::ToggleCompleted => HelpHeading::TasksPane,
+        | Action::SortByOpenTasks
+        | Action::SortByTotalTasks => HelpHeading::Sorting,
         Action::VisualMode | Action::DeleteSelection | Action::YankSelection => {
             HelpHeading::VisualMode
         }
@@ -586,7 +592,7 @@ mod tests {
     #[case::by_action_name(
         "",
         "sort-by-due",
-        &["Tasks pane", "sd"],
+        &["Sorting (lists pane and tasks pane)", "sd"],
     )]
     #[case::uppercase_description_respects_case("", "CLOSE THE HELP", &[])]
     #[case::by_description(

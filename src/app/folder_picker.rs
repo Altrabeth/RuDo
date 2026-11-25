@@ -15,6 +15,7 @@ use crate::app::entry_visibility::HiddenEntries;
 use crate::app::lists::{EntryKey, TreeRow, check_move_target, tree_items};
 use crate::app::picker::{Picker, PickerCandidate, PickerPrompt, path_name_start};
 use crate::app::state::{App, Mode};
+use crate::config::ListOrder;
 use crate::paths::portable;
 use crate::storage::workspace::{Entry, Workspace};
 
@@ -105,7 +106,7 @@ impl PickerCandidate for FolderCandidate {
 /// Returns the folders of `workspace` the lists pane shows with `hidden_entries`, in display
 /// order after the root.
 fn folder_candidates(workspace: &Workspace, hidden_entries: HiddenEntries) -> Vec<FolderCandidate> {
-    let folders = tree_items(workspace, hidden_entries)
+    let folders = tree_items(workspace, hidden_entries, ListOrder::Name)
         .into_iter()
         .filter_map(|item| match item.row() {
             TreeRow::Entry(Entry::Folder(folder)) => Some(FolderCandidate::new(folder.path())),

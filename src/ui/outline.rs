@@ -163,6 +163,8 @@ impl OutlineCommand {
             | Action::SortByDueDate
             | Action::SortAlphabetically
             | Action::SortByStatus
+            | Action::SortByOpenTasks
+            | Action::SortByTotalTasks
             | Action::VisualMode
             | Action::DeleteSelection
             | Action::YankSelection

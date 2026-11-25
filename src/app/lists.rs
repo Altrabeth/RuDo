@@ -1,8 +1,9 @@
 //! The state of the lists pane: navigation in the workspace tree and the active list.
 //!
 //! [`ListsPane`] never copies the workspace. [`tree_items`] flattens the current
-//! [`Workspace`] whenever the pane needs it, so lists that are created, renamed or reloaded
-//! can never leave a stale row behind. While the bin is not empty, the tree ends with a row
+//! [`Workspace`] in the order of the pane whenever the pane needs it, so lists that are created,
+//! renamed or reloaded can never leave a stale row behind, and a sorted pane follows every
+//! change of a list. While the bin is not empty, the tree ends with a row
 //! for the bin, which opens the [`BinView`].
 
 use std::path::{Path, PathBuf};
@@ -11,11 +12,13 @@ use crate::app::bin::BinView;
 use crate::app::confirm::ConfirmKind;
 use crate::app::entry_visibility::HiddenEntries;
 use crate::app::folder_picker::FolderPurpose;
+use crate::app::lists_order::{OrderedEntry, ordered_entries};
 use crate::app::prompt::PromptKind;
 use crate::app::search::{PaneFilter, SearchItem};
 use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
+use crate::config::ListOrder;
 use crate::config::keymap::action::Action;
 use crate::paths::portable;
 use crate::storage::bin::BinEntry;
@@ -108,6 +111,16 @@ pub struct TreeItem<'workspace> {
 }
 
 impl<'workspace> TreeItem<'workspace> {
+    /// Returns the row of `entry`, nested `depth` levels deep.
+    fn new(entry: &'workspace Entry, depth: usize) -> Self {
+        Self {
+            row: TreeRow::Entry(entry),
+            key: EntryKey::from(entry),
+            depth,
+            role: FilterRole::Match,
+        }
+    }
+
     /// Returns what this row shows.
     #[must_use]
     pub fn row(&self) -> TreeRow<'workspace> {
@@ -158,13 +171,24 @@ impl OutlineItem for TreeItem<'_> {
     }
 }
 
-/// Returns the folders and lists of `workspace` that `hidden_entries` shows, in display order,
-/// parents before their entries, followed by the row of the bin unless it is empty, ready for
-/// an [`Outline`].
+/// Returns the folders and lists of `workspace` that `hidden_entries` shows, the entries of
+/// every folder in `order`, parents before their entries, followed by the row of the bin unless
+/// it is empty, ready for an [`Outline`].
 #[must_use]
-pub fn tree_items(workspace: &Workspace, hidden_entries: HiddenEntries) -> Vec<TreeItem<'_>> {
+pub fn tree_items(
+    workspace: &Workspace,
+    hidden_entries: HiddenEntries,
+    order: ListOrder,
+) -> Vec<TreeItem<'_>> {
     let mut items = Vec::new();
-    push_items(&mut items, workspace.entries(), 0);
+    match order {
+        // The workspace keeps its entries in this order, so nothing needs to be summed up.
+        ListOrder::Name => push_items(&mut items, workspace.entries(), 0),
+        ListOrder::Due | ListOrder::Priority | ListOrder::OpenTasks | ListOrder::TotalTasks => {
+            let ordered = ordered_entries(workspace.entries(), order, hidden_entries);
+            push_ordered_items(&mut items, &ordered, 0);
+        }
+    }
     if !workspace.bin_entries().is_empty() {
         items.push(TreeItem {
             row: TreeRow::Bin(workspace.bin_entries()),
@@ -186,12 +210,7 @@ fn push_items<'workspace>(
     depth: usize,
 ) {
     for entry in entries {
-        items.push(TreeItem {
-            row: TreeRow::Entry(entry),
-            key: EntryKey::from(entry),
-            depth,
-            role: FilterRole::Match,
-        });
+        items.push(TreeItem::new(entry, depth));
         match entry {
             Entry::Folder(folder) => push_items(items, folder.entries(), depth + 1),
             Entry::List(_) => {}
@@ -199,28 +218,42 @@ fn push_items<'workspace>(
     }
 }
 
+/// Pushes the items of `entries` and of everything inside them, in their order.
+fn push_ordered_items<'workspace>(
+    items: &mut Vec<TreeItem<'workspace>>,
+    entries: &[OrderedEntry<'workspace>],
+    depth: usize,
+) {
+    for ordered in entries {
+        items.push(TreeItem::new(ordered.entry(), depth));
+        push_ordered_items(items, ordered.entries(), depth + 1);
+    }
+}
+
 /// The lists pane: the selection and folding of the workspace tree, its search filter, whether
-/// it shows hidden entries, the active list, whose tasks the tasks pane shows, and the bin
-/// view while it is open instead of the tree.
+/// it shows hidden entries, its order, the active list, whose tasks the tasks pane shows, and
+/// the bin view while it is open instead of the tree.
 #[derive(Debug, Clone)]
 pub struct ListsPane {
     outline: Outline<EntryKey>,
     active: Option<ListPath>,
     filter: PaneFilter<EntryKey>,
     hidden_entries: HiddenEntries,
+    order: ListOrder,
     bin: Option<BinView>,
 }
 
 impl ListsPane {
-    /// Selects and activates the first list of `workspace` in display order that
-    /// `hidden_entries` shows, if there is any, in a pane `viewport_height` rows high.
+    /// Selects and activates the first list of `workspace` in `order` that `hidden_entries`
+    /// shows, if there is any, in a pane `viewport_height` rows high.
     #[must_use]
     pub fn new(
         workspace: &Workspace,
         hidden_entries: HiddenEntries,
+        order: ListOrder,
         viewport_height: usize,
     ) -> Self {
-        let items = tree_items(workspace, hidden_entries);
+        let items = tree_items(workspace, hidden_entries, order);
         let mut outline = Outline::new();
         let first_list = items.iter().find_map(|item| match &item.key {
             EntryKey::List(path) => Some((&item.key, path)),
@@ -233,6 +266,7 @@ impl ListsPane {
                 active: None,
                 filter: PaneFilter::default(),
                 hidden_entries,
+                order,
                 bin: None,
             };
         };
@@ -245,6 +279,7 @@ impl ListsPane {
             outline,
             filter: PaneFilter::default(),
             hidden_entries,
+            order,
             bin: None,
         }
     }
@@ -283,9 +318,27 @@ impl ListsPane {
         self.hidden_entries = self.hidden_entries.toggled();
         let all = self
             .filter
-            .apply(tree_items(workspace, HiddenEntries::Shown));
+            .apply(tree_items(workspace, HiddenEntries::Shown, self.order));
         let shown = self.items(workspace);
         self.outline.select_nearest(&all, &shown, viewport_height);
+    }
+
+    /// Returns the order of the folders and lists of every folder.
+    #[must_use]
+    pub fn order(&self) -> ListOrder {
+        self.order
+    }
+
+    /// Orders the tree of `workspace` by `order`, keeping the selection in a viewport
+    /// `viewport_height` rows high.
+    pub(super) fn set_order(
+        &mut self,
+        workspace: &Workspace,
+        order: ListOrder,
+        viewport_height: usize,
+    ) {
+        self.order = order;
+        self.refresh(workspace, viewport_height);
     }
 
     /// Returns the navigation state of the workspace tree.
@@ -315,7 +368,7 @@ impl ListsPane {
     #[must_use]
     pub fn items<'workspace>(&self, workspace: &'workspace Workspace) -> Vec<TreeItem<'workspace>> {
         self.filter
-            .apply(tree_items(workspace, self.hidden_entries))
+            .apply(tree_items(workspace, self.hidden_entries, self.order))
     }
 
     pub(super) fn filter_mut(&mut self) -> &mut PaneFilter<EntryKey> {
@@ -325,10 +378,10 @@ impl ListsPane {
     /// Filters the tree of `workspace` again after the filter changed, in a viewport
     /// `viewport_height` rows high.
     pub(super) fn refilter(&mut self, workspace: &Workspace, viewport_height: usize) {
-        let hidden_entries = self.hidden_entries;
+        let (hidden_entries, order) = (self.hidden_entries, self.order);
         self.filter.refilter(
             &mut self.outline,
-            || tree_items(workspace, hidden_entries),
+            || tree_items(workspace, hidden_entries, order),
             viewport_height,
         );
     }
@@ -775,10 +828,11 @@ mod tests {
             Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap();
         let expected = [("home", 0), ("empty", 1), ("chores", 1), ("inbox", 0)];
 
-        let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, HiddenEntries::Hidden)
-            .iter()
-            .map(|item| (item.entry().unwrap().name(), item.depth()))
-            .collect();
+        let system_under_test: Vec<(&str, usize)> =
+            tree_items(&workspace, HiddenEntries::Hidden, ListOrder::Name)
+                .iter()
+                .map(|item| (item.entry().unwrap().name(), item.depth()))
+                .collect();
 
         assert_eq!(system_under_test, expected);
     }
@@ -802,10 +856,11 @@ mod tests {
         let workspace =
             Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap();
 
-        let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, hidden_entries)
-            .iter()
-            .map(|item| (item.entry().unwrap().name(), item.depth()))
-            .collect();
+        let system_under_test: Vec<(&str, usize)> =
+            tree_items(&workspace, hidden_entries, ListOrder::Name)
+                .iter()
+                .map(|item| (item.entry().unwrap().name(), item.depth()))
+                .collect();
 
         assert_eq!(system_under_test, expected);
     }
@@ -822,7 +877,7 @@ mod tests {
             Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap();
         let expected = EntryKey::Bin(PathBuf::from(".trash"));
 
-        let system_under_test = tree_items(&workspace, hidden_entries);
+        let system_under_test = tree_items(&workspace, hidden_entries, ListOrder::Name);
 
         assert_eq!(system_under_test.len(), 2);
         assert_eq!(system_under_test[1].key(), &expected);

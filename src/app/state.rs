@@ -74,6 +74,7 @@ impl App {
             lists: ListsPane::new(
                 &workspace,
                 HiddenEntries::from_setting(config.workspace().show_hidden()),
+                config.lists().sort(),
                 viewport_height(screen_size, Focus::Lists),
             ),
             tasks: TasksPane::default(),

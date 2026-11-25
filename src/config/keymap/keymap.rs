@@ -425,7 +425,7 @@ mod tests {
     #[case::unbound(Context::Tasks, "w", Lookup::None)]
     #[case::lists_context(Context::Lists, "o", Lookup::Action(Action::NewList))]
     #[case::tasks_context(Context::Tasks, "o", Lookup::Action(Action::NewTaskBelow))]
-    #[case::tasks_only_prefix(Context::Lists, "s", Lookup::None)]
+    #[case::tasks_only_prefix(Context::Lists, "y", Lookup::None)]
     #[case::help_context(Context::Help, "q", Lookup::Action(Action::CloseHelp))]
     #[case::dialog_context(Context::Dialog, "y", Lookup::Action(Action::ConfirmYes))]
     #[case::input_types_text(Context::Input, "j", Lookup::None)]

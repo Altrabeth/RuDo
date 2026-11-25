@@ -38,7 +38,8 @@ the same tasks from the terminal and from Obsidian at the same time.
   searchable help screen generated from your *effective* keymap, so it always matches your
   configuration.
 - **Nested tasks** with folding, reordering (`J`, `K`), indenting (`>`, `<`) and sorting
-  (`s p`, `s d`, `s a`, `s s`).
+  (`s p`, `s d`, `s a`, `s s`); the same keys, plus `s o` and `s t`, order the lists pane by
+  priority, urgency, open or total tasks without changing a file.
 - **Due dates** with relative input (`today`, `tomorrow`, `+3d`, `fri`, `2026-12-24`) and
   colour-coded relative display (`tomorrow`, `in 3d`, `2d overdue`).
 - **Priorities, tags and recurring tasks.** Completing a recurring task creates its next

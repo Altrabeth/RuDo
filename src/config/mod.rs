@@ -66,6 +66,8 @@ pub struct Config {
     #[serde(deserialize_with = "null_as_default")]
     workspace: WorkspaceConfig,
     #[serde(deserialize_with = "null_as_default")]
+    lists: ListsConfig,
+    #[serde(deserialize_with = "null_as_default")]
     tasks: TasksConfig,
     editor: Option<String>,
     #[serde(deserialize_with = "null_as_default")]
@@ -144,6 +146,12 @@ impl Config {
         &self.workspace
     }
 
+    /// Returns the `lists` section.
+    #[must_use]
+    pub fn lists(&self) -> &ListsConfig {
+        &self.lists
+    }
+
     /// Returns the `tasks` section.
     #[must_use]
     pub fn tasks(&self) -> &TasksConfig {
@@ -209,6 +217,44 @@ impl WorkspaceConfig {
     pub fn bin(&self) -> &BinPath {
         &self.bin
     }
+}
+
+/// The `lists` section of the configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ListsConfig {
+    sort: ListOrder,
+}
+
+impl ListsConfig {
+    /// Returns the order of the lists pane on start-up.
+    #[must_use]
+    pub const fn sort(&self) -> ListOrder {
+        self.sort
+    }
+}
+
+/// The order of the folders and lists of every folder in the lists pane, written in kebab case
+/// in the configuration (`open-tasks`).
+///
+/// Folders always come before lists. Every order except [`ListOrder::Name`] looks at the tasks
+/// of the lists, a folder at those of all lists below it, and puts lists that cannot be read
+/// last; ties keep the order by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, strum::EnumIter)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum ListOrder {
+    /// By name, ignoring case.
+    #[default]
+    Name,
+    /// Most urgent first: the earliest due date of the open tasks; without one last.
+    Due,
+    /// The highest priority of the open tasks first, ties by urgency; without open tasks last.
+    Priority,
+    /// Most open (neither done nor cancelled) tasks first.
+    OpenTasks,
+    /// Most tasks first.
+    TotalTasks,
 }
 
 /// The `tasks` section of the configuration.
@@ -358,6 +404,7 @@ fn resolve_configured_root(root: &Path, config_dir: &Path, home: &Path) -> PathB
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use strum::IntoEnumIterator;
     use tempfile::TempDir;
 
     use super::*;
@@ -407,6 +454,7 @@ mod tests {
         assert_eq!(system_under_test.workspace().root(), None);
         assert!(!system_under_test.workspace().show_hidden());
         assert_eq!(system_under_test.workspace().bin(), &BinPath::default());
+        assert_eq!(system_under_test.lists().sort(), ListOrder::Name);
         assert_eq!(*system_under_test.tasks(), expected_tasks);
         assert_eq!(system_under_test.editor(), None);
     }
@@ -425,6 +473,7 @@ mod tests {
 
     #[rstest]
     #[case::workspace("workspace:\n  # root: ~/todo\n")]
+    #[case::lists("lists:\n  # sort: due\n")]
     #[case::tasks("tasks:\n  # indent: 2\n")]
     #[case::theme("theme:\n  # tag: { fg: red }\n")]
     #[case::keybindings("keybindings:\n  # quit: [q]\n")]
@@ -457,15 +506,18 @@ mod tests {
 
     #[test]
     fn reads_every_setting() {
-        let yaml = "workspace:\n  root: /srv/todo\n  show_hidden: true\n  bin: Bin\ntasks:\n  \
-                    show_completed: false\n  record_completion_date: false\n  \
-                    created_date: false\n  indent: 2\n\
+        let yaml = "workspace:\n  root: /srv/todo\n  show_hidden: true\n  bin: Bin\nlists:\n  \
+                    sort: open-tasks\ntasks:\n  show_completed: false\n  \
+                    record_completion_date: false\n  created_date: false\n  indent: 2\n\
                     editor: code --wait\n";
         let expected = Config {
             workspace: WorkspaceConfig {
                 root: Some(PathBuf::from("/srv/todo")),
                 show_hidden: true,
                 bin: BinPath::try_from(PathBuf::from("Bin")).unwrap(),
+            },
+            lists: ListsConfig {
+                sort: ListOrder::OpenTasks,
             },
             tasks: TasksConfig {
                 show_completed: false,
@@ -561,6 +613,7 @@ mod tests {
     #[case::top_level("theme_name: dark\n", "theme_name", 1, 1)]
     #[case::workspace("workspace:\n  folder: /srv\n", "folder", 2, 3)]
     #[case::tasks("tasks:\n  show_complete: true\n", "show_complete", 2, 3)]
+    #[case::lists("lists:\n  order: due\n", "order", 2, 3)]
     fn unknown_key_is_reported_with_location(
         #[case] yaml: &str,
         #[case] unknown_key: &str,
@@ -656,6 +709,42 @@ mod tests {
 
         assert!(
             system_under_test.contains(expected_file),
+            "{system_under_test}"
+        );
+    }
+
+    #[test]
+    fn reads_every_list_order() {
+        let expected: Vec<ListOrder> = ListOrder::iter().collect();
+
+        let system_under_test: Vec<ListOrder> =
+            ["name", "due", "priority", "open-tasks", "total-tasks"]
+                .iter()
+                .map(|value| {
+                    let yaml = format!("lists:\n  sort: {value}\n");
+                    Config::from_yaml(&yaml, source()).unwrap().lists().sort()
+                })
+                .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::unknown("urgency")]
+    #[case::snake_case("open_tasks")]
+    #[case::capitalised("Name")]
+    fn rejects_an_unknown_list_order_with_location_and_values(#[case] value: &str) {
+        let yaml = format!("lists:\n  sort: {value}\n");
+        let expected_values = "expected one of name, due, priority, open-tasks, total-tasks";
+
+        let system_under_test = report(Config::from_yaml(&yaml, source()).unwrap_err());
+
+        assert!(
+            system_under_test.contains("config.yaml:2:9"),
+            "{system_under_test}"
+        );
+        assert!(
+            system_under_test.contains(expected_values),
             "{system_under_test}"
         );
     }

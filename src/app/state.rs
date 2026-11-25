@@ -6,9 +6,11 @@ use ratatui::layout::{Rect, Size};
 use crate::app::confirm::ConfirmOverlay;
 use crate::app::entry_visibility::HiddenEntries;
 use crate::app::folder_picker::FolderPicker;
+use crate::app::go_to::GoToCandidate;
 use crate::app::help::HelpOverlay;
 use crate::app::history::History;
 use crate::app::lists::ListsPane;
+use crate::app::picker::PickerPrompt;
 use crate::app::prompt::PromptOverlay;
 use crate::app::register::Register;
 use crate::app::status::Status;
@@ -145,7 +147,7 @@ impl App {
             Mode::Normal => self.focus.context(),
             Mode::Help(help) => help.context(),
             Mode::Prompt(_) | Mode::InlineEdit(_) | Mode::Search(_) => Context::Input,
-            Mode::FolderPicker(_) => Context::Picker,
+            Mode::FolderPicker(_) | Mode::GoTo(_) => Context::Picker,
             Mode::Confirm(_) => Context::Dialog,
             Mode::Visual if self.lists.bin_view().is_some() => Context::BinVisual,
             Mode::Visual => Context::Visual,
@@ -171,6 +173,7 @@ impl App {
             Mode::Normal
             | Mode::Prompt(_)
             | Mode::FolderPicker(_)
+            | Mode::GoTo(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)
@@ -256,6 +259,9 @@ pub enum Mode {
     Prompt(PromptOverlay),
     /// A fuzzy picker asks for a folder, such as the target of a move, and takes the keys.
     FolderPicker(FolderPicker),
+    /// Go to anything: a fuzzy finder over every folder, list and task of the workspace that
+    /// jumps to the chosen one, and takes the keys.
+    GoTo(PickerPrompt<GoToCandidate>),
     /// A confirmation dialog asks yes or no, such as before deleting a list, and takes the
     /// keys.
     Confirm(ConfirmOverlay),

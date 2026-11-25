@@ -103,6 +103,8 @@ src/
     picker.rs              generic fuzzy picker state: Picker, PickerCandidate, ranked results
     folder_picker.rs       folder picker (Mode::FolderPicker): FolderPurpose, moving and
                            restoring into the chosen folder
+    go_to.rs               go to anything (Mode::GoTo): folder, list and task candidates,
+                           jumping to the chosen one
     search.rs              pane search (Mode::Search): PaneFilter per pane and per list
     help.rs                help screen state (Mode::Help): scrolling and filter input
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
@@ -175,22 +177,29 @@ src/
   goes into an open text input and is never interpreted as keys.
 - The `Mode` decides what takes the keys: `Normal` (the focused pane), `Help(HelpOverlay)`,
   `Prompt(PromptOverlay)` (input popup), `FolderPicker(FolderPicker)` (fuzzy picker of a
-  folder), `Confirm(ConfirmOverlay)`, `InlineEdit(InlineEdit)` (a row of the tasks pane),
-  `Search(Focus)` (the search prompt in the bottom bar) and `Visual` (a selection of several
-  rows of the focused pane or of the bin view). `Prompt`, `InlineEdit`, `Search` and the open
-  help filter resolve keys in `Context::Input`, `FolderPicker` in `Context::Picker` (`submit`
-  and `cancel` as in `Input`, plus `picker-next`, `picker-previous` and `complete`), `Visual`
-  in `Context::Visual`, or in `Context::BinVisual` while the bin view is open, so that
+  folder), `GoTo(PickerPrompt<GoToCandidate>)` (go to anything), `Confirm(ConfirmOverlay)`,
+  `InlineEdit(InlineEdit)` (a row of the tasks pane), `Search(Focus)` (the search prompt in
+  the bottom bar) and `Visual` (a selection of several rows of the focused pane or of the bin
+  view). `Prompt`, `InlineEdit`, `Search` and the open help filter resolve keys in
+  `Context::Input`, `FolderPicker` and `GoTo` in `Context::Picker` (`submit` and `cancel` as
+  in `Input`, plus `picker-next`, `picker-previous` and `complete`), `Visual` in
+  `Context::Visual`, or in `Context::BinVisual` while the bin view is open, so that
   `restore-from-bin` resolves on a selection in the bin but not on one in the panes.
 - A picker (`app::picker::Picker<C>`) is generic over its candidates (`PickerCandidate`: the
-  text shown, matched and completed to, and where its name starts). It ranks all candidates
-  once per change of the typed text with `app::fuzzy` (nucleo-matcher, smart case, matches in
-  the name before matches in the rest of the path) and keeps the results; moving the
-  selection, completing with `tab` (which cycles while the text equals the selection) and
-  drawing do not match again. `ui::picker::PickerPopup` draws only the visible results and
-  scrolls without stored state, like `TextInputView`. The folder picker offers the root (`/`)
-  and the folders the lists pane can show, collected when it opens, and checks the choice
-  with `check_move_target` on `enter`.
+  text shown, matched and completed to, where its name starts, and optionally its theme slot,
+  a label before it and a location after it). `PickerPrompt<C>` adds the error of a refused
+  choice, which every change hides; `PickerCommand` moves the selection or completes in
+  whichever picker is open. It ranks all candidates once per change of the typed text with
+  `app::fuzzy` (nucleo-matcher, smart case, matches in the name before matches in the rest of
+  the path) and keeps the results; moving the selection, completing with `tab` (which cycles
+  while the text equals the selection) and drawing do not match again.
+  `ui::picker::PickerPopup` draws only the visible results and scrolls without stored state,
+  like `TextInputView`. The folder picker offers the root (`/`) and the folders the lists
+  pane can show, collected when it opens, and checks the choice with `check_move_target` on
+  `enter`. Go to anything collects the folders and lists the lists pane can show, then the
+  open and then the completed tasks of the readable lists, so that equal scores keep that
+  order; on `enter` it looks the target up again (a reloaded task by its text, since a reload
+  gives new task ids) and reports one that is gone.
 - The visual selection is an anchor key in the pane's `Outline` (or the `BinView`'s) plus its
   cursor; the selected keys are derived from the visible rows whenever they are needed, so
   folds, filters, hidden completed tasks and hidden entries are respected and a reload that

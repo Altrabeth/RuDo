@@ -41,6 +41,7 @@ pub fn render(app: &App, frame: &mut Frame) {
         Mode::Normal
         | Mode::Prompt(_)
         | Mode::FolderPicker(_)
+        | Mode::GoTo(_)
         | Mode::Confirm(_)
         | Mode::InlineEdit(_)
         | Mode::Search(_)

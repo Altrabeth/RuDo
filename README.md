@@ -45,6 +45,8 @@ the same tasks from the terminal and from Obsidian at the same time.
 - **Priorities, tags and recurring tasks.** Completing a recurring task creates its next
   occurrence.
 - **Search and filter** any pane with `/`, with vim-style smart case.
+- **Go to anything** with `ctrl-p`: a fuzzy finder over every folder, list and task of the
+  workspace that jumps to the chosen one.
 - **Fuzzy folder picker** like fzf for moving lists and folders (`m`), with `tab` completion.
 - **Undo and redo** for every change to a task, across lists, and for creating, renaming,
   moving and deleting lists and folders.

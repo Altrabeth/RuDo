@@ -10,7 +10,7 @@
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
 use crate::app::picker::{Picker, PickerCandidate, PickerResult};
@@ -24,6 +24,8 @@ use crate::ui::text_input::TextInputView;
 const PICKER_POPUP_HEIGHT: u16 = 14;
 /// Shown instead of the results when nothing matches the typed text.
 const NO_MATCHES: &str = "no matches";
+/// Separates the text of a result from its location.
+const LOCATION_SEPARATOR: &str = " · ";
 
 /// Renders a [`Picker`] as a popup centred in the given area.
 #[derive(Debug, Clone, Copy)]
@@ -81,27 +83,45 @@ impl<'a, C: PickerCandidate> PickerPopup<'a, C> {
             }
             return;
         }
+        let visible = || self.picker.results(offset).take(usize::from(area.height));
+        let label_width = visible()
+            .filter_map(|result| result.candidate().label())
+            .map(|label| Span::raw(label).width())
+            .max();
         let selected = self.picker.selected_index();
-        let rows = area.rows().zip(offset..);
-        for ((row, index), result) in rows.zip(self.picker.results(offset)) {
-            self.result_line(result).render(row, buffer);
+        for ((row, index), result) in area.rows().zip(offset..).zip(visible()) {
+            self.result_line(result, label_width).render(row, buffer);
             if selected == Some(index) {
                 buffer.set_style(row, self.theme.style(Slot::Selection));
             }
         }
     }
 
-    /// Returns the text of `result` with its matched characters in the `search_match` slot.
-    fn result_line(&self, result: PickerResult<'a, C>) -> Line<'a> {
-        let mut spans = Vec::with_capacity(2 * result.ranges().len() + 1);
+    /// Returns the row of `result`: its label padded to `label_width` columns, if any, its
+    /// text in the slot of the candidate with the matched characters in the `search_match`
+    /// slot, and its location, if any.
+    fn result_line(&self, result: PickerResult<'a, C>, label_width: Option<usize>) -> Line<'a> {
+        let candidate = result.candidate();
+        let mut spans = Vec::with_capacity(2 * result.ranges().len() + 4);
+        if let (Some(label), Some(width)) = (candidate.label(), label_width) {
+            let label = Span::styled(label, self.theme.style(Slot::KeyHintLabel));
+            let padding = width.saturating_sub(label.width()) + 1;
+            spans.push(label);
+            spans.push(Span::raw(" ".repeat(padding)));
+        }
         push_highlighted_spans(
             &mut spans,
-            result.candidate().text(),
+            candidate.text(),
             0,
-            self.theme.style(Slot::Text),
+            self.theme.style(candidate.slot()),
             result.ranges(),
             self.theme.style(Slot::SearchMatch),
         );
+        if let Some(location) = candidate.location() {
+            let style = self.theme.style(Slot::FilterContext);
+            spans.push(Span::styled(LOCATION_SEPARATOR, style));
+            spans.push(Span::styled(location, style));
+        }
         Line::from(spans)
     }
 
@@ -247,7 +267,10 @@ mod tests {
         picker(&names, "")
     }
 
-    fn draw(size: (u16, u16), popup: PickerPopup<'_, Folder>) -> Terminal<TestBackend> {
+    fn draw<C: PickerCandidate>(
+        size: (u16, u16),
+        popup: PickerPopup<'_, C>,
+    ) -> Terminal<TestBackend> {
         let (width, height) = size;
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
@@ -385,5 +408,98 @@ mod tests {
         let system_under_test = first_visible(selected, visible);
 
         assert_eq!(system_under_test, expected);
+    }
+
+    /// A candidate with a kind, a style and a location, as go to anything offers them.
+    #[derive(Debug)]
+    struct Labelled {
+        label: &'static str,
+        text: &'static str,
+        slot: Slot,
+        location: Option<&'static str>,
+    }
+
+    impl PickerCandidate for Labelled {
+        fn text(&self) -> &str {
+            self.text
+        }
+
+        fn slot(&self) -> Slot {
+            self.slot
+        }
+
+        fn label(&self) -> Option<&str> {
+            Some(self.label)
+        }
+
+        fn location(&self) -> Option<&str> {
+            self.location
+        }
+    }
+
+    fn labelled(typed: &str) -> Picker<Labelled> {
+        let mut picker = Picker::new(vec![
+            Labelled {
+                label: "folder",
+                text: "Home",
+                slot: Slot::Folder,
+                location: None,
+            },
+            Labelled {
+                label: "task",
+                text: "Buy milk",
+                slot: Slot::Text,
+                location: Some("Home/Groceries"),
+            },
+            Labelled {
+                label: "task",
+                text: "Bake bread",
+                slot: Slot::TaskDone,
+                location: Some("Home/Groceries"),
+            },
+        ]);
+        picker.paste(typed);
+        picker
+    }
+
+    #[test]
+    fn popup_aligns_labels_and_shows_locations() {
+        let picker = labelled("");
+        let theme = Theme::default();
+        let terminal = draw(NORMAL_SIZE, PickerPopup::new(&picker, "Go to", &theme));
+
+        let system_under_test = terminal.backend();
+
+        assert_snapshot!(system_under_test);
+    }
+
+    #[test]
+    fn popup_styles_labels_texts_and_locations_with_the_theme() {
+        let picker = labelled("");
+        let theme = Theme::default();
+        let style = |slot| {
+            let style = theme.style(slot);
+            Style::new()
+                .fg(style.fg.unwrap_or(Color::Reset))
+                .add_modifier(style.add_modifier)
+        };
+        let expected = (
+            style(Slot::KeyHintLabel),
+            style(Slot::TaskDone),
+            style(Slot::FilterContext),
+        );
+        let bake_bread_row = 6;
+        let (label, text, location) = (12, 19, 33);
+
+        let system_under_test = draw(NORMAL_SIZE, PickerPopup::new(&picker, "Go to", &theme));
+
+        assert_eq!(
+            (
+                style_at(&system_under_test, label, bake_bread_row),
+                style_at(&system_under_test, text, bake_bread_row),
+                style_at(&system_under_test, location, bake_bread_row),
+            ),
+            expected
+        );
     }
 }

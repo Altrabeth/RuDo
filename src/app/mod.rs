@@ -13,6 +13,7 @@ pub mod entry_visibility;
 pub mod filter;
 pub mod folder_picker;
 pub mod fuzzy;
+pub mod go_to;
 pub mod help;
 pub mod history;
 pub mod lists;

@@ -130,6 +130,7 @@ impl OutlineCommand {
             | Action::Complete
             | Action::FocusTasks
             | Action::Search
+            | Action::GoTo
             | Action::ClearFilter
             | Action::Undo
             | Action::Redo

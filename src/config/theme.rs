@@ -46,9 +46,9 @@ pub enum Slot {
     SelectionUnfocused,
     /// Rows selected in visual mode.
     VisualSelection,
-    /// Folder in the lists pane.
+    /// Folder in the lists pane and in go to anything.
     Folder,
-    /// List in the lists pane.
+    /// List in the lists pane and in go to anything.
     List,
     /// `done/total` counter of a list.
     ListCount,
@@ -90,7 +90,7 @@ pub enum Slot {
     StatusBar,
     /// Key in a key hint of the bottom bar.
     KeyHint,
-    /// Description in a key hint of the bottom bar.
+    /// Description in a key hint of the bottom bar, and the hint and kinds in the picker.
     KeyHintLabel,
     /// Keys typed so far of an unfinished key sequence.
     PendingKeys,
@@ -112,7 +112,8 @@ pub enum Slot {
     HelpDescription,
     /// Search match, and the matched characters in the picker.
     SearchMatch,
-    /// Parent kept visible as context while filtering.
+    /// Parent kept visible as context while filtering, and the list of a task in go to
+    /// anything.
     FilterContext,
 }
 

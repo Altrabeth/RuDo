@@ -23,6 +23,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::{Paragraph, Wrap};
 
+use crate::app::go_to::GO_TO_TITLE;
 use crate::app::{App, Focus, Mode};
 use crate::config::theme::Slot;
 use crate::ui::layout::{PaneBorder, PaneSwitchHint, Screen, render_pane_border};
@@ -61,8 +62,8 @@ pub fn view(app: &App, frame: &mut Frame) {
     render_popup(app, frame);
 }
 
-/// Draws the input popup of [`Mode::Prompt`], the picker of [`Mode::FolderPicker`] or the
-/// dialog of [`Mode::Confirm`] over the rest of the interface.
+/// Draws the input popup of [`Mode::Prompt`], the picker of [`Mode::FolderPicker`] and
+/// [`Mode::GoTo`] or the dialog of [`Mode::Confirm`] over the rest of the interface.
 fn render_popup(app: &App, frame: &mut Frame) {
     let area = frame.area();
     match app.mode() {
@@ -73,6 +74,11 @@ fn render_popup(app: &App, frame: &mut Frame) {
             PickerPopup::new(folder_picker.picker(), folder_picker.title(), app.theme())
                 .hint(folder_picker.hint())
                 .error(folder_picker.error())
+                .render_with_cursor(frame, area);
+        }
+        Mode::GoTo(prompt) => {
+            PickerPopup::new(prompt.picker(), GO_TO_TITLE, app.theme())
+                .error(prompt.error())
                 .render_with_cursor(frame, area);
         }
         Mode::Confirm(confirm) => {

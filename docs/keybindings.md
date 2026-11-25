@@ -15,6 +15,7 @@ typed one key after the other; the keys typed so far are shown in the bottom bar
 | `1`             | `focus-lists`      | focus the lists pane                                |
 | `2`             | `focus-tasks`      | focus the tasks pane                                |
 | `/`             | `search`           | filter the focused pane (also inside the help)      |
+| `ctrl-p`        | `go-to`            | go to any folder, list or task of the workspace (fuzzy finder) |
 | `esc`           | `clear-filter`     | remove the active filter                            |
 | `u`             | `undo`             | undo the last change to a task, list or folder      |
 | `ctrl-r`        | `redo`             | redo the last undone change                         |
@@ -27,6 +28,23 @@ list names with their folders. `enter` keeps the filter (the pane title shows `/
 `esc` in the prompt or in the pane removes it. Every list has its own filter. Tasks you add
 or edit while filtering stay visible; moving tasks with `J`, `K`, `>` and `<` asks you to
 clear the filter first.
+
+`ctrl-p` opens go to anything: a [picker](#picker-go-to-anything-and-folders) over every
+folder, list and task of the workspace, unlike `/`, which filters only the focused pane. Each
+match shows what it is (`folder`, `list`, `task`) and a task the list it belongs to
+(`Buy milk · Home/Groceries`); completed tasks are dimmed. Tasks match by their text, folders and
+lists by their path with matches in the name first, so `home` lists the folder `Home` and the
+task `Clean the home office` before the lists inside `Home/`; on equal scores folders and
+lists come before tasks and open tasks before completed ones. `enter` on a folder selects it
+in the lists pane, on a list opens it, and on a task opens its list and selects the task;
+folded parents are unfolded, and a task hidden by the search filter is revealed, one hidden
+with `H` shows the completed tasks again. `esc` closes the finder without moving. Hidden
+folders and lists are searched while `H` shows them; the bin and lists that cannot be read
+are not searched. Inside the picker `ctrl-p` selects the previous match (`picker-previous`);
+the two bindings live in different contexts and do not conflict. To open the finder with
+`ctrl-space` instead, bind `go-to: ctrl-space` in the configuration (macOS uses `ctrl-space`
+to switch the keyboard layout, and tmux often uses it as its prefix, so it is not the
+default).
 
 Undo and redo remember the last 100 changes to tasks in all lists and to lists and folders,
 for as long as RuDo runs. Undoing a change in another list opens that list and selects the
@@ -114,9 +132,9 @@ task is hidden together with its parent.
 binding of `toggle-completed` in your configuration only applies in the tasks pane.
 
 `m` asks for the folder that receives the selected list or folder in the
-[picker](#picker): type a few letters of the folder, such as `gar` for `Home/Garden`, and
-press `enter`; `/` is the top level of the workspace. A folder cannot be moved into itself,
-and an entry with the same name in the target folder is never replaced.
+[picker](#picker-go-to-anything-and-folders): type a few letters of the folder, such as `gar`
+for `Home/Garden`, and press `enter`; `/` is the top level of the workspace. A folder cannot
+be moved into itself, and an entry with the same name in the target folder is never replaced.
 
 ## Visual mode (lists pane, tasks pane and bin)
 
@@ -155,13 +173,14 @@ In the bin `R` restores the selected entries and `d` deletes them permanently (s
 | `E`                  | `empty-bin`        | delete everything in the bin permanently (asks first)      |
 | `h`, `left`, `esc`   | `close-bin`        | return to the lists                                        |
 
-`enter` or `l` on the `Bin` row at the end of the tree opens the bin: the lists and folders in
-it with their original path and the date they were deleted, the most recently deleted first.
-The tasks pane shows the tasks of the selected list, read-only. `R` moves the entry back to its
-original path; if another entry took that path in the meantime, RuDo says so and leaves the
-entry in the bin, so rename or move the other entry first. Entries that another program, such
-as Obsidian, put into the bin have no known original path, and `R` asks for the folder that
-receives them in the [picker](#picker). `u` undoes a restore like any other change.
+`enter` or `l` on the `Bin` row at the end of the tree opens the bin: the lists and folders
+in it with their original path and the date they were deleted, the most recently deleted
+first. The tasks pane shows the tasks of the selected list, read-only. `R` moves the entry
+back to its original path; if another entry took that path in the meantime, RuDo says so and
+leaves the entry in the bin, so rename or move the other entry first. Entries that another
+program, such as Obsidian, put into the bin have no known original path, and `R` asks for the
+folder that receives them in the [picker](#picker-go-to-anything-and-folders). `u` undoes a
+restore like any other change.
 
 `d d` in the bin deletes the selected entry permanently and `E` deletes everything in the bin
 permanently, also files that are not lists; both ask first, saying what is deleted
@@ -197,7 +216,7 @@ triggers commands.
 
 Vim users who expect `esc` to keep the typed text can bind `esc` to `submit` instead.
 
-## Picker
+## Picker (go to anything and folders)
 
 | Keys             | Action            | Description                                                      |
 | ---------------- | ----------------- | ---------------------------------------------------------------- |
@@ -205,16 +224,18 @@ Vim users who expect `esc` to keep the typed text can bind `esc` to `submit` ins
 | `up`, `ctrl-p`   | `picker-previous` | select the previous match                                        |
 | `tab`            | `complete`        | complete the text to the selected match; again for the next one  |
 
-Wherever RuDo asks for a folder (`m`, and `R` in the bin for entries of unknown origin), it
-opens a picker like fzf: the folders of the workspace that match the typed text are listed
-below it, the best match first, with the matched letters highlighted and the position in the
-bottom border (`1-10/42`). The letters only need to appear in order (`hgar` finds
-`Home/Garden`), matches in the folder name rank before matches in its parents, and case
-follows the smart case of `/`. `/` stands for the top level of the workspace; hidden folders
-are listed while `H` shows them, the bin never. `tab` puts the selected folder into the input
-and, pressed again, the next one. `enter` takes the selected folder, or the typed path if
-nothing matches, which reports a folder that does not exist (create it with `O` first);
-`esc` cancels. The [editing keys](#help-screen-dialogs-and-text-input) work in the input.
+Go to anything (`ctrl-p`, see [above](#everywhere-lists-and-tasks-pane)) uses the same picker
+for folders, lists and tasks. Wherever RuDo asks for a folder (`m`, and `R` in the bin for
+entries of unknown origin), it opens a picker like fzf: the folders of the workspace that
+match the typed text are listed below it, the best match first, with the matched letters
+highlighted and the position in the bottom border (`1-10/42`). The letters only need to
+appear in order (`hgar` finds `Home/Garden`), matches in the folder name rank before matches
+in its parents, and case follows the smart case of `/`. `/` stands for the top level of the
+workspace; hidden folders are listed while `H` shows them, the bin never. `tab` puts the
+selected folder into the input and, pressed again, the next one. `enter` takes the selected
+folder, or the typed path if nothing matches, which reports a folder that does not exist
+(create it with `O` first); `esc` cancels. The
+[editing keys](#help-screen-dialogs-and-text-input) work in the input.
 
 ## Key notation
 

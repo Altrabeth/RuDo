@@ -51,6 +51,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the matched letters highlighted; `up`/`down` or `ctrl-p`/`ctrl-n` select, `tab` completes
   and cycles, `enter` accepts. The new actions `picker-next`, `picker-previous` and
   `complete` can be rebound.
+- **Go to anything.** `ctrl-p` (the new action `go-to`) opens a fuzzy finder over every
+  folder, list and task of the workspace, like the "go to file" of an editor. Each match
+  shows its kind and a task its list (`Buy milk · Home/Groceries`), completed tasks dimmed;
+  names rank before paths, folders and lists before tasks and open tasks before completed
+  ones. `enter` selects a folder in the lists pane, opens a list, or opens the list of a task
+  and selects it, unfolding its parents and revealing it if the search filter or hidden
+  completed tasks hide it. Hidden entries are searched while they are shown, the bin and
+  unreadable lists never. Inside the picker `ctrl-p` still selects the previous match;
+  `go-to: ctrl-space` in the configuration opens the finder with `ctrl-space` instead.
 
 ### Fixed
 

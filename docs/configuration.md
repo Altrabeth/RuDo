@@ -66,7 +66,8 @@ configuration in which a key is bound to two actions in the same pane, in which 
 is a prefix of another (`g` and `g g`), or in which a key of text input or the picker
 (`submit`, `cancel`, `picker-next`, `picker-previous`, `complete`) starts with a key that
 types text (a character without `ctrl` or `alt`), and lists every collision with the actions
-involved.
+involved. Each context is checked on its own, so `ctrl-p` opens go to anything in the panes
+(`go-to`) and selects the previous match inside the picker (`picker-previous`).
 
 ## Theme
 
@@ -94,17 +95,17 @@ there.
 | `title`, `title_focused`              | pane titles                                      |
 | `selection`, `selection_unfocused`    | selected row in the focused and the other pane; `selection` also in the help and the picker |
 | `visual_selection`                    | rows selected in visual mode                     |
-| `folder`, `list`, `list_count`        | lists pane entries and `done/total` counters     |
+| `folder`, `list`, `list_count`        | lists pane entries and `done/total` counters; `folder` and `list` also in go to anything |
 | `hidden_entry`                        | hidden folders and lists while they are shown    |
 | `bin`                                 | the bin at the end of the lists pane             |
 | `tree_guide`                          | indentation guides and fold markers              |
-| `task_done`, `task_in_progress`, `task_cancelled` | task text by status                  |
+| `task_done`, `task_in_progress`, `task_cancelled` | task text by status, also in go to anything |
 | `priority_highest`, `priority_high`, `priority_medium`, `priority_low`, `priority_lowest` | priority markers |
 | `due`, `due_soon`, `due_today`, `due_overdue` | due dates: later, within seven days, today, past |
 | `tag`, `recurrence`                   | tags and recurrence rules                        |
-| `status_bar`, `key_hint`, `key_hint_label`, `pending_keys` | bottom bar                  |
+| `status_bar`, `key_hint`, `key_hint_label`, `pending_keys` | bottom bar; `key_hint_label` also for the hint and the kinds (`folder`, `list`, `task`) in the picker |
 | `message_info`, `message_error`       | messages in the bottom bar                       |
 | `popup_border`, `popup_title`, `input_error` | dialogs, text input and the picker        |
 | `help_heading`, `help_key`, `help_description` | help screen                             |
-| `search_match`, `filter_context`      | search matches and the matched letters in the picker, and parents kept for context |
+| `search_match`, `filter_context`      | search matches and the matched letters in the picker, and parents kept for context; `filter_context` also for the list of a task in go to anything |
 

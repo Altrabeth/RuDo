@@ -434,6 +434,9 @@ mod tests {
     #[case::picker_types_text(Context::Picker, "j", Lookup::None)]
     #[case::picker_action(Context::Picker, "ctrl-n", Lookup::Action(Action::PickerNext))]
     #[case::picker_submit(Context::Picker, "enter", Lookup::Action(Action::Submit))]
+    #[case::go_to_in_lists(Context::Lists, "ctrl-p", Lookup::Action(Action::GoTo))]
+    #[case::go_to_in_tasks(Context::Tasks, "ctrl-p", Lookup::Action(Action::GoTo))]
+    #[case::ctrl_p_in_the_picker(Context::Picker, "ctrl-p", Lookup::Action(Action::PickerPrevious))]
     fn looks_up_chords_typed_so_far(
         #[case] context: Context,
         #[case] notation: &str,

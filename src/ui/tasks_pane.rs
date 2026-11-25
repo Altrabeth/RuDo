@@ -312,6 +312,7 @@ fn inline_edit(app: &App) -> Option<(InlineEditKind, &TextInput)> {
         | Mode::Help(_)
         | Mode::Prompt(_)
         | Mode::FolderPicker(_)
+        | Mode::GoTo(_)
         | Mode::Confirm(_)
         | Mode::Search(_)
         | Mode::Visual => None,
@@ -743,7 +744,7 @@ impl<'a> Description<'a> {
 }
 
 /// Returns the slot that styles the checkbox and description of a task with `status`.
-fn status_slot(status: TaskStatus) -> Slot {
+pub(crate) fn status_slot(status: TaskStatus) -> Slot {
     match status {
         TaskStatus::Todo | TaskStatus::Other(_) => Slot::Text,
         TaskStatus::Done => Slot::TaskDone,

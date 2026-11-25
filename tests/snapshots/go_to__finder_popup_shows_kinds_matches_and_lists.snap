@@ -1,0 +1,28 @@
+---
+source: tests/go_to.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Seeds  0/2 ──────────────────────────────────────────╮"
+"│ ▾ Home               ││ ▾ [ ] Sow carrots                                    │"
+"│   ▾ Garden           ││ │   [ ] Water the seedlings                          │"
+"│     • Seeds      0/2 ││                                                      │"
+"│     Groceries    1/3 ││                                                      │"
+"│ ▾ Work        ╭ Go to ───────────────────────────────────────╮               │"
+"│     Plan      │ home                                         │               │"
+"│   Broken  unre│ folder Home                                  │               │"
+"│   Inbox       │ task   Clean the home office · Home/Grocerie │               │"
+"│   Bin         │ folder Home/Garden                           │               │"
+"│               │ list   Home/Garden/Seeds                     │               │"
+"│               │ list   Home/Groceries                        │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               ╰─────────────────────────────────────── 1-5/5 ╯               │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" tab complete  enter accept  esc cancel                                         "

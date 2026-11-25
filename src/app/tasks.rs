@@ -116,7 +116,7 @@ fn filtered<'document>(
 
 /// Returns the tasks of the list at `path` that `completed_tasks` shows, before any search
 /// filter; none if it is missing or could not be loaded, which the tasks pane shows instead.
-fn unfiltered_list_items<'workspace>(
+pub(super) fn unfiltered_list_items<'workspace>(
     workspace: &'workspace Workspace,
     path: &ListPath,
     completed_tasks: CompletedTasks,

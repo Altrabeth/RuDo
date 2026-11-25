@@ -45,7 +45,7 @@ pub enum HelpHeading {
     Bin,
     /// Closing the help screen, answering dialogs and finishing text input.
     HelpAndDialogs,
-    /// Choosing a match in a picker.
+    /// Choosing a match in a picker: go to anything and the folder picker.
     Picker,
     /// The fixed editing keys of text inputs.
     EditingKeys,
@@ -62,7 +62,7 @@ impl Display for HelpHeading {
             Self::VisualMode => "Visual mode (lists pane, tasks pane and bin)",
             Self::Bin => "Bin (lists pane)",
             Self::HelpAndDialogs => "Help screen, dialogs and text input",
-            Self::Picker => "Picker",
+            Self::Picker => "Picker (go to anything and folders)",
             Self::EditingKeys => "Editing keys in text input",
         })
     }
@@ -302,6 +302,7 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::FocusLists
         | Action::FocusTasks
         | Action::Search
+        | Action::GoTo
         | Action::ClearFilter
         | Action::Undo
         | Action::Redo
@@ -643,6 +644,7 @@ mod tests {
         let sections = filter(&help_sections(&keymap("")), "fold");
         let expected = [
             "Everywhere (lists and tasks pane)",
+            "ctrl-p",
             "u",
             "Trees (lists pane and tasks pane)",
             "h, left",
@@ -663,6 +665,29 @@ mod tests {
         ];
 
         let system_under_test: Vec<String> = rows(&sections).map(row_label).collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn ctrl_p_is_listed_with_both_meanings_under_their_headings() {
+        let sections = filter(&help_sections(&keymap("")), "ctrl-p");
+        let expected = [
+            ("Everywhere (lists and tasks pane)".to_owned(), None),
+            ("ctrl-p".to_owned(), Some(Action::GoTo.description())),
+            ("Picker (go to anything and folders)".to_owned(), None),
+            (
+                "up, ctrl-p".to_owned(),
+                Some(Action::PickerPrevious.description()),
+            ),
+        ];
+
+        let system_under_test: Vec<(String, Option<&str>)> = rows(&sections)
+            .map(|row| match row {
+                HelpRow::Heading(_) => (row_label(row), None),
+                HelpRow::Entry(entry) => (row_label(row), Some(entry.description())),
+            })
+            .collect();
 
         assert_eq!(system_under_test, expected);
     }

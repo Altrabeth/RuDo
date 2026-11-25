@@ -910,6 +910,18 @@ mod tests {
         assert_eq!(system_under_test, expected);
     }
 
+    /// Terminals send `ctrl-space` as a NUL byte, which crossterm reports as a space with the
+    /// control modifier, as it does for the key event of the kitty keyboard protocol.
+    #[test]
+    fn key_event_and_notation_agree_for_ctrl_space() {
+        let event = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL);
+        let expected: KeyChord = "ctrl-space".parse().unwrap();
+
+        let system_under_test = KeyChord::from_key_event(event);
+
+        assert_eq!(system_under_test, Some(expected));
+    }
+
     #[test]
     fn key_event_and_notation_agree_for_shifted_tab() {
         let event = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);

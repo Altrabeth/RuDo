@@ -266,6 +266,7 @@ impl App {
             Mode::Normal
             | Mode::Help(_)
             | Mode::FolderPicker(_)
+            | Mode::GoTo(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)

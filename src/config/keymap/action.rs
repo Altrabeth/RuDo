@@ -83,6 +83,8 @@ pub enum Action {
     FocusTasks,
     /// Filter the focused pane.
     Search,
+    /// Jump to any folder, list or task of the workspace with a fuzzy finder.
+    GoTo,
     /// Remove the active filter.
     ClearFilter,
     /// Undo the last change to a task, list or folder.
@@ -265,6 +267,7 @@ impl Action {
             Self::FocusLists => "focus the lists pane",
             Self::FocusTasks => "focus the tasks pane",
             Self::Search => "filter the focused pane (also inside the help)",
+            Self::GoTo => "go to any folder, list or task of the workspace (fuzzy finder)",
             Self::ClearFilter => "remove the active filter",
             Self::Undo => "undo the last change to a task, list or folder",
             Self::Redo => "redo the last undone change",
@@ -338,6 +341,7 @@ impl Action {
             Self::FocusLists => "lists",
             Self::FocusTasks => "tasks",
             Self::Search => "search",
+            Self::GoTo => "go to",
             Self::ClearFilter => "clear filter",
             Self::Undo => "undo",
             Self::Redo => "redo",
@@ -409,6 +413,7 @@ impl Action {
             | Self::FocusLists
             | Self::FocusTasks
             | Self::ClearFilter
+            | Self::GoTo
             | Self::OpenInEditor => GLOBAL,
             Self::Search => SEARCH,
             Self::MoveDown
@@ -482,6 +487,7 @@ impl Action {
             Self::FocusLists => &["1"],
             Self::FocusTasks => &["2"],
             Self::Search => &["/"],
+            Self::GoTo => &["ctrl-p"],
             Self::ClearFilter => &["esc"],
             Self::Undo => &["u"],
             Self::Redo => &["ctrl-r"],
@@ -620,6 +626,7 @@ mod tests {
     #[case::picker_next(Action::PickerNext, &["down", "ctrl-n"])]
     #[case::picker_previous(Action::PickerPrevious, &["up", "ctrl-p"])]
     #[case::complete(Action::Complete, &["tab"])]
+    #[case::go_to(Action::GoTo, &["ctrl-p"])]
     fn default_keys_match_the_documentation(#[case] action: Action, #[case] notations: &[&str]) {
         let expected = sequences(notations);
 
@@ -632,6 +639,7 @@ mod tests {
     #[case::everywhere(Action::Quit, &[Context::Lists, Context::Tasks, Context::Bin])]
     #[case::global(Action::FocusNext, &[Context::Lists, Context::Tasks])]
     #[case::search(Action::Search, &[Context::Lists, Context::Tasks, Context::Help])]
+    #[case::go_to(Action::GoTo, &[Context::Lists, Context::Tasks])]
     #[case::navigation(
         Action::MoveDown,
         &[
@@ -680,6 +688,7 @@ mod tests {
     #[case::move_down("move-down", Action::MoveDown)]
     #[case::new_task_below("new-task-below", Action::NewTaskBelow)]
     #[case::open_in_editor("open-in-editor", Action::OpenInEditor)]
+    #[case::go_to("go-to", Action::GoTo)]
     fn deserializes_kebab_case_names(#[case] name: &str, #[case] expected: Action) {
         let system_under_test = parse_action(name);
 

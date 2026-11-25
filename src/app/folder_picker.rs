@@ -13,12 +13,10 @@ use std::path::{Path, PathBuf};
 use crate::app::effect::Effect;
 use crate::app::entry_visibility::HiddenEntries;
 use crate::app::lists::{EntryKey, TreeRow, check_move_target, tree_items};
-use crate::app::picker::{Picker, PickerCandidate};
+use crate::app::picker::{Picker, PickerCandidate, PickerPrompt, path_name_start};
 use crate::app::state::{App, Mode};
-use crate::config::keymap::key::KeyChord;
 use crate::paths::portable;
 use crate::storage::workspace::{Entry, Workspace};
-use crate::ui::text_input::TextChange;
 
 /// How the workspace root is shown and completed.
 const ROOT_TEXT: &str = "/";
@@ -100,7 +98,7 @@ impl PickerCandidate for FolderCandidate {
 
     /// The name of a folder is the last component of its path.
     fn name_start(&self) -> usize {
-        self.text.rfind('/').map_or(0, |slash| slash + 1)
+        path_name_start(&self.text)
     }
 }
 
@@ -124,13 +122,11 @@ fn folder_path(text: &str) -> PathBuf {
     PathBuf::from(text.trim().trim_matches('/'))
 }
 
-/// An open folder picker: what the folder is for, the picker and why the last choice was
-/// refused.
+/// An open folder picker: what the folder is for and the picker with the folders.
 #[derive(Debug, Clone)]
 pub struct FolderPicker {
     purpose: FolderPurpose,
-    picker: Picker<FolderCandidate>,
-    error: Option<String>,
+    prompt: PickerPrompt<FolderCandidate>,
 }
 
 impl FolderPicker {
@@ -149,35 +145,26 @@ impl FolderPicker {
     /// Returns the picker with the typed text and the matching folders.
     #[must_use]
     pub const fn picker(&self) -> &Picker<FolderCandidate> {
-        &self.picker
+        self.prompt.picker()
     }
 
     /// Returns why the last choice was refused, until the text or the selection changes.
     #[must_use]
     pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+        self.prompt.error()
     }
 
-    /// Changes the picker with `command`, such as typing or moving the selection, and hides
-    /// the error.
-    pub(super) fn update(&mut self, command: impl FnOnce(&mut Picker<FolderCandidate>)) {
-        command(&mut self.picker);
-        self.error = None;
-    }
-
-    /// Edits the text with a key press that no action is bound to.
-    pub(super) fn press(&mut self, chord: KeyChord) {
-        self.update(|picker| {
-            // An unchanged text keeps the results, which is fine.
-            let _: TextChange = picker.press(chord);
-        });
+    /// Returns the picker with its error, to type into.
+    pub(super) const fn prompt_mut(&mut self) -> &mut PickerPrompt<FolderCandidate> {
+        &mut self.prompt
     }
 
     /// Returns the chosen folder relative to the workspace root: the selected match, or the
     /// typed path if nothing matches.
     fn chosen_folder(&self) -> PathBuf {
-        self.picker.selected().map_or_else(
-            || folder_path(self.picker.input().value()),
+        let picker = self.prompt.picker();
+        picker.selected().map_or_else(
+            || folder_path(picker.input().value()),
             |candidate| candidate.path().to_path_buf(),
         )
     }
@@ -191,19 +178,8 @@ impl App {
         let candidates = folder_candidates(&self.workspace, self.lists.hidden_entries());
         self.mode = Mode::FolderPicker(FolderPicker {
             purpose,
-            picker: Picker::new(candidates),
-            error: None,
+            prompt: PickerPrompt::new(candidates),
         });
-    }
-
-    /// Changes the open folder picker with `command`; nothing happens without one.
-    pub(super) fn update_folder_picker(
-        &mut self,
-        command: impl FnOnce(&mut Picker<FolderCandidate>),
-    ) {
-        if let Mode::FolderPicker(folder_picker) = &mut self.mode {
-            folder_picker.update(command);
-        }
     }
 
     /// Closes the folder picker and returns the effects of the chosen folder; a folder that
@@ -218,7 +194,7 @@ impl App {
             folder_picker.purpose.moved_entries(),
             &folder,
         ) {
-            folder_picker.error = Some(error);
+            folder_picker.prompt.refuse(error);
             return Vec::new();
         }
         // The folder picker was open above, so the mode is always taken from it here.
@@ -343,7 +319,7 @@ mod tests {
         let mut app = app_in(root.path());
         let entries = vec![EntryKey::Folder(PathBuf::from("Work"))];
         app.open_folder_picker(FolderPurpose::Move(entries.clone()));
-        app.update_folder_picker(|picker| picker.paste("gar"));
+        let _: Vec<Effect> = app.handle_paste("gar");
         let expected = vec![Effect::MoveEntries {
             entries,
             folder: PathBuf::from("Home/Garden"),
@@ -363,12 +339,12 @@ mod tests {
         app.open_folder_picker(FolderPurpose::Move(vec![EntryKey::Folder(PathBuf::from(
             "Home",
         ))]));
-        app.update_folder_picker(|picker| picker.paste("Home/Garden"));
+        let _: Vec<Effect> = app.handle_paste("Home/Garden");
         let effects = app.update(Action::Submit);
         let refused = folder_picker_of(&app).error().map(str::to_owned);
 
         let system_under_test = {
-            app.update_folder_picker(Picker::select_next);
+            let _: Vec<Effect> = app.update(Action::PickerNext);
             folder_picker_of(&app).error()
         };
 

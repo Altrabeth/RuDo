@@ -534,6 +534,7 @@ impl App {
             Mode::Help(_)
             | Mode::Prompt(_)
             | Mode::FolderPicker(_)
+            | Mode::GoTo(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_) => None,

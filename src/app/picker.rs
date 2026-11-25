@@ -11,6 +11,7 @@ use std::ops::Range;
 
 use crate::app::fuzzy::{FuzzyMatcher, FuzzyQuery};
 use crate::config::keymap::key::KeyChord;
+use crate::config::theme::Slot;
 use crate::ui::text_input::{TextChange, TextInput};
 
 /// Something a [`Picker`] offers: a text that is shown, matched and completed to.
@@ -25,6 +26,36 @@ pub trait PickerCandidate {
     fn name_start(&self) -> usize {
         0
     }
+
+    /// Returns the theme slot that styles the text, such as [`Slot::TaskDone`] for a done
+    /// task.
+    fn slot(&self) -> Slot {
+        Slot::Text
+    }
+
+    /// Returns a short word shown before the text, such as what kind of thing the candidate
+    /// is, or `None` for nothing.
+    fn label(&self) -> Option<&str> {
+        None
+    }
+
+    /// Returns where the candidate is, shown after the text, such as the list of a task, or
+    /// `None` for nothing.
+    fn location(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// A change of the selection or the text of a picker that a key triggers, for any kind of
+/// candidates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PickerCommand {
+    /// Selects the next result, see [`Picker::select_next`].
+    SelectNext,
+    /// Selects the previous result, see [`Picker::select_previous`].
+    SelectPrevious,
+    /// Completes the text to the selected result, see [`Picker::complete`].
+    Complete,
 }
 
 /// A candidate that matches the typed text: which one, how good and where.
@@ -181,6 +212,15 @@ impl<C: PickerCandidate> Picker<C> {
         self.input = TextInput::with_value(text);
     }
 
+    /// Performs `command`.
+    pub fn perform(&mut self, command: PickerCommand) {
+        match command {
+            PickerCommand::SelectNext => self.select_next(),
+            PickerCommand::SelectPrevious => self.select_previous(),
+            PickerCommand::Complete => self.complete(),
+        }
+    }
+
     /// Ranks the candidates against the typed text, best first and otherwise in their given
     /// order, and selects the best match.
     fn rank(&mut self) {
@@ -207,6 +247,69 @@ impl<C: PickerCandidate> Picker<C> {
     }
 }
 
+/// Returns the byte offset where the name of a path written with `/` starts: after the last
+/// slash, or `0` without one; see [`PickerCandidate::name_start`].
+#[must_use]
+pub fn path_name_start(path: &str) -> usize {
+    path.rfind('/').map_or(0, |slash| slash + 1)
+}
+
+/// An open picker as a popup shows it: the [`Picker`] and why the last choice was refused.
+///
+/// Every change of the text or the selection hides the error, because it no longer applies.
+#[derive(Debug, Clone)]
+pub struct PickerPrompt<C> {
+    picker: Picker<C>,
+    error: Option<String>,
+}
+
+impl<C: PickerCandidate> PickerPrompt<C> {
+    /// Opens a prompt with an empty input over `candidates`, without an error.
+    #[must_use]
+    pub fn new(candidates: Vec<C>) -> Self {
+        Self {
+            picker: Picker::new(candidates),
+            error: None,
+        }
+    }
+
+    /// Returns the picker with the typed text and the matching candidates.
+    #[must_use]
+    pub const fn picker(&self) -> &Picker<C> {
+        &self.picker
+    }
+
+    /// Returns why the last choice was refused, until the text or the selection changes.
+    #[must_use]
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Shows `error` as the reason why the selected choice was refused.
+    pub fn refuse(&mut self, error: String) {
+        self.error = Some(error);
+    }
+
+    /// Edits the text with a key press that no action is bound to.
+    pub fn press(&mut self, chord: KeyChord) {
+        // An unchanged text keeps the results, which is fine.
+        let _: TextChange = self.picker.press(chord);
+        self.error = None;
+    }
+
+    /// Inserts pasted text.
+    pub fn paste(&mut self, text: &str) {
+        self.picker.paste(text);
+        self.error = None;
+    }
+
+    /// Performs `command` on the picker.
+    pub fn perform(&mut self, command: PickerCommand) {
+        self.picker.perform(command);
+        self.error = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -220,7 +323,7 @@ mod tests {
         }
 
         fn name_start(&self) -> usize {
-            self.rfind('/').map_or(0, |slash| slash + 1)
+            path_name_start(self)
         }
     }
 
@@ -377,5 +480,112 @@ mod tests {
             .collect();
 
         assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::next(PickerCommand::SelectNext, Some(2), "")]
+    #[case::previous(PickerCommand::SelectPrevious, Some(0), "")]
+    #[case::complete(PickerCommand::Complete, Some(1), "Home")]
+    fn perform_runs_the_command(
+        #[case] command: PickerCommand,
+        #[case] expected_selection: Option<usize>,
+        #[case] expected_text: &str,
+    ) {
+        let mut picker = picker();
+        picker.select_next();
+
+        let system_under_test = {
+            picker.perform(command);
+            picker
+        };
+
+        assert_eq!(system_under_test.selected_index(), expected_selection);
+        assert_eq!(system_under_test.input().value(), expected_text);
+    }
+
+    #[rstest]
+    #[case::root("/", 1)]
+    #[case::top_level("Work", 0)]
+    #[case::nested("Work/Projects/Release", 14)]
+    #[case::multibyte_folder("Über/Plan", 6)]
+    fn path_name_starts_after_the_last_slash(#[case] path: &str, #[case] expected: usize) {
+        let system_under_test = path_name_start(path);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    /// A candidate that keeps every default of [`PickerCandidate`].
+    struct Plain(&'static str);
+
+    impl PickerCandidate for Plain {
+        fn text(&self) -> &str {
+            self.0
+        }
+    }
+
+    #[test]
+    fn candidates_are_plain_text_by_default() {
+        let candidate = Plain("plain");
+
+        let system_under_test = (
+            candidate.name_start(),
+            candidate.slot(),
+            candidate.label(),
+            candidate.location(),
+        );
+
+        assert_eq!(system_under_test, (0, Slot::Text, None, None));
+    }
+
+    fn refused_prompt() -> PickerPrompt<&'static str> {
+        let mut prompt = PickerPrompt::new(FOLDERS.to_vec());
+        prompt.refuse("there is no folder x".to_owned());
+        prompt
+    }
+
+    #[test]
+    fn refused_prompt_shows_the_error() {
+        let expected = Some("there is no folder x");
+
+        let system_under_test = refused_prompt();
+
+        assert_eq!(system_under_test.error(), expected);
+        assert_eq!(system_under_test.picker().candidate_count(), FOLDERS.len());
+    }
+
+    fn type_w(prompt: &mut PickerPrompt<&'static str>) {
+        prompt.press(KeyChord::new(Key::Char('w'), Modifiers::NONE));
+    }
+
+    fn move_left(prompt: &mut PickerPrompt<&'static str>) {
+        prompt.press("left".parse().unwrap());
+    }
+
+    fn paste_ho(prompt: &mut PickerPrompt<&'static str>) {
+        prompt.paste("ho");
+    }
+
+    fn select_next(prompt: &mut PickerPrompt<&'static str>) {
+        prompt.perform(PickerCommand::SelectNext);
+    }
+
+    #[rstest]
+    #[case::typing(type_w, "w")]
+    #[case::moving_the_cursor(move_left, "")]
+    #[case::pasting(paste_ho, "ho")]
+    #[case::selecting(select_next, "")]
+    fn any_change_hides_the_error(
+        #[case] change: fn(&mut PickerPrompt<&'static str>),
+        #[case] expected_text: &str,
+    ) {
+        let mut prompt = refused_prompt();
+
+        let system_under_test = {
+            change(&mut prompt);
+            prompt
+        };
+
+        assert_eq!(system_under_test.error(), None);
+        assert_eq!(system_under_test.picker().input().value(), expected_text);
     }
 }

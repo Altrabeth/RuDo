@@ -1,6 +1,6 @@
 [package]
 name = "rudo-tui"
-version = "1.0.0"
+version = "1.0.0-rc.2"
 edition = "2024"
 rust-version = "1.100.0"
 description = "A keyboard-driven terminal UI for todo lists stored as Markdown files"

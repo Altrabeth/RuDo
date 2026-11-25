@@ -78,6 +78,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   troubleshooting, development) moved into [`docs/`](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md). A test checks every
   relative link and heading anchor in the Markdown files.
 
+## [1.0.0-rc.2] - 2026-11-25
+
+A second test release of the release workflow before 1.0.0, published as a GitHub
+pre-release. It contains everything listed under Unreleased and 1.0.0.
+
 ## [1.0.0] - Unreleased
 
 The first release, not tagged yet. The [documentation](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md) specifies the behaviour in detail.
@@ -131,4 +136,5 @@ The first release, not tagged yet. The [documentation](https://github.com/Altrab
 - File logging with `RUDO_LOG` filter directives.
 
 [Unreleased]: https://github.com/Altrabeth/RuDo/compare/v1.0.0...HEAD
+[1.0.0-rc.2]: https://github.com/Altrabeth/RuDo/releases/tag/v1.0.0-rc.2
 [1.0.0]: https://github.com/Altrabeth/RuDo/releases/tag/v1.0.0

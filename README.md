@@ -127,6 +127,13 @@ A task without a priority has normal priority, between medium and low. Prioritie
 at the right edge of the row: `!!!`, `!!` and `!` for highest to medium, `-` and `--` for low
 and lowest; a value RuDo does not know is shown as written.
 
+Recurrence rules are set with `r` and shown before the priority. Completing a recurring task
+inserts its next occurrence above it: same text, tags, priority and fields, open, without a
+completion date, due one interval after the old due date (or after today if it had none).
+Subtasks are not copied, and one undo removes the completion and the new occurrence. A rule
+RuDo does not support, such as `every weekday`, is shown as written; completing such a task
+creates no new occurrence and says so.
+
 Lines inside fenced code blocks and front matter are never treated as tasks. Line endings
 (LF or CRLF), a trailing newline and a byte order mark are preserved. Untouched lines are
 written back byte for byte; only lines you edit in RuDo are re-rendered.

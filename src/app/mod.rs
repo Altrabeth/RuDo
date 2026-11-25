@@ -20,6 +20,7 @@ mod task_delete;
 mod task_due;
 pub mod task_input;
 mod task_priority;
+mod task_recurrence;
 mod task_reorder;
 mod task_toggle;
 pub mod task_visibility;

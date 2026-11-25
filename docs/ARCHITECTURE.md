@@ -87,6 +87,7 @@ src/
     task_reorder.rs        moving, indenting and outdenting the selected task
     task_delete.rs         deleting the selected task with its subtasks
     task_due.rs            setting the due date of the selected task in a prompt
+    task_recurrence.rs     setting the recurrence rule in a prompt, the next occurrence on completion
     task_visibility.rs     showing and hiding completed tasks (CompletedTasks)
     status.rs              StatusMessage, Severity and when messages expire
     update.rs              App::update(Action) -> Vec<Effect>

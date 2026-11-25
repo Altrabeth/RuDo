@@ -3,7 +3,7 @@
 //! Every row shows the tree guides of its ancestors, a fold marker, the checkbox and the
 //! description, styled by the status of the task with its tags highlighted. [`TaskRow`] builds the content of a row
 //! from its task alone, so every part a task shows is added in one place. Metadata such as the
-//! priority and the due date is aligned to the right edge of the row.
+//! recurrence rule, the priority and the due date is aligned to the right edge of the row.
 //!
 //! While a new task is typed in [`Mode::InlineEdit`], a placeholder row with the text input
 //! is shown where the task will be inserted; the document itself is only changed on submit.
@@ -336,6 +336,7 @@ impl<'a> TaskRow<'a> {
         };
         let depth = row.item().depth();
         let metadata = TrailingMetadata {
+            recurrence: recurrence_part(task, theme),
             priority: priority_part(task, theme),
             due: due_part(task, theme, today),
         };
@@ -440,6 +441,8 @@ impl<'a> TaskRow<'a> {
 /// metadata of a part has `None` there.
 #[derive(Debug, Clone, PartialEq, Default)]
 struct TrailingMetadata<'a> {
+    /// The recurrence rule as stored, such as `every week`.
+    recurrence: Option<MetadataPart<'a>>,
     /// The priority marker, such as `!!`.
     priority: Option<MetadataPart<'a>>,
     /// The due date relative to today, such as `in 3d`.
@@ -450,7 +453,7 @@ impl<'a> TrailingMetadata<'a> {
     /// Returns the parts that are present in their order, each preceded by a gap; no spans
     /// at all if there is none.
     fn into_spans(self) -> Vec<Span<'a>> {
-        [self.priority, self.due]
+        [self.recurrence, self.priority, self.due]
             .into_iter()
             .flatten()
             .flat_map(|part| [Span::raw(METADATA_GAP), Span::styled(part.text, part.style)])
@@ -468,6 +471,16 @@ fn spans_width(spans: &[Span<'_>]) -> usize {
 struct MetadataPart<'a> {
     text: Cow<'a, str>,
     style: Style,
+}
+
+/// Returns the recurrence part of the trailing metadata of `task`: its rule as stored, so that
+/// a rule RuDo does not support stays visible.
+fn recurrence_part<'a>(task: &'a TaskLine, theme: &Theme) -> Option<MetadataPart<'a>> {
+    let rule = task.field(&FieldKey::Repeat)?.value();
+    Some(MetadataPart {
+        text: Cow::Borrowed(rule),
+        style: theme.style(Slot::Recurrence),
+    })
 }
 
 /// Returns the priority part of the trailing metadata of `task`: the marker of its priority,
@@ -673,6 +686,28 @@ mod tests {
     #[case::only_the_lead_and_it("- [ ] a [priority:: highest]\n", 10, "  [ ]  !!!")]
     #[case::dropped_if_too_narrow("- [ ] a [priority:: highest]\n", 9, "  [ ] a")]
     fn priority_is_shown_at_the_right_edge(
+        #[case] document: &str,
+        #[case] width: usize,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = row_text(document, &[], 0, width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::alone("- [ ] a [repeat:: every week]\n", 20, "  [ ] a   every week")]
+    #[case::unsupported_as_stored(
+        "- [ ] a [repeat:: every weekday]\n",
+        21,
+        "  [ ] a every weekday"
+    )]
+    #[case::before_priority_and_due(
+        "- [ ] a [due:: 2026-11-25] [priority:: high] [repeat:: every day]\n",
+        29,
+        "  [ ] a every day !! tomorrow"
+    )]
+    fn recurrence_comes_first_in_the_metadata(
         #[case] document: &str,
         #[case] width: usize,
         #[case] expected: &str,

@@ -119,11 +119,11 @@ impl App {
             Action::Redo => return self.step_history(Direction::Redo),
             Action::Edit => self.edit_task(),
             Action::ToggleCompleted => self.toggle_completed(),
+            Action::SetRecurrence => self.open_recurrence_prompt(),
             Action::ClearFilter
             | Action::Yank
             | Action::PasteBelow
             | Action::PasteAbove
-            | Action::SetRecurrence
             | Action::SortByPriority
             | Action::SortByDueDate
             | Action::SortAlphabetically

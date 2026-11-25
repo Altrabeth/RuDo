@@ -1,0 +1,11 @@
+---
+source: tests/tasks_recurrence.rs
+assertion_line: 122
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Home  0/2 ───────────────────────────────────────────╮"
+"│ • Home           0/2 ││   [ ] Water plants            every week !! tomorrow │"
+"│                      ││   [ ] Clean                            every weekday │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new list  O new folder  enter open  r rename  dd delete               ? help "

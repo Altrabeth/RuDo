@@ -12,7 +12,9 @@ use jiff::civil::Date;
 use crate::app::effect::Effect;
 use crate::app::state::{App, Mode};
 use crate::app::task_due::{DUE_DATE_HINT, due_preview, parse_due_text};
+use crate::app::task_recurrence::{RECURRENCE_HINT, parse_recurrence_text, recurrence_preview};
 use crate::config::keymap::key::KeyChord;
+use crate::domain::recurrence::Recurrence;
 use crate::markdown::document::TaskId;
 use crate::storage::entries::EntryName;
 use crate::storage::workspace::{EntryKind, ListPath};
@@ -49,6 +51,13 @@ pub enum PromptKind {
         /// The task whose due date is set or cleared.
         task: TaskId,
     },
+    /// The recurrence rule of the task `task` in the list at `list`.
+    Recurrence {
+        /// The list that holds the task.
+        list: ListPath,
+        /// The task whose recurrence rule is set or cleared.
+        task: TaskId,
+    },
 }
 
 impl PromptKind {
@@ -66,16 +75,18 @@ impl PromptKind {
                 ..
             } => "Rename folder",
             Self::DueDate { .. } => "Due date",
+            Self::Recurrence { .. } => "Recurrence",
         }
     }
 
     /// Returns the hint below the input: the folder of the new or renamed entry, or the
-    /// accepted due date expressions.
+    /// accepted due date expressions or recurrence rules.
     fn hint(&self) -> Cow<'static, str> {
         match self {
             Self::NewList { parent } | Self::NewFolder { parent } => location_hint(parent),
             Self::Rename { path, .. } => location_hint(path.parent().unwrap_or(Path::new(""))),
             Self::DueDate { .. } => Cow::Borrowed(DUE_DATE_HINT),
+            Self::Recurrence { .. } => Cow::Borrowed(RECURRENCE_HINT),
         }
     }
 
@@ -90,6 +101,7 @@ impl PromptKind {
         match self {
             Self::NewList { .. } | Self::NewFolder { .. } | Self::Rename { .. } => Ok(None),
             Self::DueDate { .. } => due_preview(text, today).map(Some),
+            Self::Recurrence { .. } => recurrence_preview(text).map(Some),
         }
     }
 
@@ -116,6 +128,11 @@ impl PromptKind {
                 task: *task,
                 due: parse_due_text(text, today)?,
             },
+            Self::Recurrence { list, task } => Submission::SetRecurrence {
+                list: list.clone(),
+                task: *task,
+                recurrence: parse_recurrence_text(text)?,
+            },
         })
     }
 }
@@ -130,6 +147,13 @@ enum Submission {
         list: ListPath,
         task: TaskId,
         due: Option<Date>,
+    },
+    /// Setting the recurrence rule of `task` in the list at `list`, or clearing it if
+    /// `recurrence` is `None`.
+    SetRecurrence {
+        list: ListPath,
+        task: TaskId,
+        recurrence: Option<Recurrence>,
     },
 }
 
@@ -223,6 +247,11 @@ impl App {
         match submission {
             Submission::Effect(effect) => vec![effect],
             Submission::SetDue { list, task, due } => self.set_due(&list, task, due),
+            Submission::SetRecurrence {
+                list,
+                task,
+                recurrence,
+            } => self.set_recurrence(&list, task, recurrence),
         }
     }
 

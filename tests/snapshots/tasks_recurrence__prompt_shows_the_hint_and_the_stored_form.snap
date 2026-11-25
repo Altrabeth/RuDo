@@ -1,0 +1,15 @@
+---
+source: tests/tasks_recurrence.rs
+assertion_line: 108
+expression: system_under_test
+---
+"╭ Lists ─────────────────────╮╭ Home  0/1 ─────────────────────────────────────────────────────────╮"
+"│ • Home                 0/1 ││   [ ] Water plants                                                 │"
+"│                   ╭ Recurrence ──────────────────────────────────────────────╮                   │"
+"│                   │ every 1 Month                                            │                   │"
+"│                   │ every day, every 2 weeks, every month; empty clears      │                   │"
+"│                   │ every month                                              │                   │"
+"│                   │                                                          │                   │"
+"│                   ╰──────────────────────────────────────────────────────────╯                   │"
+"╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯"
+" enter accept  esc cancel                                                                           "

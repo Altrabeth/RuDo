@@ -4,6 +4,7 @@
 //! changed, except that the terminator moves when lines are appended to or removed from the
 //! end of a file that has no final newline.
 
+use std::collections::HashSet;
 use std::iter;
 use std::ops::Range;
 
@@ -107,6 +108,72 @@ impl TodoDocument {
     pub fn remove_block(&mut self, id: TaskId) -> Option<TaskBlock> {
         let removed = self.remove_lines(self.block_range(id)?);
         Some(TaskBlock::detach(removed.into_iter().map(|line| line.kind)))
+    }
+
+    /// Removes the tasks `ids` with their blocks and returns the blocks detached, in document
+    /// order.
+    ///
+    /// A task inside the block of another task of `ids` leaves with that block, so no line is
+    /// removed twice; ids that are not in this document are ignored. The blocks are removed
+    /// from the bottom of the document to the top, so that removing one never shifts the lines
+    /// of another.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// use rudo::markdown::document::TodoDocument;
+    ///
+    /// let mut document = TodoDocument::parse("- [ ] a\n\t- [ ] b\n- [ ] c\n- [ ] d\n");
+    /// let ids: HashSet<_> = document.tasks().take(3).map(|node| node.id()).collect();
+    ///
+    /// let removed = document.remove_blocks(&ids);
+    ///
+    /// assert_eq!(removed.len(), 2);
+    /// assert_eq!(document.to_string(), "- [ ] d\n");
+    /// ```
+    #[must_use = "the removed blocks are lost if they are not kept"]
+    pub fn remove_blocks(&mut self, ids: &HashSet<TaskId>) -> Vec<TaskBlock> {
+        let mut blocks: Vec<TaskBlock> = self
+            .outermost_block_ranges(ids)
+            .into_iter()
+            .rev()
+            .map(|range| {
+                TaskBlock::detach(self.remove_lines(range).into_iter().map(|line| line.kind))
+            })
+            .collect();
+        blocks.reverse();
+        blocks
+    }
+
+    /// Returns detached copies of the tasks `ids` with their blocks, in document order; like
+    /// [`TodoDocument::remove_blocks`], a task inside the block of another one is copied once,
+    /// with that block.
+    #[must_use]
+    pub fn copy_blocks(&self, ids: &HashSet<TaskId>) -> Vec<TaskBlock> {
+        self.outermost_block_ranges(ids)
+            .into_iter()
+            .map(|range| TaskBlock::detach(self.lines[range].iter().map(|line| line.kind.clone())))
+            .collect()
+    }
+
+    /// Returns the line ranges of the blocks of the tasks `ids` that are not inside the block
+    /// of another task of `ids`, in document order, in one pass over the lines.
+    fn outermost_block_ranges(&self, ids: &HashSet<TaskId>) -> Vec<Range<usize>> {
+        let mut ranges = Vec::new();
+        let mut index = 0;
+        while index < self.lines.len() {
+            match self.lines[index].task() {
+                Some((id, _)) if ids.contains(&id) => {
+                    let end = index + self.block_at(index).lines.len();
+                    ranges.push(index..end);
+                    index = end;
+                }
+                Some(_) | None => index += 1,
+            }
+        }
+        ranges
     }
 
     /// Returns a detached copy of a task with its block, or `None` if `id` is not in this
@@ -622,6 +689,77 @@ mod tests {
 
         assert_eq!(system_under_test.to_string(), expected);
         assert_eq!(removed.root.description(), reference);
+    }
+
+    /// Returns the ids of the tasks of `document` with one of the `descriptions`.
+    fn ids_of(document: &TodoDocument, descriptions: &str) -> HashSet<TaskId> {
+        descriptions
+            .chars()
+            .map(|description| id_of(document, &description.to_string()))
+            .collect()
+    }
+
+    #[rstest]
+    #[case::one(
+        "d",
+        "d",
+        "# List\n- [ ] a\n  - [ ] b\n    continuation of b\n\n    - [ ] c\n\n\n- [ ] e\nParagraph\n- [ ] f"
+    )]
+    #[case::separated_blocks(
+        "ce",
+        "ce",
+        "# List\n- [ ] a\n  - [ ] b\n    continuation of b\n\n\n  - [ ] d\n\nParagraph\n- [ ] f"
+    )]
+    #[case::subtask_with_its_parent("abd", "a", "# List\n\n- [ ] e\nParagraph\n- [ ] f")]
+    #[case::last_line_without_newline(
+        "ef",
+        "ef",
+        "# List\n- [ ] a\n  - [ ] b\n    continuation of b\n\n    - [ ] c\n\n  - [ ] d\n\nParagraph"
+    )]
+    fn removes_blocks_from_the_bottom_up_once_each(
+        #[case] selected: &str,
+        #[case] expected_roots: &str,
+        #[case] expected: &str,
+    ) {
+        let mut document = TodoDocument::parse(TREE);
+        let ids = ids_of(&document, selected);
+        let removed = document.remove_blocks(&ids);
+
+        let system_under_test = document;
+
+        assert_eq!(system_under_test.to_string(), expected);
+        let roots: String = removed
+            .iter()
+            .map(|block| block.root.description())
+            .collect();
+        assert_eq!(roots, expected_roots);
+    }
+
+    #[test]
+    fn copied_blocks_equal_the_removed_ones_and_leave_the_document() {
+        let mut document = TodoDocument::parse(TREE);
+        let ids = ids_of(&document, "bcf");
+        let copied = document.copy_blocks(&ids);
+        let expected_count = 3;
+
+        let system_under_test = document.remove_blocks(&ids);
+
+        assert_eq!(system_under_test, copied);
+        assert_eq!(
+            copied.iter().map(TaskBlock::task_count).sum::<usize>(),
+            expected_count
+        );
+    }
+
+    #[test]
+    fn removing_blocks_of_unknown_tasks_changes_nothing() {
+        let mut document = TodoDocument::parse(TREE);
+        let ids = HashSet::from([UNKNOWN]);
+
+        let system_under_test = document.remove_blocks(&ids);
+
+        assert_eq!(system_under_test, []);
+        assert_eq!(document.to_string(), TREE);
     }
 
     #[test]

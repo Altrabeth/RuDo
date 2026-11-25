@@ -42,7 +42,8 @@ pub fn render(app: &App, frame: &mut Frame) {
         | Mode::Prompt(_)
         | Mode::Confirm(_)
         | Mode::InlineEdit(_)
-        | Mode::Search(_) => {}
+        | Mode::Search(_)
+        | Mode::Visual => {}
         Mode::Help(help) => render_help(help, app.theme(), frame),
     }
 }

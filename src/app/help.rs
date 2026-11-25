@@ -213,7 +213,8 @@ impl App {
             | Mode::Prompt(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
-            | Mode::Search(_) => {}
+            | Mode::Search(_)
+            | Mode::Visual => {}
         }
     }
 }
@@ -250,7 +251,8 @@ mod tests {
             | Mode::Prompt(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
-            | Mode::Search(_) => {
+            | Mode::Search(_)
+            | Mode::Visual => {
                 panic!("the help screen is not open")
             }
         }

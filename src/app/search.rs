@@ -173,7 +173,8 @@ impl App {
             | Mode::Help(_)
             | Mode::Prompt(_)
             | Mode::Confirm(_)
-            | Mode::InlineEdit(_) => None,
+            | Mode::InlineEdit(_)
+            | Mode::Visual => None,
         }
     }
 

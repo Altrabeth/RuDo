@@ -71,7 +71,7 @@ fn render_popup(app: &App, frame: &mut Frame) {
             let dialog = ConfirmDialog::new(confirm.message(), app.keymap(), app.theme());
             frame.render_widget(dialog, area);
         }
-        Mode::Normal | Mode::Help(_) | Mode::InlineEdit(_) | Mode::Search(_) => {}
+        Mode::Normal | Mode::Help(_) | Mode::InlineEdit(_) | Mode::Search(_) | Mode::Visual => {}
     }
 }
 

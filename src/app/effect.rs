@@ -4,7 +4,7 @@
 //! code as a running RuDo.
 
 use std::error::Error;
-use std::fmt::Write;
+use std::fmt::{self, Display, Formatter, Write};
 use std::iter;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,8 @@ use crate::app::lists::{EntryChange, EntryKey};
 use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
 use crate::storage::entries::{
-    EntryError, EntryName, create_folder, create_list, delete_folder, delete_list, rename,
+    EntryError, EntryName, create_folder, create_list, delete_folder, delete_list, move_into,
+    rename,
 };
 use crate::storage::fingerprint::Fingerprint;
 use crate::storage::save::{SaveError, save};
@@ -42,12 +43,20 @@ pub enum Effect {
         /// The new name, without the `.md` extension of list files.
         name: EntryName,
     },
-    /// Delete the list file or empty folder at `path`; folders are never deleted recursively.
-    DeleteEntry {
-        /// Whether the entry is a list file or a folder.
-        kind: EntryKind,
-        /// The entry to delete, relative to the workspace root.
-        path: PathBuf,
+    /// Delete these list files and empty folders; folders are never deleted recursively.
+    ///
+    /// Every deletion of lists and folders is this effect, that of a single entry too, so
+    /// [`execute`] deletes them in one place and reports all failures in one message.
+    DeleteEntries(Vec<EntryKey>),
+    /// Move these list files and folders into `folder`, keeping their names.
+    ///
+    /// Every move of lists and folders is this effect, that of a single entry too.
+    MoveEntries {
+        /// The lists and folders to move.
+        entries: Vec<EntryKey>,
+        /// The folder that receives them, relative to the workspace root and empty for the
+        /// root itself.
+        folder: PathBuf,
     },
     /// Open the list at this path in the external editor, at the 1-based `line` if given,
     /// and reload it when the editor exits.
@@ -77,7 +86,8 @@ pub fn execute(app: &mut App, effect: Effect) {
         Effect::Save(list) => save_list(app, &list),
         Effect::CreateEntry { kind, parent, name } => create_entry(app, kind, &parent, &name),
         Effect::RenameEntry { path, name } => rename_entry(app, &path, &name),
-        Effect::DeleteEntry { kind, path } => delete_entry(app, kind, &path),
+        Effect::DeleteEntries(entries) => delete_entries(app, &entries),
+        Effect::MoveEntries { entries, folder } => move_entries(app, &entries, &folder),
         Effect::OpenInEditor { list, .. } => {
             tracing::warn!(%list, "the editor can only be opened by the runtime");
         }
@@ -121,16 +131,63 @@ fn rename_entry(app: &mut App, path: &Path, name: &EntryName) {
     }
 }
 
-/// Deletes the list file or empty folder at `path` on disk.
-fn delete_entry(app: &mut App, kind: EntryKind, path: &Path) {
-    let absolute = app.workspace().root().join(path);
-    let deleted = match kind {
-        EntryKind::Folder => delete_folder(&absolute),
-        EntryKind::List => delete_list(&absolute),
-    };
-    match deleted {
-        Ok(()) => app.entry_deleted(path),
-        Err(error) => app.entry_failed(&error),
+/// Deletes the list files and empty folders `entries` on disk, removes the deleted ones from
+/// the workspace and reports the failures in one message.
+fn delete_entries(app: &mut App, entries: &[EntryKey]) {
+    let failures: Vec<EntryError> = entries
+        .iter()
+        .filter_map(|entry| match delete_entry(app.workspace().root(), entry) {
+            Ok(()) => {
+                app.entry_deleted(entry.path());
+                None
+            }
+            Err(error) => Some(error),
+        })
+        .collect();
+    app.entries_failed(EntriesOperation::Deleted, entries, &failures);
+}
+
+/// Deletes the list file or empty folder `entry` of the workspace in `root` on disk.
+fn delete_entry(root: &Path, entry: &EntryKey) -> Result<(), EntryError> {
+    let absolute = root.join(entry.path());
+    match entry {
+        EntryKey::Folder(_) => delete_folder(&absolute),
+        EntryKey::List(_) => delete_list(&absolute),
+    }
+}
+
+/// Moves the list files and folders `entries` into `folder` on disk, follows the moved ones in
+/// the workspace and reports the failures in one message.
+fn move_entries(app: &mut App, entries: &[EntryKey], folder: &Path) {
+    let directory = app.workspace().root().join(folder);
+    let failures: Vec<EntryError> = entries
+        .iter()
+        .filter_map(|entry| {
+            match move_into(&app.workspace().root().join(entry.path()), &directory) {
+                Ok(_) => {
+                    app.entry_moved(entry.path(), folder);
+                    None
+                }
+                Err(error) => Some(error),
+            }
+        })
+        .collect();
+    app.entries_failed(EntriesOperation::Moved, entries, &failures);
+}
+
+/// What [`execute`] did to several lists and folders, as the report of failures names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntriesOperation {
+    Deleted,
+    Moved,
+}
+
+impl Display for EntriesOperation {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Deleted => "deleted",
+            Self::Moved => "moved",
+        })
     }
 }
 
@@ -170,12 +227,33 @@ impl App {
             return;
         };
         let key = EntryKey::from(entry);
+        self.entry_relocated(path, &key);
+    }
+
+    /// Moves the folder or list at `path`, just moved into `folder` on disk, in the workspace
+    /// and selects it; state that remembers its lists follows them.
+    fn entry_moved(&mut self, path: &Path, folder: &Path) {
+        let Some(entry) = self.workspace.move_into(path, folder) else {
+            tracing::warn!(
+                path = %path.display(),
+                folder = %folder.display(),
+                "moved entry or its folder is gone"
+            );
+            return;
+        };
+        let key = EntryKey::from(entry);
+        self.entry_relocated(path, &key);
+    }
+
+    /// Follows the folder or list that was at `from` and is now the entry with `key` in every
+    /// piece of state that remembers it, and selects it.
+    fn entry_relocated(&mut self, from: &Path, key: &EntryKey) {
         self.apply_entry_change(EntryChange::Renamed {
-            from: path,
+            from,
             to: key.path(),
         });
         let viewport_height = self.viewport_height(Focus::Lists);
-        self.lists.select(&self.workspace, &key, viewport_height);
+        self.lists.select(&self.workspace, key, viewport_height);
     }
 
     /// Removes the folder or list at `path`, just deleted on disk, from the workspace; the
@@ -187,11 +265,53 @@ impl App {
         self.apply_entry_change(EntryChange::Removed(path));
     }
 
-    /// Reports that creating, renaming or deleting a list or folder failed with `error`.
+    /// Reports the `failures` of an `operation` on the lists and folders `entries` in one
+    /// message: the error itself for a single entry, otherwise how many succeeded and every
+    /// error, such as `deleted 298 of 300 lists; 2 failed: ...`.
+    fn entries_failed(
+        &mut self,
+        operation: EntriesOperation,
+        entries: &[EntryKey],
+        failures: &[EntryError],
+    ) {
+        let report = match failures {
+            [] => return,
+            [error] if entries.len() == 1 => error_report(error),
+            _ => {
+                let reports: Vec<String> =
+                    failures.iter().map(|error| error_report(error)).collect();
+                format!(
+                    "{operation} {} of {} {}; {} failed: {}",
+                    entries.len() - failures.len(),
+                    entries.len(),
+                    entries_noun(entries),
+                    failures.len(),
+                    reports.join("; ")
+                )
+            }
+        };
+        tracing::warn!(%report, "cannot change entries");
+        self.show_message(StatusMessage::error(report));
+    }
+
+    /// Reports that creating or renaming a list or folder failed with `error`.
     fn entry_failed(&mut self, error: &EntryError) {
         let report = error_report(error);
         tracing::warn!(%report, "cannot change entry");
         self.show_message(StatusMessage::error(report));
+    }
+}
+
+/// Returns what `entries` are in the plural: `lists`, `folders`, or `entries` for both.
+fn entries_noun(entries: &[EntryKey]) -> &'static str {
+    let lists = entries
+        .iter()
+        .filter(|entry| matches!(entry, EntryKey::List(_)))
+        .count();
+    match lists {
+        0 => "folders",
+        lists if lists == entries.len() => "lists",
+        _ => "entries",
     }
 }
 
@@ -212,10 +332,56 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
+    use rstest::rstest;
     use tempfile::TempDir;
 
     use super::*;
     use crate::app::state::tests::{app_in, only_list_path, toggle_first_task};
+
+    #[rstest]
+    #[case::lists(&["a.md", "b.md"], "lists")]
+    #[case::folders(&["a", "b"], "folders")]
+    #[case::both(&["a", "b.md"], "entries")]
+    fn entries_are_named_by_their_kind(#[case] paths: &[&str], #[case] expected: &str) {
+        let directory = TempDir::new().unwrap();
+        for path in paths {
+            let absolute = directory.path().join(path);
+            if Path::new(path).extension().is_some() {
+                fs::write(absolute, "").unwrap();
+            } else {
+                fs::create_dir(absolute).unwrap();
+            }
+        }
+        let app = app_in(directory.path());
+        let entries: Vec<EntryKey> = paths
+            .iter()
+            .map(|path| EntryKey::from(app.workspace().entry(Path::new(path)).unwrap()))
+            .collect();
+
+        let system_under_test = entries_noun(&entries);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn moving_into_a_folder_that_vanished_reports_the_error() {
+        let directory = TempDir::new().unwrap();
+        fs::write(directory.path().join("a.md"), "").unwrap();
+        let mut app = app_in(directory.path());
+        let entries = vec![EntryKey::List(only_list_path(&app))];
+        execute(
+            &mut app,
+            Effect::MoveEntries {
+                entries,
+                folder: PathBuf::from("gone"),
+            },
+        );
+
+        let system_under_test = app.status_message().map(StatusMessage::text);
+
+        assert!(system_under_test.is_some_and(|text| text.starts_with("cannot change")));
+        assert!(directory.path().join("a.md").exists());
+    }
 
     #[test]
     fn save_writes_the_document_and_remembers_its_fingerprint() {

@@ -44,6 +44,8 @@ pub enum Slot {
     Selection,
     /// Selected row in the pane without focus.
     SelectionUnfocused,
+    /// Rows selected in visual mode.
+    VisualSelection,
     /// Folder in the lists pane.
     Folder,
     /// List in the lists pane.
@@ -130,7 +132,7 @@ impl Slot {
             Self::TitleFocused | Self::PopupTitle | Self::KeyHint => {
                 StyleConfig::fg(Color::Cyan, Modifier::BOLD)
             }
-            Self::Selection => StyleConfig::modifiers(Modifier::REVERSED),
+            Self::Selection | Self::VisualSelection => StyleConfig::modifiers(Modifier::REVERSED),
             Self::SelectionUnfocused => {
                 StyleConfig::modifiers(Modifier::REVERSED.union(Modifier::DIM))
             }

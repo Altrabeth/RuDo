@@ -1,5 +1,8 @@
 //! Deleting the selected task with its subtasks, without asking: undo brings it back, and
-//! the register keeps it for pasting.
+//! the register keeps it for pasting. The tasks of a visual selection are deleted the same
+//! way, in one step.
+
+use std::collections::HashSet;
 
 use crate::app::effect::Effect;
 use crate::app::state::App;
@@ -8,6 +11,11 @@ use crate::app::task_visibility::CompletedTasks;
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::markdown::document::{EditOutcome, TaskBlock, TaskId, TodoDocument};
+use crate::storage::workspace::ListPath;
+
+/// Shown when none of the tasks to delete is in the list any more, for example after a
+/// reload.
+const TASKS_GONE: &str = "the selected tasks are gone";
 
 impl App {
     /// Deletes the selected task of the active list with its block into the register and
@@ -16,7 +24,36 @@ impl App {
         let Some((removed, effects)) = self.remove_selected_task() else {
             return Vec::new();
         };
+        self.register.fill(vec![removed]);
+        effects
+    }
+
+    /// Deletes the tasks `tasks` of the list at `list` with their blocks into the register, with
+    /// one [`App::edit_list`] call so that one undo brings them back, and reports how many
+    /// tasks went with them.
+    ///
+    /// The cursor goes to the task now in the row of the selected task, so the selection
+    /// should be on the first of `tasks`. Tasks that are gone are skipped.
+    pub(super) fn delete_tasks(&mut self, list: &ListPath, tasks: &[TaskId]) -> Vec<Effect> {
+        let ids: HashSet<TaskId> = tasks.iter().copied().collect();
+        let mut removed = Vec::new();
+        let effects = self.edit_list(list, |document| {
+            removed = document.remove_blocks(&ids);
+            if removed.is_empty() {
+                EditOutcome::Unchanged
+            } else {
+                EditOutcome::Changed
+            }
+        });
+        if removed.is_empty() {
+            self.show_message(StatusMessage::info(TASKS_GONE));
+            return effects;
+        }
+        let task_count = removed.iter().map(TaskBlock::task_count).sum();
         self.register.fill(removed);
+        self.refresh_tasks();
+        let message = deleted_message(&self.keymap, task_count);
+        self.show_message(StatusMessage::info(message));
         effects
     }
 

@@ -209,6 +209,31 @@ impl Workspace {
         Some(insert_in_display_order(entries, entry))
     }
 
+    /// Moves the folder or list at `path` into the folder `folder`, keeping its name, after it
+    /// was moved on disk, and returns it at its new place in display order.
+    ///
+    /// Both paths are relative to the workspace root; an empty `folder` is the root itself. As
+    /// with [`Workspace::rename`], everything inside a moved folder moves with it and stays
+    /// loaded. Returns `None` if the workspace has no entry at `path`, if `folder` is not a
+    /// folder of the workspace, or if it is `path` itself or inside it.
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: the target folder is checked to exist and to lie outside the
+    /// moved entry before the entry is taken out of the tree.
+    pub fn move_into(&mut self, path: &Path, folder: &Path) -> Option<&Entry> {
+        let file_name = path.file_name()?;
+        if folder.starts_with(path) || folder_entries(&self.entries, folder).is_none() {
+            return None;
+        }
+        let (entries, index) = entry_position(&mut self.entries, path)?;
+        let mut entry = entries.remove(index);
+        move_entry(&mut entry, folder.join(file_name));
+        let target = folder_entries_mut(&mut self.entries, folder)
+            .expect("the target folder exists and is not inside the moved entry");
+        Some(insert_in_display_order(target, entry))
+    }
+
     /// Removes the folder or list at `path` with everything inside it, after it was deleted
     /// on disk, and returns it.
     ///
@@ -1410,6 +1435,56 @@ mod tests {
             system_under_test.unwrap().content().unwrap().document(),
             &expected
         );
+    }
+
+    #[rstest]
+    #[case::list_into_a_folder("c.md", "home", &["home/", "home/garden/", "home/garden/roses.md", "home/c.md", "home/kitchen.md", "A.md"])]
+    #[case::list_into_the_root("home/kitchen.md", "", &["home/", "home/garden/", "home/garden/roses.md", "A.md", "c.md", "kitchen.md"])]
+    #[case::folder_with_its_entries("home/garden", "", &["garden/", "garden/roses.md", "home/", "home/kitchen.md", "A.md", "c.md"])]
+    fn move_into_moves_the_entry_and_everything_inside(
+        #[case] path: &str,
+        #[case] folder: &str,
+        #[case] expected: &[&str],
+    ) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/garden/roses.md", b"- [ ] a\n");
+        write_file(root.path(), "home/kitchen.md", b"- [ ] a\n");
+        write_file(root.path(), "c.md", b"");
+        write_file(root.path(), "A.md", b"");
+        let mut workspace = scan(&root);
+        let expected_path = Path::new(folder).join(Path::new(path).file_name().unwrap());
+
+        let system_under_test = workspace.move_into(Path::new(path), Path::new(folder));
+
+        assert_eq!(
+            system_under_test.map(Entry::path),
+            Some(expected_path.as_path())
+        );
+        assert_eq!(outline(workspace.entries()), expected);
+    }
+
+    #[rstest]
+    #[case::missing_entry("missing.md", "home")]
+    #[case::missing_folder("c.md", "missing")]
+    #[case::folder_into_itself("home", "home")]
+    #[case::folder_into_a_descendant("home", "home/garden")]
+    fn move_into_without_a_valid_target_changes_nothing(#[case] path: &str, #[case] folder: &str) {
+        let root = TempDir::new().unwrap();
+        create_dir(root.path(), "home/garden");
+        write_file(root.path(), "c.md", b"");
+        let mut workspace = scan(&root);
+        let expected = vec![
+            "home/".to_owned(),
+            "home/garden/".to_owned(),
+            "c.md".to_owned(),
+        ];
+
+        let system_under_test = workspace
+            .move_into(Path::new(path), Path::new(folder))
+            .is_some();
+
+        assert!(!system_under_test);
+        assert_eq!(outline(workspace.entries()), expected);
     }
 
     #[test]

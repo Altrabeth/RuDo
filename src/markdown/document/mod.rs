@@ -224,7 +224,11 @@ impl TodoDocument {
     /// is not in this document.
     #[must_use]
     pub fn block(&self, id: TaskId) -> Option<Block<'_>> {
-        let start = self.line_index(id)?;
+        Some(self.block_at(self.line_index(id)?))
+    }
+
+    /// Returns the block of the task on the line at index `start`.
+    fn block_at(&self, start: usize) -> Block<'_> {
         let width = self.lines[start].indent_width();
         let following = &self.lines[start + 1..];
         let candidates = following
@@ -235,9 +239,9 @@ impl TodoDocument {
             .iter()
             .rposition(|line| !line.is_blank())
             .map_or(0, |last| last + 1);
-        Some(Block {
+        Block {
             lines: &self.lines[start..=start + length],
-        })
+        }
     }
 
     /// Counts the done tasks and all tasks, subtasks included.

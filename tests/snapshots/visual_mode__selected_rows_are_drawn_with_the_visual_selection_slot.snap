@@ -1,0 +1,16 @@
+---
+source: tests/visual_mode.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Inbox  0/5 ──────────────────────────────────────────╮"
+"│ • Inbox          0/5 ││   [ ] Buy milk                                       │"
+"│   Work           0/1 ││ ▾ [ ] Call mum                                       │"
+"│                      ││ │   [ ] Ask about Sunday                             │"
+"│                      ││   [ ] Buy bread                                      │"
+"│                      ││   [ ] Water plants                                   │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" -- VISUAL -- 3 selected  d delete  y yank  esc cancel                          "

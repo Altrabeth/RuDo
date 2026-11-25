@@ -120,7 +120,8 @@ fn perform(
         effect @ (Effect::Save(_)
         | Effect::CreateEntry { .. }
         | Effect::RenameEntry { .. }
-        | Effect::DeleteEntry { .. }
+        | Effect::DeleteEntries(_)
+        | Effect::MoveEntries { .. }
         | Effect::ReloadList(_)
         | Effect::Rescan) => {
             execute(app, effect);

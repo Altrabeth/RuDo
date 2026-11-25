@@ -55,7 +55,9 @@ pub fn title(app: &App) -> Cow<'_, str> {
 /// Renders the contents of the lists pane of `app` into `area`, the inside of its border.
 ///
 /// The rows start at the scroll offset of the outline, which the app keeps valid for the
-/// height of `area` because it derives the viewport from the same layout.
+/// height of `area` because it derives the viewport from the same layout. Rows selected in
+/// visual mode are drawn with [`Slot::VisualSelection`], except folders shown only because
+/// they contain a search match.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let items = app.lists().items(app.workspace());
     if items.is_empty() {
@@ -76,10 +78,15 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         Focus::Lists => Slot::Selection,
         Focus::Tasks => Slot::SelectionUnfocused,
     });
+    let visual_rows = outline.selection_rows(&rows).unwrap_or_default();
+    let visual_selection = app.theme().style(Slot::VisualSelection);
     for (row_area, (index, row)) in area
         .rows()
         .zip(rows.iter().enumerate().skip(outline.offset()))
     {
+        if visual_rows.contains(&index) && row.item().role() == FilterRole::Match {
+            frame.buffer_mut().set_style(row_area, visual_selection);
+        }
         if Some(index) == selected_row {
             frame.buffer_mut().set_style(row_area, selection);
         }

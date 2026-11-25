@@ -20,6 +20,8 @@ pub enum Context {
     Lists,
     /// The tasks pane is focused.
     Tasks,
+    /// Several rows of the focused pane are selected in visual mode.
+    Visual,
     /// The help screen is open.
     Help,
     /// A confirmation dialog is open.
@@ -115,6 +117,8 @@ pub enum Action {
     NewFolder,
     /// Rename the selected list or folder.
     Rename,
+    /// Move the selected lists and folders into another folder.
+    MoveToFolder,
     /// Delete the selected list, folder or task.
     Delete,
     /// Add a task below the selected one.
@@ -157,6 +161,12 @@ pub enum Action {
     SortAlphabetically,
     /// Sort by status.
     SortByStatus,
+    /// Start or end selecting several rows.
+    VisualMode,
+    /// Delete the selected tasks, lists or empty folders.
+    DeleteSelection,
+    /// Copy the selected tasks and their subtasks.
+    YankSelection,
     /// Close the help screen.
     CloseHelp,
     /// Confirm a dialog.
@@ -165,7 +175,7 @@ pub enum Action {
     ConfirmNo,
     /// Accept the typed text.
     Submit,
-    /// Discard the typed text.
+    /// Discard the typed text or end the selection.
     Cancel,
 }
 
@@ -174,6 +184,7 @@ impl Display for Context {
         formatter.write_str(match self {
             Self::Lists => "lists pane",
             Self::Tasks => "tasks pane",
+            Self::Visual => "visual mode",
             Self::Help => "help screen",
             Self::Dialog => "dialogs",
             Self::Input => "text input",
@@ -182,12 +193,22 @@ impl Display for Context {
 }
 
 const GLOBAL: &[Context] = &[Context::Lists, Context::Tasks];
-const NAVIGATION: &[Context] = &[Context::Lists, Context::Tasks, Context::Help];
+const SEARCH: &[Context] = &[Context::Lists, Context::Tasks, Context::Help];
+const NAVIGATION: &[Context] = &[
+    Context::Lists,
+    Context::Tasks,
+    Context::Visual,
+    Context::Help,
+];
 const TREE: &[Context] = &[Context::Lists, Context::Tasks];
 const LISTS: &[Context] = &[Context::Lists];
+const LISTS_AND_VISUAL: &[Context] = &[Context::Lists, Context::Visual];
 const TASKS: &[Context] = &[Context::Tasks];
+const PANES_AND_VISUAL: &[Context] = &[Context::Lists, Context::Tasks, Context::Visual];
+const VISUAL: &[Context] = &[Context::Visual];
 const HELP: &[Context] = &[Context::Help];
 const DIALOG: &[Context] = &[Context::Dialog];
+const INPUT_AND_VISUAL: &[Context] = &[Context::Input, Context::Visual];
 const INPUT: &[Context] = &[Context::Input];
 
 impl Action {
@@ -224,6 +245,7 @@ impl Action {
             Self::NewList => "create a list next to the selection or inside the folder",
             Self::NewFolder => "create a folder",
             Self::Rename => "rename the selected list or folder",
+            Self::MoveToFolder => "move the list, folder or selection into a folder",
             Self::Delete => "delete the selected list, empty folder or task",
             Self::NewTaskBelow => "add a task below the selected one",
             Self::NewTaskAbove => "add a task above the selected one",
@@ -245,11 +267,14 @@ impl Action {
             Self::SortByDueDate => "sort by due date, tasks without one last",
             Self::SortAlphabetically => "sort by text",
             Self::SortByStatus => "open tasks first",
+            Self::VisualMode => "select several rows from here on, or stop selecting",
+            Self::DeleteSelection => "delete the selected tasks, lists or empty folders",
+            Self::YankSelection => "copy the selected tasks and their subtasks",
             Self::CloseHelp => "close the help screen",
             Self::ConfirmYes => "confirm",
             Self::ConfirmNo => "cancel",
             Self::Submit => "accept the text",
-            Self::Cancel => "discard the text",
+            Self::Cancel => "discard the text, or end the selection",
         }
     }
 
@@ -284,13 +309,14 @@ impl Action {
             Self::NewList => "new list",
             Self::NewFolder => "new folder",
             Self::Rename => "rename",
-            Self::Delete => "delete",
+            Self::MoveToFolder => "move",
+            Self::Delete | Self::DeleteSelection => "delete",
             Self::NewTaskBelow => "new task",
             Self::NewTaskAbove => "task above",
             Self::NewSubtask => "subtask",
             Self::Edit => "edit",
             Self::ToggleDone => "done",
-            Self::Yank => "yank",
+            Self::Yank | Self::YankSelection => "yank",
             Self::PasteBelow => "paste",
             Self::PasteAbove => "paste above",
             Self::MoveTaskDown => "move down",
@@ -305,6 +331,7 @@ impl Action {
             Self::SortByDueDate => "sort due",
             Self::SortAlphabetically => "sort a-z",
             Self::SortByStatus => "sort status",
+            Self::VisualMode => "visual",
             Self::CloseHelp => "close",
             Self::ConfirmYes => "yes",
             Self::ConfirmNo => "no",
@@ -315,8 +342,8 @@ impl Action {
 
     /// Returns the contexts in which the action can be triggered; never empty.
     ///
-    /// Global actions are valid in the lists and tasks pane, navigation actions also on the
-    /// help screen.
+    /// Global actions are valid in the lists and tasks pane, navigation actions also in
+    /// visual mode and on the help screen.
     #[must_use]
     pub const fn contexts(self) -> &'static [Context] {
         match self {
@@ -331,8 +358,8 @@ impl Action {
             | Self::Redo
             | Self::ToggleCompleted
             | Self::OpenInEditor => GLOBAL,
-            Self::Search
-            | Self::MoveDown
+            Self::Search => SEARCH,
+            Self::MoveDown
             | Self::MoveUp
             | Self::MoveToTop
             | Self::MoveToBottom
@@ -345,6 +372,7 @@ impl Action {
             | Self::UnfoldAll
             | Self::Delete => TREE,
             Self::Open | Self::NewList | Self::NewFolder | Self::Rename => LISTS,
+            Self::MoveToFolder => LISTS_AND_VISUAL,
             Self::NewTaskBelow
             | Self::NewTaskAbove
             | Self::NewSubtask
@@ -365,9 +393,12 @@ impl Action {
             | Self::SortByDueDate
             | Self::SortAlphabetically
             | Self::SortByStatus => TASKS,
+            Self::VisualMode => PANES_AND_VISUAL,
+            Self::DeleteSelection | Self::YankSelection => VISUAL,
             Self::CloseHelp => HELP,
             Self::ConfirmYes | Self::ConfirmNo => DIALOG,
-            Self::Submit | Self::Cancel => INPUT,
+            Self::Submit => INPUT,
+            Self::Cancel => INPUT_AND_VISUAL,
         }
     }
 
@@ -414,6 +445,10 @@ impl Action {
             Self::NewList | Self::NewTaskBelow => &["o"],
             Self::NewFolder | Self::NewTaskAbove => &["O"],
             Self::Rename | Self::SetRecurrence => &["r"],
+            Self::MoveToFolder => &["m"],
+            Self::VisualMode => &["v"],
+            Self::DeleteSelection => &["d"],
+            Self::YankSelection => &["y"],
             Self::Delete => &["d d"],
             Self::NewSubtask => &["a"],
             Self::Edit => &["i", "enter"],
@@ -511,6 +546,10 @@ mod tests {
     #[case::delete(Action::Delete, &["d d"])]
     #[case::toggle_done(Action::ToggleDone, &["x", "space"])]
     #[case::cancel(Action::Cancel, &["esc", "ctrl-c"])]
+    #[case::visual_mode(Action::VisualMode, &["v"])]
+    #[case::delete_selection(Action::DeleteSelection, &["d"])]
+    #[case::yank_selection(Action::YankSelection, &["y"])]
+    #[case::move_to_folder(Action::MoveToFolder, &["m"])]
     fn default_keys_match_the_readme(#[case] action: Action, #[case] notations: &[&str]) {
         let expected = sequences(notations);
 
@@ -522,7 +561,10 @@ mod tests {
     #[rstest]
     #[case::global(Action::Quit, &[Context::Lists, Context::Tasks])]
     #[case::search(Action::Search, &[Context::Lists, Context::Tasks, Context::Help])]
-    #[case::navigation(Action::MoveDown, &[Context::Lists, Context::Tasks, Context::Help])]
+    #[case::navigation(
+        Action::MoveDown,
+        &[Context::Lists, Context::Tasks, Context::Visual, Context::Help]
+    )]
     #[case::tree(Action::ToggleFold, &[Context::Lists, Context::Tasks])]
     #[case::delete(Action::Delete, &[Context::Lists, Context::Tasks])]
     #[case::lists(Action::NewList, &[Context::Lists])]
@@ -530,6 +572,10 @@ mod tests {
     #[case::help(Action::CloseHelp, &[Context::Help])]
     #[case::dialog(Action::ConfirmYes, &[Context::Dialog])]
     #[case::input(Action::Submit, &[Context::Input])]
+    #[case::visual_mode(Action::VisualMode, &[Context::Lists, Context::Tasks, Context::Visual])]
+    #[case::selection(Action::DeleteSelection, &[Context::Visual])]
+    #[case::move_to_folder(Action::MoveToFolder, &[Context::Lists, Context::Visual])]
+    #[case::cancel(Action::Cancel, &[Context::Input, Context::Visual])]
     fn contexts_follow_the_readme_sections(#[case] action: Action, #[case] expected: &[Context]) {
         let system_under_test = action.contexts();
 
@@ -561,6 +607,7 @@ mod tests {
     #[rstest]
     #[case::lists(Context::Lists, "lists pane")]
     #[case::tasks(Context::Tasks, "tasks pane")]
+    #[case::visual(Context::Visual, "visual mode")]
     #[case::help(Context::Help, "help screen")]
     #[case::dialog(Context::Dialog, "dialogs")]
     #[case::input(Context::Input, "text input")]

@@ -209,7 +209,8 @@ impl App {
             | Mode::Help(_)
             | Mode::Prompt(_)
             | Mode::Confirm(_)
-            | Mode::Search(_)) => {
+            | Mode::Search(_)
+            | Mode::Visual) => {
                 self.mode = mode;
                 None
             }

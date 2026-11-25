@@ -98,7 +98,8 @@ A list shows `done/total` for all its tasks, subtasks included; the active list,
 the tasks pane shows, is marked with `•`. A file that cannot be read or is not UTF-8 stays in
 the tree, marked `unreadable`, and the tasks pane says why. Names of new lists and folders
 must not start with a dot or contain any of `* " \ / < > : | ?`, which Obsidian rejects.
-Deleting a list asks first; only empty folders can be deleted.
+Deleting a list asks first; only empty folders can be deleted. Lists and folders can be moved
+into another folder with `m`, and several at once in visual mode (`v`).
 
 A list file can contain anything. RuDo only touches task lines and keeps all other lines
 exactly as they are:
@@ -186,8 +187,9 @@ written back byte for byte; only lines you edit in RuDo are re-rendered.
    you that your last change was not applied. A list reloaded from disk loses its undo
    history.
 
-Renaming a list in RuDo renames the file but does not update `[[wikilinks]]` that point to
-it; rename inside Obsidian if other notes link to the list.
+Renaming or moving a list in RuDo renames or moves the file but does not update
+`[[wikilinks]]` that point to it; rename or move it inside Obsidian if other notes link to the
+list.
 
 ## Keybindings
 
@@ -221,8 +223,8 @@ or edit while filtering stay visible; moving tasks with `J`, `K`, `>` and `<` as
 clear the filter first.
 
 Undo and redo remember the last 100 changes to tasks in all lists. Undoing a change in
-another list opens that list and selects the changed task. Creating, renaming and deleting
-lists and folders cannot be undone.
+another list opens that list and selects the changed task. Creating, renaming, moving and
+deleting lists and folders cannot be undone.
 
 `e` opens the selected list in the editor from `editor`, `$VISUAL` or `$EDITOR` (in that
 order, else `vi`); in the tasks pane at the line of the selected task. RuDo reloads the list
@@ -257,6 +259,7 @@ when the editor exits.
 | `o`     | `new-list`   | create a list next to the selection or inside the folder  |
 | `O`     | `new-folder` | create a folder                                           |
 | `r`     | `rename`     | rename the selected list or folder                        |
+| `m`     | `move-to-folder` | move the list, folder or selection into a folder      |
 | `d d`   | `delete`     | delete the selected list or empty folder (asks first)     |
 
 ### Tasks pane
@@ -295,6 +298,36 @@ While completed (done and cancelled) tasks are hidden with `H`, the pane title s
 `completed hidden` and the counter still counts every task. An open subtask of a completed
 task is hidden together with its parent.
 
+`m` asks for the folder that receives the selected list or folder, relative to the workspace
+folder (`Home/Garden`); empty text moves it to the top level. A folder cannot be moved into
+itself, and an entry with the same name in the target folder is never replaced.
+
+### Visual mode (lists and tasks pane)
+
+| Keys  | Action             | Description                                         |
+| ----- | ------------------ | --------------------------------------------------- |
+| `v`   | `visual-mode`      | select several rows from here on, or stop selecting |
+| `d`   | `delete-selection` | delete the selected tasks, lists or empty folders   |
+| `y`   | `yank-selection`   | copy the selected tasks and their subtasks          |
+| `m`   | `move-to-folder`   | move the selected lists and folders into a folder   |
+
+`v` starts selecting at the selected row, like vim's `V`. The keys of moving around (`j`, `k`,
+`g g`, `G`, `ctrl-d`, `ctrl-u`) extend the selection, which always spans the rows shown
+between where it started and the cursor; the bottom bar shows `-- VISUAL --` and how many rows
+are selected. `v` again or `esc` stops selecting without changes, and so does every action on
+the selection.
+
+In the tasks pane `d` deletes the selected tasks with their subtasks in one step that `u`
+undoes, after asking if more than one task is selected, and puts them into the register like
+`d d`; `y` copies them. `p` and `P` paste everything in the register, so `v`, `d`, opening
+another list and `p` moves tasks between lists. A folded task is selected with its hidden
+subtasks. While a search filter is active only the shown matches are selected, not the tasks
+hidden between them or the parents shown for context.
+
+In the lists pane `d` deletes the selected lists and empty folders after asking, and `m` moves
+them into a folder. A selection that contains a folder with entries is not deleted. If some
+files cannot be deleted or moved, one message names them all.
+
 ### Help screen, dialogs and text input
 
 | Keys                 | Action        | Where         | Description                 |
@@ -303,7 +336,7 @@ task is hidden together with its parent.
 | `y`, `enter`         | `confirm-yes` | dialogs       | confirm                     |
 | `n`, `esc`           | `confirm-no`  | dialogs       | cancel                      |
 | `enter`              | `submit`      | text input    | accept the text             |
-| `esc`, `ctrl-c`      | `cancel`      | text input    | discard the text            |
+| `esc`, `ctrl-c`      | `cancel`      | text input, visual mode | discard the text, or end the selection |
 
 While typing, these editing keys are fixed: `left`, `right`, `ctrl-left` and `ctrl-right`
 (word), `home` or `ctrl-a`, `end` or `ctrl-e`, `backspace`, `delete`, `ctrl-w` (delete the
@@ -417,6 +450,7 @@ there.
 | `border`, `border_focused`            | pane borders                                     |
 | `title`, `title_focused`              | pane titles                                      |
 | `selection`, `selection_unfocused`    | selected row in the focused and the other pane   |
+| `visual_selection`                    | rows selected in visual mode                     |
 | `folder`, `list`, `list_count`        | lists pane entries and `done/total` counters     |
 | `tree_guide`                          | indentation guides and fold markers              |
 | `task_done`, `task_in_progress`, `task_cancelled` | task text by status                  |

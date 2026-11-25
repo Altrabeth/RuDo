@@ -1,36 +1,30 @@
 //! The state of a confirmation dialog in [`Mode::Confirm`]: the question it asks and what
 //! confirming does.
 //!
-//! Every destructive operation that cannot be undone asks first; confirming turns the
-//! [`ConfirmKind`] into the [`Effect`] that performs it.
+//! Every destructive operation that cannot be undone asks first, and so does deleting several
+//! tasks at once; confirming performs the [`ConfirmKind`].
 
 use std::mem;
-use std::path::PathBuf;
 
 use crate::app::effect::Effect;
+use crate::app::lists::EntryKey;
 use crate::app::state::{App, Mode};
-use crate::storage::workspace::EntryKind;
+use crate::markdown::document::TaskId;
+use crate::storage::workspace::ListPath;
 
 /// What a confirmation dialog asks for, with everything confirming it needs to know.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ConfirmKind {
-    /// Delete the list file or empty folder at `path`.
-    DeleteEntry {
-        /// Whether the entry is a list file or a folder.
-        kind: EntryKind,
-        /// The entry, relative to the workspace root.
-        path: PathBuf,
+    /// Delete these list files and empty folders.
+    DeleteEntries(Vec<EntryKey>),
+    /// Delete the tasks `tasks` of the list at `list` with their subtasks.
+    DeleteTasks {
+        /// The list that holds the tasks.
+        list: ListPath,
+        /// The selected tasks, in document order.
+        tasks: Vec<TaskId>,
     },
-}
-
-impl ConfirmKind {
-    /// Returns the effect that performs what the dialog asked for.
-    fn into_effect(self) -> Effect {
-        match self {
-            Self::DeleteEntry { kind, path } => Effect::DeleteEntry { kind, path },
-        }
-    }
 }
 
 /// An open confirmation dialog: what it asks for and the question shown to the user.
@@ -62,18 +56,22 @@ impl App {
         self.mode = Mode::Confirm(ConfirmOverlay { kind, message });
     }
 
-    /// Closes the open dialog and returns the effect it asked to confirm.
+    /// Closes the open dialog, performs what it asked to confirm and returns the effects.
     pub(super) fn confirm(&mut self) -> Vec<Effect> {
         match mem::take(&mut self.mode) {
             Mode::Confirm(overlay) => {
                 self.resolver.reset();
-                vec![overlay.kind.into_effect()]
+                match overlay.kind {
+                    ConfirmKind::DeleteEntries(entries) => vec![Effect::DeleteEntries(entries)],
+                    ConfirmKind::DeleteTasks { list, tasks } => self.delete_tasks(&list, &tasks),
+                }
             }
             mode @ (Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
             | Mode::InlineEdit(_)
-            | Mode::Search(_)) => {
+            | Mode::Search(_)
+            | Mode::Visual) => {
                 self.mode = mode;
                 Vec::new()
             }
@@ -91,7 +89,8 @@ impl App {
             | Mode::Help(_)
             | Mode::Prompt(_)
             | Mode::InlineEdit(_)
-            | Mode::Search(_) => {}
+            | Mode::Search(_)
+            | Mode::Visual => {}
         }
     }
 }
@@ -101,15 +100,14 @@ mod tests {
     use rstest::rstest;
     use tempfile::TempDir;
 
+    use std::path::PathBuf;
+
     use super::*;
     use crate::app::state::tests::app_in;
     use crate::config::keymap::action::Action;
 
     fn delete_work() -> ConfirmKind {
-        ConfirmKind::DeleteEntry {
-            kind: EntryKind::Folder,
-            path: PathBuf::from("Work"),
-        }
+        ConfirmKind::DeleteEntries(vec![EntryKey::Folder(PathBuf::from("Work"))])
     }
 
     #[test]
@@ -132,10 +130,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         let mut app = app_in(directory.path());
         app.open_confirm(delete_work(), String::new());
-        let expected = Effect::DeleteEntry {
-            kind: EntryKind::Folder,
-            path: PathBuf::from("Work"),
-        };
+        let expected = Effect::DeleteEntries(vec![EntryKey::Folder(PathBuf::from("Work"))]);
 
         let system_under_test = app.update(Action::ConfirmYes);
 

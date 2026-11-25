@@ -6,10 +6,13 @@
 //! takes the current items, so edits, filtering and reloads cannot leave a stale copy behind.
 //!
 //! The selection is remembered by key instead of by row index, so it stays on the same entry
-//! while rows above it are inserted, removed or folded away.
+//! while rows above it are inserted, removed or folded away. A visual selection, vim's
+//! linewise `V`, is remembered the same way: by the key of its anchor, from which it spans the
+//! visible rows to the selected item.
 
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::ops::Range;
 
 use strum::EnumIter;
 
@@ -130,6 +133,7 @@ impl OutlineCommand {
             | Action::NewList
             | Action::NewFolder
             | Action::Rename
+            | Action::MoveToFolder
             | Action::Delete
             | Action::NewTaskBelow
             | Action::NewTaskAbove
@@ -151,6 +155,9 @@ impl OutlineCommand {
             | Action::SortByDueDate
             | Action::SortAlphabetically
             | Action::SortByStatus
+            | Action::VisualMode
+            | Action::DeleteSelection
+            | Action::YankSelection
             | Action::CloseHelp
             | Action::ConfirmYes
             | Action::ConfirmNo
@@ -243,6 +250,8 @@ pub struct Outline<K> {
     collapsed: HashSet<K>,
     /// The folds put aside while [`Folding::Suspended`].
     suspended: Option<HashSet<K>>,
+    /// Where the visual selection started; see [`Outline::start_selection`].
+    anchor: Option<K>,
 }
 
 impl<K> Default for Outline<K> {
@@ -253,6 +262,7 @@ impl<K> Default for Outline<K> {
             offset: 0,
             collapsed: HashSet::new(),
             suspended: None,
+            anchor: None,
         }
     }
 }
@@ -274,6 +284,43 @@ impl<K: Clone + Eq + Hash> Outline<K> {
     #[must_use]
     pub fn offset(&self) -> usize {
         self.offset
+    }
+
+    /// Returns the key of the item where the visual selection started, or `None` without a
+    /// visual selection.
+    #[must_use]
+    pub fn anchor(&self) -> Option<&K> {
+        self.anchor.as_ref()
+    }
+
+    /// Starts a visual selection at the selected item: from now on the selection spans the
+    /// visible rows from this anchor to the selected item, wherever navigation moves it.
+    ///
+    /// Without a selected item there is nothing to anchor, and no selection starts.
+    pub fn start_selection(&mut self) {
+        self.anchor.clone_from(&self.selected);
+    }
+
+    /// Ends the visual selection.
+    pub fn end_selection(&mut self) {
+        self.anchor = None;
+    }
+
+    /// Returns the indices among `rows`, the [`Outline::visible_rows`] of the current items,
+    /// of the visual selection: the contiguous rows from the anchor to the selected item, both
+    /// included, in either order.
+    ///
+    /// Returns `None` without a visual selection, or if the anchor or the selected item is
+    /// not among `rows`, for example because a reload removed it.
+    #[must_use]
+    pub fn selection_rows<I: OutlineItem<Key = K>>(
+        &self,
+        rows: &[OutlineRow<'_, I>],
+    ) -> Option<Range<usize>> {
+        let row_of = |key: &K| rows.iter().position(|row| row.item.key() == key);
+        let anchor = row_of(self.anchor.as_ref()?)?;
+        let cursor = row_of(self.selected.as_ref()?)?;
+        Some(anchor.min(cursor)..anchor.max(cursor) + 1)
     }
 
     /// Returns the rows of `items` that are not hidden by a folded ancestor, in order.
@@ -399,14 +446,16 @@ impl<K: Clone + Eq + Hash> Outline<K> {
         }
     }
 
-    /// Replaces the selected and the folded keys for which `rename` returns a new key, after
+    /// Replaces the selected, the anchor and the folded keys for which `rename` returns a new key, after
     /// items changed their keys, so that they stay selected and folded.
     ///
     /// Keys for which `rename` returns `None` are kept; a selected key whose item was removed
     /// hands the selection to a neighbour at the next refresh.
     pub fn rename_keys(&mut self, mut rename: impl FnMut(&K) -> Option<K>) {
-        if let Some(renamed) = self.selected.as_ref().and_then(&mut rename) {
-            self.selected = Some(renamed);
+        for key in [&mut self.selected, &mut self.anchor] {
+            if let Some(renamed) = key.as_ref().and_then(&mut rename) {
+                *key = Some(renamed);
+            }
         }
         for folds in std::iter::once(&mut self.collapsed).chain(self.suspended.as_mut()) {
             *folds = folds
@@ -848,6 +897,7 @@ mod tests {
             offset: 0,
             collapsed: collapsed.chars().collect(),
             suspended: None,
+            anchor: None,
         };
         outline.refresh(items, height);
         outline
@@ -1333,6 +1383,108 @@ mod tests {
         assert_eq!(system_under_test, expected);
     }
 
+    /// Returns the keys of the visual selection of `outline` among the visible rows of
+    /// `items`, or `None` without one.
+    fn selected_keys(outline: &Outline<char>, items: &[Node]) -> Option<String> {
+        let rows = outline.visible_rows(items);
+        let range = outline.selection_rows(&rows)?;
+        Some(rows[range].iter().map(|row| row.item().key).collect())
+    }
+
+    #[rstest]
+    #[case::only_the_anchor('b', "", &[], "b")]
+    #[case::downwards('b', "", &[OutlineCommand::Down, OutlineCommand::Down], "bcd")]
+    #[case::upwards('d', "", &[OutlineCommand::Up, OutlineCommand::Up], "bcd")]
+    #[case::back_across_the_anchor(
+        'c',
+        "",
+        &[OutlineCommand::Down, OutlineCommand::Up, OutlineCommand::Up],
+        "bc"
+    )]
+    #[case::to_the_bottom('d', "", &[OutlineCommand::Bottom], "defg")]
+    #[case::over_a_fold('a', "b", &[OutlineCommand::Down, OutlineCommand::Down], "abd")]
+    fn selection_spans_the_visible_rows_from_the_anchor_to_the_cursor(
+        #[case] anchor: char,
+        #[case] collapsed: &str,
+        #[case] commands: &[OutlineCommand],
+        #[case] expected: &str,
+    ) {
+        let items = tree();
+        let mut outline = outline(anchor, collapsed, &items, HEIGHT);
+        outline.start_selection();
+        for &command in commands {
+            let _: Outcome = outline.apply(&items, command, HEIGHT);
+        }
+
+        let system_under_test = selected_keys(&outline, &items);
+
+        assert_eq!(system_under_test.as_deref(), Some(expected));
+    }
+
+    #[test]
+    fn outline_without_selection_start_has_no_selection() {
+        let items = tree();
+
+        let system_under_test = outline('b', "", &items, HEIGHT);
+
+        assert_eq!(system_under_test.anchor(), None);
+        assert_eq!(selected_keys(&system_under_test, &items), None);
+    }
+
+    #[test]
+    fn ended_selection_is_gone() {
+        let items = tree();
+        let mut outline = outline('b', "", &items, HEIGHT);
+        outline.start_selection();
+        outline.end_selection();
+
+        let system_under_test = selected_keys(&outline, &items);
+
+        assert_eq!(system_under_test, None);
+        assert_eq!(outline.anchor(), None);
+    }
+
+    #[test]
+    fn removed_anchor_ends_the_selection() {
+        let items = tree();
+        let without_b = nodes("a:0 d:1 e:0 f:1 g:0");
+        let mut outline = outline('b', "", &items, HEIGHT);
+        outline.start_selection();
+        let _: Outcome = outline.apply(&items, OutlineCommand::Bottom, HEIGHT);
+        outline.refresh(&without_b, HEIGHT);
+
+        let system_under_test = selected_keys(&outline, &without_b);
+
+        assert_eq!(system_under_test, None);
+        assert_eq!(outline.anchor(), Some(&'b'));
+    }
+
+    #[test]
+    fn renamed_anchor_keeps_the_selection() {
+        let renamed = nodes("a:0 x:1 c:2 d:1 e:0 f:1 g:0");
+        let mut outline = outline('b', "", &tree(), HEIGHT);
+        outline.start_selection();
+        let _: Outcome = outline.apply(&tree(), OutlineCommand::Down, HEIGHT);
+        outline.rename_keys(|key| (*key == 'b').then_some('x'));
+        outline.refresh(&renamed, HEIGHT);
+
+        let system_under_test = selected_keys(&outline, &renamed);
+
+        assert_eq!(system_under_test.as_deref(), Some("xc"));
+    }
+
+    #[test]
+    fn empty_outline_starts_no_selection() {
+        let items: Vec<Node> = Vec::new();
+        let mut outline = Outline::new();
+        outline.refresh(&items, HEIGHT);
+        outline.start_selection();
+
+        let system_under_test = outline.anchor();
+
+        assert_eq!(system_under_test, None);
+    }
+
     /// A change a user or the file system can make between two frames.
     #[derive(Debug, Clone)]
     enum Step {
@@ -1375,6 +1527,67 @@ mod tests {
             };
         }
         Observed::of(&outline, &items, outcome)
+    }
+
+    /// Runs `steps` after starting a selection at row `anchor` and returns the visible keys,
+    /// the selected key and the keys of the selection.
+    fn run_selection(
+        depths: &[usize],
+        anchor: usize,
+        steps: &[OutlineCommand],
+        height: usize,
+    ) -> (String, Option<char>, Option<char>, Option<String>) {
+        let items: Vec<Node> = ('a'..='z')
+            .zip(depths)
+            .map(|(key, &depth)| Node { key, depth })
+            .collect();
+        let mut outline = Outline::new();
+        outline.refresh(&items, height);
+        if !items.is_empty() {
+            let key = items[anchor % items.len()].key;
+            let _: Outcome = outline.select(&items, &key, height);
+        }
+        outline.start_selection();
+        for &command in steps {
+            let _: Outcome = outline.apply(&items, command, height);
+        }
+        let visible: String = outline
+            .visible_rows(&items)
+            .iter()
+            .map(|row| row.item().key)
+            .collect();
+        (
+            visible,
+            outline.selected().copied(),
+            outline.anchor().copied(),
+            selected_keys(&outline, &items),
+        )
+    }
+
+    proptest! {
+        #[test]
+        fn selection_is_a_contiguous_run_of_visible_rows_with_anchor_and_cursor(
+            depths in proptest::collection::vec(0usize..4, 1..26),
+            anchor in any::<usize>(),
+            steps in proptest::collection::vec(
+                proptest::sample::select(OutlineCommand::iter().collect::<Vec<_>>()),
+                0..40,
+            ),
+            height in 1usize..12,
+        ) {
+            let (visible, cursor, anchor, system_under_test) =
+                run_selection(&depths, anchor, &steps, height);
+
+            let anchor_visible = anchor.is_some_and(|anchor| visible.contains(anchor));
+            prop_assert_eq!(system_under_test.is_some(), anchor_visible);
+            if let (Some(selection), Some(cursor), Some(anchor)) = (system_under_test, cursor, anchor) {
+                prop_assert!(visible.contains(selection.as_str()));
+                prop_assert!(selection.contains(cursor));
+                prop_assert!(selection.contains(anchor));
+                let ends = [selection.chars().next(), selection.chars().last()];
+                prop_assert!(ends.contains(&Some(cursor)) && ends.contains(&Some(anchor)));
+            }
+        }
     }
 
     proptest! {

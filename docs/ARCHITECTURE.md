@@ -80,7 +80,7 @@ src/
     fingerprint.rs         content fingerprints for detecting external changes
     workspace.rs           Workspace: scan, rescan and reload of the tree of folders and lists
     save.rs                atomic saving that refuses to overwrite external changes
-    entries.rs             EntryName; create, rename and delete lists and folders
+    entries.rs             EntryName; create, rename, move and delete lists and folders
     watch.rs               WorkspaceWatcher: debounced recursive watching, FsChange
   app/
     mod.rs                 module tree and re-exports (App, Focus, Mode, Effect, execute)
@@ -91,12 +91,13 @@ src/
     editor.rs              open-in-editor: choosing the editor, its command line with the line
     reload.rs              external changes: App::on_fs_changed, reload_list, rescan, conflicts
     history.rs             undo and redo stacks of document snapshots
-    register.rs            the yank register holding a detached TaskBlock
+    register.rs            the yank register holding detached TaskBlocks
     filter.rs              smart-case matching shared by every filter
     search.rs              pane search (Mode::Search): PaneFilter per pane and per list
     help.rs                help screen state (Mode::Help): scrolling and filter input
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
+    visual.rs              visual mode (Mode::Visual): resolving and acting on the selection
     lists.rs               lists pane state: workspace tree navigation, active list
     tasks.rs               tasks pane state: task tree navigation per list
     task_input.rs          inline task editor (Mode::InlineEdit): adding and editing tasks
@@ -106,14 +107,15 @@ src/
     task_due.rs            the due date prompt with its live preview
     task_recurrence.rs     the recurrence prompt, the next occurrence on completion
     task_reorder.rs        moving, indenting and outdenting the selected task
-    task_delete.rs         deleting the selected task with its subtasks
+    task_delete.rs         deleting the selected task, or several, with their subtasks
     task_sort.rs           sorting the selected task and its siblings
     task_yank.rs           yanking the selected task and pasting the register
     task_visibility.rs     showing and hiding completed tasks (CompletedTasks)
   ui/
     mod.rs                 view(&App, &mut Frame)
     layout.rs              responsive layout: Screen, pane, bottom bar and overlay areas
-    outline.rs             generic tree navigation: selection, folding, scrolling, prune
+    outline.rs             generic tree navigation: selection, visual selection, folding,
+                           scrolling, prune
     lists_pane.rs          workspace tree with `done/total` counters
     tasks_pane.rs          task tree with metadata
     pane_message.rs        messages of empty panes that name the bound keys
@@ -159,10 +161,20 @@ src/
   goes into an open text input and is never interpreted as keys.
 - The `Mode` decides what takes the keys: `Normal` (the focused pane), `Help(HelpOverlay)`,
   `Prompt(PromptOverlay)` (input popup), `Confirm(ConfirmOverlay)`, `InlineEdit(InlineEdit)`
-  (a row of the tasks pane) and `Search(Focus)` (the search prompt in the bottom bar).
-  `Prompt`, `InlineEdit`, `Search` and the open help filter resolve keys in `Context::Input`.
-- `Effect` is one of `Save`, `CreateEntry`, `RenameEntry`, `DeleteEntry`, `OpenInEditor`,
-  `ReloadList` and `Rescan`. `app::execute` performs all but `OpenInEditor` and reports the
+  (a row of the tasks pane), `Search(Focus)` (the search prompt in the bottom bar) and
+  `Visual` (a selection of several rows of the focused pane). `Prompt`, `InlineEdit`, `Search`
+  and the open help filter resolve keys in `Context::Input`, `Visual` in `Context::Visual`.
+- The visual selection is an anchor key in the pane's `Outline` plus its cursor; the selected
+  keys are derived from the visible rows whenever they are needed, so folds, filters and
+  hidden completed tasks are respected and a reload that removes the anchor ends visual mode
+  (`App::end_visual_mode_without_anchor`). Every action on the selection ends visual mode
+  before it acts or opens a dialog.
+- `Effect` is one of `Save`, `CreateEntry`, `RenameEntry`, `DeleteEntries`, `MoveEntries`,
+  `OpenInEditor`, `ReloadList` and `Rescan`. Every deletion of lists and folders, a single one
+  too, is one `DeleteEntries` (asked for by `App::ask_to_delete_entries`, performed by
+  `delete_entries` in `app::effect`), and every move one `MoveEntries` (`move_entries`, which
+  renames with `storage::entries::move_into` and follows the entry through
+  `App::apply_entry_change`); both report all failures in one message. `app::execute` performs all but `OpenInEditor` and reports the
   result to the `App`; failures become a `StatusMessage`, never an abort.
 - The input thread polls with a short timeout and stops when its `InputThread` handle is
   dropped, so the terminal can be handed to an external editor and input resumed afterwards
@@ -267,8 +279,10 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   description, its short label for the bottom bar, the `Context`s it is valid in and its
   default key sequences, each through an exhaustive `match`, so adding an action fails to
   compile until all four are defined.
-- `Context` is one of `Lists`, `Tasks`, `Help`, `Dialog`, `Input`. Global actions are valid in
-  `Lists` and `Tasks`; navigation actions and `search` additionally in `Help`.
+- `Context` is one of `Lists`, `Tasks`, `Visual`, `Help`, `Dialog`, `Input`. Global actions are
+  valid in `Lists` and `Tasks`; navigation actions additionally in `Visual` and `Help`,
+  `search` in `Help`. Keys are bound per action, so the selection actions of `Visual`
+  (`delete-selection` on `d`) are separate from those of the panes (`delete` on `d d`).
 - The effective `Keymap` is built once at start-up from the defaults and the user's
   overrides and validated per context: no key sequence bound twice, no binding that is a prefix
   of another, no binding in `Input` that starts with a printable key. Validation errors name
@@ -299,8 +313,10 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   not overwrite it: `App::save_conflicted` reloads the file and reports
   `<list> changed on disk; your last change was not applied`. After saving, the fingerprint
   of the new content is remembered, which is also how reloads recognise RuDo's own writes.
-- Operations on files and folders (create, rename, delete) are confirmed where destructive and
-  are not part of the undo history; edits to tasks are.
+- Operations on files and folders (create, rename, move, delete) are confirmed where
+  destructive and are not part of the undo history; edits to tasks are. Deleting the tasks of
+  a visual selection removes their blocks from the bottom of the document up in one
+  `edit_list` call, so it is one undo step.
 
 ## Testing strategy
 

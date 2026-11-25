@@ -43,7 +43,7 @@ impl App {
     #[must_use]
     pub fn handle_paste(&mut self, text: &str) -> Vec<Effect> {
         match &mut self.mode {
-            Mode::Normal | Mode::Confirm(_) => {
+            Mode::Normal | Mode::Confirm(_) | Mode::Visual => {
                 tracing::debug!(
                     length = text.len(),
                     "pasted text ignored without a text input"
@@ -96,6 +96,7 @@ impl App {
                 TextInput::new(),
             ),
             Action::Rename => self.rename_selected_entry(),
+            Action::MoveToFolder => self.ask_for_move_target(),
             Action::Delete => match self.focus {
                 Focus::Lists => self.delete_selected_entry(),
                 Focus::Tasks => return self.delete_task(),
@@ -127,6 +128,9 @@ impl App {
             Action::PasteBelow => return self.paste(InsertPosition::Below),
             Action::PasteAbove => return self.paste(InsertPosition::Above),
             Action::ClearFilter => self.clear_filter(),
+            Action::VisualMode => self.toggle_visual_mode(),
+            Action::DeleteSelection => return self.delete_selection(),
+            Action::YankSelection => self.yank_selection(),
         }
         Vec::new()
     }
@@ -140,7 +144,7 @@ impl App {
                     help.navigate(command, self.screen_size);
                 }
             }
-            Mode::Normal => match self.focus {
+            Mode::Normal | Mode::Visual => match self.focus {
                 Focus::Lists => self.update_lists(action),
                 Focus::Tasks => self.update_tasks(action),
             },
@@ -154,7 +158,11 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.open_filter(self.screen_size),
             Mode::Normal => self.open_search(),
-            Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) | Mode::Search(_) => {}
+            Mode::Prompt(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Search(_)
+            | Mode::Visual => {}
         }
     }
 
@@ -165,18 +173,19 @@ impl App {
             Mode::Prompt(_) => return self.submit_prompt(),
             Mode::InlineEdit(_) => return self.submit_inline_edit(),
             Mode::Search(_) => self.submit_search(),
-            Mode::Normal | Mode::Confirm(_) => {}
+            Mode::Normal | Mode::Confirm(_) | Mode::Visual => {}
         }
         Vec::new()
     }
 
-    /// Discards the text of the open text input.
+    /// Discards the text of the open text input, or ends the selection of visual mode.
     fn cancel(&mut self) {
         match &mut self.mode {
             Mode::Help(help) => help.cancel_filter(&self.keymap, self.screen_size),
             Mode::Prompt(_) => self.close_prompt(),
             Mode::InlineEdit(_) => self.cancel_inline_edit(),
             &mut Mode::Search(pane) => self.cancel_search(pane),
+            Mode::Visual => self.end_visual_mode(),
             Mode::Normal | Mode::Confirm(_) => {}
         }
     }
@@ -188,7 +197,7 @@ impl App {
             Mode::Prompt(prompt) => prompt.press(chord, self.today),
             Mode::InlineEdit(edit) => edit.press(chord),
             &mut Mode::Search(pane) => self.type_search(pane, chord),
-            Mode::Normal | Mode::Confirm(_) => {}
+            Mode::Normal | Mode::Confirm(_) | Mode::Visual => {}
         }
     }
 

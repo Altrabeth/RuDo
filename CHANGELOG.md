@@ -34,6 +34,10 @@ The first release, not tagged yet. The [README](README.md) specifies the behavio
   undo and redo across lists (`u`, `ctrl-r`), yank and paste of task blocks, also between
   lists (`yy`, `p`, `P`), sorting siblings by priority, due date, text or status (`s p`,
   `s d`, `s a`, `s s`), and opening the list in an external editor at the selected task (`e`).
+- **Visual mode.** `v` selects several tasks or lists, vim style; `d` deletes the selection
+  (asking first for several tasks and for lists), `y` yanks the selected tasks and `p`/`P`
+  paste every yanked block, so tasks can be moved between lists in one go. `m` moves the
+  selected lists and folders, or the selected entry, into another folder.
 - **Live reload.** The workspace is watched; lists changed by other programs are reloaded,
   new, renamed and removed entries appear, and a save never overwrites a file that changed
   on disk.

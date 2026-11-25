@@ -101,6 +101,7 @@ impl App {
         self.lists
             .refresh(&self.workspace, self.viewport_height(Focus::Lists));
         self.refresh_tasks();
+        self.end_visual_mode_without_anchor();
     }
 
     /// Forgets the state of `list`, which is no longer in the workspace, and closes it if it
@@ -149,6 +150,7 @@ impl App {
                 self.list_replaced(list, selected_line);
                 let message = format!("{} reloaded", self.list_name(list));
                 self.show_message(StatusMessage::info(message));
+                self.end_visual_mode_without_anchor();
             }
             Some(Reload::Unchanged) => {}
             None => tracing::warn!(%list, "list to reload is not in the workspace"),

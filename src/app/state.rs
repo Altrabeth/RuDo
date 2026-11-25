@@ -139,6 +139,7 @@ impl App {
             Mode::Help(help) => help.context(),
             Mode::Prompt(_) | Mode::InlineEdit(_) | Mode::Search(_) => Context::Input,
             Mode::Confirm(_) => Context::Dialog,
+            Mode::Visual => Context::Visual,
         }
     }
 
@@ -162,7 +163,8 @@ impl App {
             | Mode::Prompt(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
-            | Mode::Search(_) => {}
+            | Mode::Search(_)
+            | Mode::Visual => {}
             Mode::Help(help) => help.refresh(screen_size),
         }
     }
@@ -251,6 +253,9 @@ pub enum Mode {
     /// The search prompt in the bottom bar filters the pane live while the query is typed,
     /// and takes the keys.
     Search(Focus),
+    /// Navigation in the focused pane extends a selection of several rows, vim's linewise
+    /// visual mode, and the keys act on the selected rows.
+    Visual,
 }
 
 #[cfg(test)]

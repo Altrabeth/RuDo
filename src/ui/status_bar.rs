@@ -1,7 +1,8 @@
 //! The bottom bar: key hints, pending keys and messages.
 //!
 //! The left part shows the most important keys of the focused pane, the [`StatusMessage`]
-//! while one is visible, or the search prompt, vim style, while a query is typed. The right
+//! while one is visible, or the search prompt, vim style, while a query is typed. In visual
+//! mode the hints follow [`VISUAL_INDICATOR`] and the number of selected rows. The right
 //! part always shows the key of the help
 //! screen and, like vim's `showcmd`, the keys typed so far of an unfinished key sequence.
 
@@ -11,7 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 
 use crate::app::search::PROMPT;
-use crate::app::{App, Severity, StatusMessage};
+use crate::app::{App, Focus, Severity, StatusMessage};
 use crate::config::keymap::action::{Action, Context};
 use crate::config::keymap::key::{KeyChord, KeySequence};
 use crate::config::keymap::keymap::Keymap;
@@ -21,6 +22,9 @@ use crate::ui::text_input::{TextInput, TextInputView};
 /// The spans of one key hint: a blank, the key, a blank, the label and a blank, so that
 /// consecutive hints are two blanks apart.
 pub(crate) type KeyHint = [Span<'static>; 5];
+
+/// Starts the bottom bar in visual mode, vim style, followed by the number of selected rows.
+pub const VISUAL_INDICATOR: &str = "-- VISUAL --";
 
 /// Renders the bottom bar of `app` into `area`, a single line below the panes.
 ///
@@ -46,14 +50,18 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         render_search_prompt(input, theme, frame, left_area);
         return;
     }
-    let left = match app.status_message() {
-        Some(message) => message_line(message, theme),
-        None => hints_line(
+    let left = if let Some(message) = app.status_message() {
+        message_line(message, theme)
+    } else {
+        let mut line = visual_line(app.visual_selection_count(), theme);
+        let hints = hints_line(
             app.keymap(),
-            app.context(),
-            usize::from(left_area.width),
+            hint_actions(app.context(), app.focus()),
+            usize::from(left_area.width).saturating_sub(line.width()),
             theme,
-        ),
+        );
+        line.spans.extend(hints.spans);
+        line
     };
     frame.render_widget(left, left_area);
 }
@@ -74,8 +82,25 @@ fn render_search_prompt(input: &TextInput, theme: &Theme, frame: &mut Frame, are
         .render_with_cursor(frame, input_area);
 }
 
-/// Returns the actions whose keys the bottom bar shows in `context`, most important first.
-const fn hint_actions(context: Context) -> &'static [Action] {
+/// Returns ` -- VISUAL -- N selected` while `selected` rows are selected in visual mode, and
+/// an empty line otherwise.
+fn visual_line(selected: Option<usize>, theme: &Theme) -> Line<'static> {
+    let Some(selected) = selected else {
+        return Line::default();
+    };
+    Line::from_iter([
+        Span::raw(" "),
+        Span::styled(VISUAL_INDICATOR, theme.style(Slot::KeyHint)),
+        Span::styled(
+            format!(" {selected} selected "),
+            theme.style(Slot::KeyHintLabel),
+        ),
+    ])
+}
+
+/// Returns the actions whose keys the bottom bar shows in `context`, most important first;
+/// in visual mode those that act on the selection of the `focus`ed pane.
+const fn hint_actions(context: Context, focus: Focus) -> &'static [Action] {
     match context {
         Context::Lists => &[
             Action::NewList,
@@ -92,6 +117,18 @@ const fn hint_actions(context: Context) -> &'static [Action] {
             Action::Delete,
             Action::SetDueDate,
         ],
+        Context::Visual => match focus {
+            Focus::Lists => &[
+                Action::DeleteSelection,
+                Action::MoveToFolder,
+                Action::Cancel,
+            ],
+            Focus::Tasks => &[
+                Action::DeleteSelection,
+                Action::YankSelection,
+                Action::Cancel,
+            ],
+        },
         Context::Help => &[Action::Search],
         Context::Dialog => &[Action::ConfirmYes, Action::ConfirmNo],
         Context::Input => &[Action::Submit, Action::Cancel],
@@ -99,21 +136,26 @@ const fn hint_actions(context: Context) -> &'static [Action] {
 }
 
 /// Returns the action whose key the bottom bar always shows at its right end in `context`:
-/// how to open the help in the panes and how to leave it in the help screen. Dialogs and text
-/// inputs pin nothing, because there `?` is not the help key.
+/// how to open the help in the panes and how to leave it in the help screen. Visual mode,
+/// dialogs and text inputs pin nothing, because there `?` is not the help key.
 const fn pinned_action(context: Context) -> Option<Action> {
     match context {
         Context::Lists | Context::Tasks => Some(Action::Help),
         Context::Help => Some(Action::CloseHelp),
-        Context::Dialog | Context::Input => None,
+        Context::Visual | Context::Dialog | Context::Input => None,
     }
 }
 
-/// Returns the hints of `context` that fit into `max_width` columns, dropping the rest from
+/// Returns the hints of `actions` that fit into `max_width` columns, dropping the rest from
 /// the right.
-fn hints_line(keymap: &Keymap, context: Context, max_width: usize, theme: &Theme) -> Line<'static> {
+fn hints_line(
+    keymap: &Keymap,
+    actions: &[Action],
+    max_width: usize,
+    theme: &Theme,
+) -> Line<'static> {
     let mut used_width = 0;
-    let spans = hint_actions(context)
+    let spans = actions
         .iter()
         .filter_map(|&action| key_hint(keymap, action, theme))
         .take_while(|hint| {
@@ -186,8 +228,8 @@ mod tests {
     #[rstest]
     #[case::defaults("", " o new list  O new folder  enter open  r rename  dd delete ")]
     #[case::remapped(
-        "new-list: [m, o]",
-        " m new list  O new folder  enter open  r rename  dd delete "
+        "new-list: [w, o]",
+        " w new list  O new folder  enter open  r rename  dd delete "
     )]
     #[case::unbound("new-folder: []", " o new list  enter open  r rename  dd delete ")]
     #[case::sequence(
@@ -201,7 +243,12 @@ mod tests {
     fn hints_follow_the_keymap(#[case] keybindings: &str, #[case] expected: &str) {
         let keymap = keymap(keybindings);
 
-        let system_under_test = hints_line(&keymap, Context::Lists, 100, &Theme::default());
+        let system_under_test = hints_line(
+            &keymap,
+            hint_actions(Context::Lists, Focus::Lists),
+            100,
+            &Theme::default(),
+        );
 
         assert_eq!(system_under_test.to_string(), expected);
     }
@@ -216,7 +263,12 @@ mod tests {
     ) {
         let keymap = keymap("");
 
-        let system_under_test = hints_line(&keymap, Context::Tasks, max_width, &Theme::default());
+        let system_under_test = hints_line(
+            &keymap,
+            hint_actions(Context::Tasks, Focus::Tasks),
+            max_width,
+            &Theme::default(),
+        );
 
         assert_eq!(system_under_test.to_string(), expected);
     }
@@ -228,7 +280,7 @@ mod tests {
 
         let system_under_test = hints_line(
             &keymap,
-            Context::Tasks,
+            hint_actions(Context::Tasks, Focus::Tasks),
             expected.chars().count(),
             &Theme::default(),
         );
@@ -243,9 +295,11 @@ mod tests {
         let system_under_test: Vec<(Context, Action)> = contexts
             .iter()
             .flat_map(|&context| {
-                hint_actions(context)
-                    .iter()
-                    .map(move |&action| (context, action))
+                Focus::iter().flat_map(move |focus| {
+                    hint_actions(context, focus)
+                        .iter()
+                        .map(move |&action| (context, action))
+                })
             })
             .filter(|(context, action)| !action.contexts().contains(context))
             .collect();
@@ -270,6 +324,7 @@ mod tests {
     #[case::lists(Context::Lists, Some(Action::Help))]
     #[case::tasks(Context::Tasks, Some(Action::Help))]
     #[case::help(Context::Help, Some(Action::CloseHelp))]
+    #[case::visual(Context::Visual, None)]
     #[case::dialog(Context::Dialog, None)]
     #[case::input(Context::Input, None)]
     fn pinned_action_says_how_to_open_or_leave_the_help(
@@ -277,6 +332,39 @@ mod tests {
         #[case] expected: Option<Action>,
     ) {
         let system_under_test = pinned_action(context);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::normal_mode(None, "")]
+    #[case::one_row(Some(1), " -- VISUAL -- 1 selected ")]
+    #[case::several_rows(Some(300), " -- VISUAL -- 300 selected ")]
+    fn visual_line_counts_the_selected_rows(
+        #[case] selected: Option<usize>,
+        #[case] expected: &str,
+    ) {
+        let theme = Theme::default();
+
+        let system_under_test = visual_line(selected, &theme);
+
+        assert_eq!(system_under_test.to_string(), expected);
+    }
+
+    #[rstest]
+    #[case::lists(
+        Focus::Lists,
+        &[Action::DeleteSelection, Action::MoveToFolder, Action::Cancel]
+    )]
+    #[case::tasks(
+        Focus::Tasks,
+        &[Action::DeleteSelection, Action::YankSelection, Action::Cancel]
+    )]
+    fn visual_hints_act_on_the_selection_of_the_focused_pane(
+        #[case] focus: Focus,
+        #[case] expected: &[Action],
+    ) {
+        let system_under_test = hint_actions(Context::Visual, focus);
 
         assert_eq!(system_under_test, expected);
     }

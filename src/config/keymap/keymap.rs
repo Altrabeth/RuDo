@@ -317,7 +317,9 @@ fn prefix_conflicts(
 const fn types_text(context: Context) -> bool {
     match context {
         Context::Input => true,
-        Context::Lists | Context::Tasks | Context::Help | Context::Dialog => false,
+        Context::Lists | Context::Tasks | Context::Visual | Context::Help | Context::Dialog => {
+            false
+        }
     }
 }
 
@@ -572,6 +574,22 @@ mod tests {
         let system_under_test = Keymap::new(&overrides);
 
         assert_eq!(system_under_test.err(), None);
+    }
+
+    #[test]
+    fn prefix_conflict_inside_visual_mode_is_rejected() {
+        let overrides = bindings("yank-selection: [d d]");
+        let expected = vec![KeymapError::PrefixConflict {
+            context: Context::Visual,
+            prefix: sequence("d"),
+            prefix_action: Action::DeleteSelection,
+            sequence: sequence("d d"),
+            action: Action::YankSelection,
+        }];
+
+        let system_under_test = Keymap::new(&overrides);
+
+        assert_eq!(system_under_test.err(), Some(expected));
     }
 
     #[test]

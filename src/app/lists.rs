@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use crate::app::confirm::ConfirmKind;
 use crate::app::prompt::PromptKind;
 use crate::app::search::{PaneFilter, SearchItem};
-use crate::app::state::{App, Focus};
+use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
+use crate::app::task_delete::counted_tasks;
 use crate::config::keymap::action::Action;
 use crate::storage::workspace::{Entry, List, ListPath, Workspace, moved_path};
 use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem};
@@ -201,6 +202,10 @@ impl ListsPane {
         &self.outline
     }
 
+    pub(super) fn outline_mut(&mut self) -> &mut Outline<EntryKey> {
+        &mut self.outline
+    }
+
     /// Returns the list whose tasks the tasks pane shows, or `None` if no list was opened.
     #[must_use]
     pub fn active(&self) -> Option<&ListPath> {
@@ -359,28 +364,56 @@ impl App {
         self.open_prompt(kind, input);
     }
 
-    /// Asks to confirm deleting the selected list or empty folder; a folder with entries is
-    /// never deleted and shows an error instead.
+    /// Asks to confirm deleting the selected list or empty folder.
     pub(super) fn delete_selected_entry(&mut self) {
-        let Some(entry) = self.lists.selected_entry(&self.workspace) else {
-            return;
-        };
-        let message = match entry {
-            Entry::List(list) => delete_list_question(list),
-            Entry::Folder(folder) if folder.entries().is_empty() => {
-                format!("Delete empty folder \"{}\"?", folder.name())
+        if let Some(entry) = self.lists.selected_entry(&self.workspace) {
+            self.ask_to_delete_entries(&[EntryKey::from(entry)]);
+        }
+    }
+
+    /// Asks to confirm deleting the lists and empty folders `entries` that are still in the
+    /// workspace, as [`Effect::DeleteEntries`](crate::app::Effect::DeleteEntries).
+    ///
+    /// Every deletion of lists and folders starts here. A folder with entries is never deleted
+    /// and refuses the whole deletion with an error naming it.
+    pub(super) fn ask_to_delete_entries(&mut self, entries: &[EntryKey]) {
+        let found: Vec<&Entry> = entries
+            .iter()
+            .filter_map(|key| self.workspace.entry(key.path()))
+            .collect();
+        match delete_question(&found) {
+            Ok(message) => {
+                let entries = found.into_iter().map(EntryKey::from).collect();
+                self.open_confirm(ConfirmKind::DeleteEntries(entries), message);
             }
-            Entry::Folder(folder) => {
-                let error = format!("folder \"{}\" is not empty", folder.name());
-                self.show_message(StatusMessage::error(error));
-                return;
-            }
+            Err(error) => self.show_message(StatusMessage::error(error)),
+        }
+    }
+
+    /// Opens the prompt for the folder that receives the selected lists and folders in visual
+    /// mode, or the selected entry otherwise.
+    pub(super) fn ask_for_move_target(&mut self) {
+        let entries = match self.mode {
+            Mode::Visual => match self.focus {
+                Focus::Lists => self.take_selected_entries(),
+                Focus::Tasks => {
+                    self.show_message(StatusMessage::info(ONLY_ENTRIES_ARE_MOVED));
+                    None
+                }
+            },
+            Mode::Normal => self
+                .lists
+                .selected_entry(&self.workspace)
+                .map(|entry| vec![EntryKey::from(entry)]),
+            Mode::Help(_)
+            | Mode::Prompt(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Search(_) => None,
         };
-        let kind = ConfirmKind::DeleteEntry {
-            kind: entry.kind(),
-            path: entry.path().to_path_buf(),
-        };
-        self.open_confirm(kind, message);
+        if let Some(entries) = entries {
+            self.open_prompt(PromptKind::MoveToFolder { entries }, TextInput::new());
+        }
     }
 
     /// Performs a navigation, folding or `open` action in the lists pane and focuses the
@@ -392,6 +425,82 @@ impl App {
             self.refresh_tasks();
         }
     }
+}
+
+/// Checks that `folder`, relative to the root of `workspace`, can receive the lists and folders
+/// `entries`: it must be a folder of the workspace, or the root, and not one of the folders or
+/// inside one of them.
+///
+/// # Errors
+///
+/// Returns why `folder` cannot receive `entries`, to be shown in the prompt.
+pub(super) fn check_move_target(
+    workspace: &Workspace,
+    entries: &[EntryKey],
+    folder: &Path,
+) -> Result<(), String> {
+    let is_folder =
+        folder.as_os_str().is_empty() || matches!(workspace.entry(folder), Some(Entry::Folder(_)));
+    if !is_folder {
+        return Err(format!("there is no folder {}", folder.display()));
+    }
+    let moved_into_itself = entries.iter().find_map(|entry| match entry {
+        EntryKey::Folder(path) if folder.starts_with(path) => Some(path),
+        EntryKey::Folder(_) | EntryKey::List(_) => None,
+    });
+    match moved_into_itself {
+        Some(path) => Err(format!("cannot move folder {} into itself", path.display())),
+        None => Ok(()),
+    }
+}
+
+/// Shown when `move-to-folder` is used on a selection of tasks.
+const ONLY_ENTRIES_ARE_MOVED: &str = "only lists and folders can be moved into a folder";
+
+/// Asks whether to delete `entries`, or tells why they cannot be deleted: a folder that is not
+/// empty, or no entries at all.
+fn delete_question(entries: &[&Entry]) -> Result<String, String> {
+    let non_empty_folder = entries.iter().find_map(|entry| match entry {
+        Entry::Folder(folder) if !folder.entries().is_empty() => Some(folder),
+        Entry::Folder(_) | Entry::List(_) => None,
+    });
+    if let Some(folder) = non_empty_folder {
+        return Err(format!("folder \"{}\" is not empty", folder.name()));
+    }
+    match entries {
+        [] => Err("the selected lists are gone".to_owned()),
+        [Entry::List(list)] => Ok(delete_list_question(list)),
+        [Entry::Folder(folder)] => Ok(format!("Delete empty folder \"{}\"?", folder.name())),
+        several => Ok(delete_several_question(several)),
+    }
+}
+
+/// Asks whether to delete several lists and empty folders, counting both and the tasks of the
+/// lists that could be loaded, such as `Delete 12 lists with 340 tasks and 2 empty folders?`.
+fn delete_several_question(entries: &[&Entry]) -> String {
+    let (lists, tasks, folders) =
+        entries
+            .iter()
+            .fold((0, 0, 0), |(lists, tasks, folders), entry| match entry {
+                Entry::List(list) => (lists + 1, tasks + task_count(list), folders),
+                Entry::Folder(_) => (lists, tasks, folders + 1),
+            });
+    let lists = (lists > 0).then(|| {
+        let noun = if lists == 1 { "list" } else { "lists" };
+        format!("{lists} {noun} with {}", counted_tasks(tasks))
+    });
+    let folders = (folders > 0).then(|| {
+        let noun = if folders == 1 { "folder" } else { "folders" };
+        format!("{folders} empty {noun}")
+    });
+    let parts: Vec<String> = lists.into_iter().chain(folders).collect();
+    format!("Delete {}?", parts.join(" and "))
+}
+
+/// Returns the number of tasks of `list`, `0` if it could not be loaded.
+fn task_count(list: &List) -> usize {
+    list.content()
+        .map_or(0, |loaded| loaded.document().progress().total())
 }
 
 /// Asks whether to delete `list`, with its number of tasks if it could be loaded.
@@ -411,10 +520,85 @@ fn delete_list_question(list: &List) -> String {
 mod tests {
     use std::fs;
 
+    use rstest::rstest;
     use tempfile::TempDir;
 
     use super::*;
     use crate::config::IndentStyle;
+
+    /// A workspace with the empty folders `empty` and `other`, the folder `home` with
+    /// `chores` (two tasks) and the lists `inbox` (one task) and `binary`, which cannot be
+    /// loaded.
+    fn workspace(root: &TempDir) -> Workspace {
+        for folder in ["empty", "other", "home"] {
+            fs::create_dir(root.path().join(folder)).unwrap();
+        }
+        fs::write(root.path().join("home/chores.md"), "- [ ] a\n- [ ] b\n").unwrap();
+        fs::write(root.path().join("inbox.md"), "- [ ] c\n").unwrap();
+        fs::write(root.path().join("binary.md"), [0xff]).unwrap();
+        Workspace::scan(root.path(), IndentStyle::default()).unwrap()
+    }
+
+    fn entries<'workspace>(
+        workspace: &'workspace Workspace,
+        paths: &str,
+    ) -> Vec<&'workspace Entry> {
+        paths
+            .split_whitespace()
+            .map(|path| workspace.entry(Path::new(path)).unwrap())
+            .collect()
+    }
+
+    #[rstest]
+    #[case::one_list("inbox.md", Ok("Delete list \"inbox\" with 1 task?"))]
+    #[case::one_empty_folder("empty", Ok("Delete empty folder \"empty\"?"))]
+    #[case::lists("inbox.md home/chores.md", Ok("Delete 2 lists with 3 tasks?"))]
+    #[case::unreadable_list_counts_no_tasks(
+        "inbox.md binary.md",
+        Ok("Delete 2 lists with 1 task?")
+    )]
+    #[case::folders("empty other", Ok("Delete 2 empty folders?"))]
+    #[case::both("empty inbox.md", Ok("Delete 1 list with 1 task and 1 empty folder?"))]
+    #[case::non_empty_folder("inbox.md home", Err("folder \"home\" is not empty"))]
+    #[case::nothing("", Err("the selected lists are gone"))]
+    fn delete_question_counts_lists_tasks_and_folders(
+        #[case] paths: &str,
+        #[case] expected: Result<&str, &str>,
+    ) {
+        let root = TempDir::new().unwrap();
+        let workspace = workspace(&root);
+        let entries = entries(&workspace, paths);
+        let expected = expected.map(str::to_owned).map_err(str::to_owned);
+
+        let system_under_test = delete_question(&entries);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::folder("inbox.md", "home", Ok(()))]
+    #[case::root("home/chores.md", "", Ok(()))]
+    #[case::folder_into_another("home", "empty", Ok(()))]
+    #[case::list_is_no_folder("home", "inbox.md", Err("there is no folder inbox.md"))]
+    #[case::missing("inbox.md", "garden", Err("there is no folder garden"))]
+    #[case::itself("home", "home", Err("cannot move folder home into itself"))]
+    fn move_target_must_be_another_folder(
+        #[case] path: &str,
+        #[case] folder: &str,
+        #[case] expected: Result<(), &str>,
+    ) {
+        let root = TempDir::new().unwrap();
+        let workspace = workspace(&root);
+        let entries: Vec<EntryKey> = entries(&workspace, path)
+            .into_iter()
+            .map(EntryKey::from)
+            .collect();
+        let expected = expected.map_err(str::to_owned);
+
+        let system_under_test = check_move_target(&workspace, &entries, Path::new(folder));
+
+        assert_eq!(system_under_test, expected);
+    }
 
     #[test]
     fn tree_items_flatten_folders_before_their_entries_with_depths() {

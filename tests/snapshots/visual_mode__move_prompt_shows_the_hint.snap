@@ -1,0 +1,16 @@
+---
+source: tests/visual_mode.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Chores  0/1 ─────────────────────────────────────────╮"
+"│ ▾ Home               ││   [ ] Vacuum                                         │"
+"│   • Chores       0/1 ││                                                      │"
+"│   Inbox       ╭ Move to folder ──────────────────────────────╮               │"
+"│   Work        │                                              │               │"
+"│               │ like Home/Garden; empty for the top level    │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               ╰──────────────────────────────────────────────╯               │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" enter accept  esc cancel                                                       "

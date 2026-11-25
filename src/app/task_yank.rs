@@ -1,5 +1,6 @@
 //! Yanking the selected task with its subtasks into the register and pasting the register
-//! next to the selected task, also in another list.
+//! next to the selected task, also in another list. A register filled from a visual selection
+//! holds several blocks, which are pasted one below the other.
 
 use std::mem;
 
@@ -7,7 +8,7 @@ use crate::app::effect::Effect;
 use crate::app::state::App;
 use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
-use crate::markdown::document::{EditOutcome, InsertPosition, TaskId};
+use crate::markdown::document::{EditOutcome, InsertPosition, TaskBlock, TaskId};
 
 /// Shown when pasting before anything was yanked or deleted.
 const NOTHING_TO_PASTE: &str = "nothing to paste";
@@ -26,13 +27,20 @@ impl App {
         else {
             return;
         };
-        let message = format!("yanked {}", counted_tasks(block.task_count()));
-        self.register.fill(block);
+        self.yank_blocks(vec![block]);
+    }
+
+    /// Puts the yanked `blocks` into the register and reports how many tasks they hold.
+    pub(super) fn yank_blocks(&mut self, blocks: Vec<TaskBlock>) {
+        let task_count = blocks.iter().map(TaskBlock::task_count).sum();
+        self.register.fill(blocks);
+        let message = format!("yanked {}", counted_tasks(task_count));
         self.show_message(StatusMessage::info(message));
     }
 
-    /// Pastes the register at `position` relative to the selected task of the active list, or
-    /// at its end without one, with one [`App::edit_list`] call and selects the pasted task.
+    /// Pastes the blocks of the register at `position` relative to the selected task of the
+    /// active list, or at its end without one, each below the one before, with one
+    /// [`App::edit_list`] call, and selects the first pasted task.
     pub(super) fn paste(&mut self, position: fn(TaskId) -> InsertPosition) -> Vec<Effect> {
         let Some(list) = self.lists.active().cloned() else {
             return Vec::new();
@@ -42,13 +50,20 @@ impl App {
         // `edit_list` borrows the whole app mutably, so the block cannot stay borrowed from the
         // register; it is put back below.
         let register = mem::take(&mut self.register);
-        let Some(block) = register.block() else {
+        if register.blocks().is_empty() {
             self.show_message(StatusMessage::info(NOTHING_TO_PASTE));
             return Vec::new();
-        };
+        }
         let mut pasted = None;
         let effects = self.edit_list(&list, |document| {
-            pasted = document.insert_block(block, position, fallback_indent);
+            let mut position = position;
+            for block in register.blocks() {
+                let Some(task) = document.insert_block(block, position, fallback_indent) else {
+                    break;
+                };
+                pasted.get_or_insert(task);
+                position = InsertPosition::Below(task);
+            }
             match pasted {
                 Some(_) => EditOutcome::Changed,
                 None => EditOutcome::Unchanged,
@@ -78,9 +93,9 @@ mod tests {
         let mut app = app_in(directory.path());
         app.yank_task();
 
-        let system_under_test = app.register.block();
+        let system_under_test = app.register.blocks();
 
-        assert_eq!(system_under_test, None);
+        assert_eq!(system_under_test, []);
     }
 
     #[test]

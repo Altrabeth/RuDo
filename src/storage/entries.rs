@@ -1,4 +1,4 @@
-//! Creating, renaming and deleting list files and folders of the workspace.
+//! Creating, renaming, moving and deleting list files and folders of the workspace.
 //!
 //! Every new name is an [`EntryName`], which can only hold names that are safe as a single file
 //! name and that Obsidian accepts. None of the operations ever replaces or recursively deletes
@@ -125,6 +125,12 @@ pub enum EntryError {
         /// The existing entry.
         path: PathBuf,
     },
+    /// A folder cannot be moved into itself or into a folder inside it.
+    #[error("cannot move folder {} into itself", path.display())]
+    IntoItself {
+        /// The folder that was not moved.
+        path: PathBuf,
+    },
     /// The folder to delete still contains entries, possibly hidden ones.
     #[error("folder {} is not empty", path.display())]
     NotEmpty {
@@ -209,14 +215,61 @@ pub fn rename(path: &Path, name: &EntryName) -> Result<PathBuf, EntryError> {
     } else {
         name.list_file_name()
     };
-    let target = path.with_file_name(file_name);
+    relocate(path, &metadata, path.with_file_name(file_name))
+}
+
+/// Moves the list file or folder at `path` into the folder `directory`, keeping its name, and
+/// returns the new path.
+///
+/// This is a rename into another directory, with the same guarantees as [`rename`]: an existing
+/// entry is never replaced and `[[wikilinks]]` pointing to the entry are not updated. Moving an
+/// entry into the folder it is in already changes nothing.
+///
+/// # Errors
+///
+/// Returns [`EntryError::IntoItself`] if `path` is a folder and `directory` is that folder or
+/// inside it, [`EntryError::AlreadyExists`] if `directory` already has an entry with the name,
+/// and [`EntryError::Io`] if `path` cannot be read or moved, for example because `directory`
+/// does not exist.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::storage::entries::move_into;
+///
+/// let workspace = tempfile::TempDir::new()?;
+/// let list = workspace.path().join("Groceries.md");
+/// std::fs::write(&list, "- [ ] Milk\n")?;
+/// std::fs::create_dir(workspace.path().join("Home"))?;
+///
+/// let moved = move_into(&list, &workspace.path().join("Home"))?;
+///
+/// assert_eq!(moved, workspace.path().join("Home/Groceries.md"));
+/// assert!(!list.exists());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn move_into(path: &Path, directory: &Path) -> Result<PathBuf, EntryError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| classify(path.into(), source))?;
+    if metadata.is_dir() && directory.starts_with(path) {
+        return Err(EntryError::IntoItself { path: path.into() });
+    }
+    let Some(file_name) = path.file_name() else {
+        let source = io::Error::from(ErrorKind::InvalidInput);
+        return Err(classify(path.into(), source));
+    };
+    relocate(path, &metadata, directory.join(file_name))
+}
+
+/// Renames the entry at `path`, described by `metadata`, to `target` unless another entry is
+/// there, and returns `target`.
+fn relocate(path: &Path, metadata: &fs::Metadata, target: PathBuf) -> Result<PathBuf, EntryError> {
     if target == path {
         return Ok(target);
     }
     match fs::symlink_metadata(&target) {
         Err(error) if error.kind() == ErrorKind::NotFound => fs::rename(path, &target),
         Err(source) => return Err(classify(target, source)),
-        Ok(existing) if is_same_entry(path, &metadata, &target, &existing) => {
+        Ok(existing) if is_same_entry(path, metadata, &target, &existing) => {
             rename_through_staging(path, &target)
         }
         Ok(_) => return Err(EntryError::AlreadyExists { path: target }),
@@ -581,6 +634,84 @@ mod tests {
         ));
         assert!(source.exists());
         assert_eq!(fs::read_to_string(&existing_path).unwrap(), "existing");
+    }
+
+    #[rstest]
+    #[case::list(
+        "Home/groceries.md",
+        "Archive",
+        "Archive/groceries.md",
+        "Archive/groceries.md"
+    )]
+    #[case::folder("Home", "Archive", "Archive/Home", "Archive/Home/groceries.md")]
+    #[case::into_the_root("Home/groceries.md", "", "groceries.md", "groceries.md")]
+    #[case::into_its_folder("Home/groceries.md", "Home", "Home/groceries.md", "Home/groceries.md")]
+    fn move_into_keeps_the_name_and_the_content(
+        #[case] original: &str,
+        #[case] directory: &str,
+        #[case] expected: &str,
+        #[case] expected_list: &str,
+    ) {
+        let workspace = TempDir::new().unwrap();
+        fs::create_dir_all(workspace.path().join("Home")).unwrap();
+        fs::create_dir(workspace.path().join("Archive")).unwrap();
+        fs::write(workspace.path().join("Home/groceries.md"), "- [ ] Milk\n").unwrap();
+        let source = workspace.path().join(original);
+        let expected_path = workspace.path().join(expected);
+        let expected_list = workspace.path().join(expected_list);
+
+        let system_under_test = move_into(&source, &workspace.path().join(directory)).unwrap();
+
+        assert_eq!(system_under_test, expected_path);
+        assert_eq!(fs::read_to_string(expected_list).unwrap(), "- [ ] Milk\n");
+    }
+
+    #[rstest]
+    #[case::itself("Home")]
+    #[case::descendant("Home/Garden")]
+    fn move_into_refuses_to_move_a_folder_into_itself(#[case] directory: &str) {
+        let workspace = TempDir::new().unwrap();
+        fs::create_dir_all(workspace.path().join("Home/Garden")).unwrap();
+        let source = workspace.path().join("Home");
+
+        let system_under_test = move_into(&source, &workspace.path().join(directory));
+
+        assert!(matches!(
+            system_under_test,
+            Err(EntryError::IntoItself { ref path }) if *path == source
+        ));
+        assert!(workspace.path().join("Home/Garden").is_dir());
+    }
+
+    #[test]
+    fn move_into_does_not_overwrite_an_entry_with_the_same_name() {
+        let workspace = TempDir::new().unwrap();
+        fs::create_dir(workspace.path().join("Archive")).unwrap();
+        fs::write(workspace.path().join("groceries.md"), "source").unwrap();
+        fs::write(workspace.path().join("Archive/groceries.md"), "existing").unwrap();
+        let source = workspace.path().join("groceries.md");
+        let existing = workspace.path().join("Archive/groceries.md");
+
+        let system_under_test = move_into(&source, &workspace.path().join("Archive"));
+
+        assert!(matches!(
+            system_under_test,
+            Err(EntryError::AlreadyExists { ref path }) if *path == existing
+        ));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "source");
+        assert_eq!(fs::read_to_string(&existing).unwrap(), "existing");
+    }
+
+    #[test]
+    fn move_into_a_missing_folder_fails_and_keeps_the_entry() {
+        let workspace = TempDir::new().unwrap();
+        fs::write(workspace.path().join("groceries.md"), "source").unwrap();
+        let source = workspace.path().join("groceries.md");
+
+        let system_under_test = move_into(&source, &workspace.path().join("Missing"));
+
+        assert!(matches!(system_under_test, Err(EntryError::Io { .. })));
+        assert!(source.exists());
     }
 
     #[test]

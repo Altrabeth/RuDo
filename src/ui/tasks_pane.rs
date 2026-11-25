@@ -11,6 +11,7 @@
 //! description.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 
 use jiff::civil::Date;
 use ratatui::Frame;
@@ -146,6 +147,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let fallback = Outline::new();
     let outline = app.task_outline().unwrap_or(&fallback);
     let visible_rows = outline.visible_rows(&items);
+    let visual = visual_selection(outline, &visible_rows);
     let placeholder = new_task.map(|(position, input)| {
         let (row, depth) = placeholder_slot(&visible_rows, position);
         (row, PaneRow::NewTask { depth, input })
@@ -167,16 +169,32 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let first_row = offset.min(rows.len());
     let shown = ShownRows {
         selected: outline.selected(),
+        visual: &visual,
         query,
         rows: &rows[first_row..],
     };
     render_rows(app, frame, area, &shown);
 }
 
-/// The rows of the tasks pane from the scroll offset on, with the selected task and the
-/// search query whose matches are highlighted.
+/// Returns the tasks among `rows` that are selected in visual mode, computed once per frame;
+/// tasks shown only as the context of a search match are not selected.
+fn visual_selection(
+    outline: &Outline<TaskId>,
+    rows: &[OutlineRow<'_, TaskItem<'_>>],
+) -> HashSet<TaskId> {
+    let range = outline.selection_rows(rows).unwrap_or_default();
+    rows[range]
+        .iter()
+        .filter(|row| row.item().role() == FilterRole::Match)
+        .map(|row| *row.item().key())
+        .collect()
+}
+
+/// The rows of the tasks pane from the scroll offset on, with the selected task, the tasks
+/// selected in visual mode and the search query whose matches are highlighted.
 struct ShownRows<'a, 'document> {
     selected: Option<&'a TaskId>,
+    visual: &'a HashSet<TaskId>,
     query: Option<&'a SmartCaseQuery>,
     rows: &'a [PaneRow<'a, 'document>],
 }
@@ -200,7 +218,12 @@ enum PaneRow<'a, 'document> {
 fn inline_edit(app: &App) -> Option<(InlineEditKind, &TextInput)> {
     match app.mode() {
         Mode::InlineEdit(edit) => Some((edit.kind(), edit.input())),
-        Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::Confirm(_) | Mode::Search(_) => None,
+        Mode::Normal
+        | Mode::Help(_)
+        | Mode::Prompt(_)
+        | Mode::Confirm(_)
+        | Mode::Search(_)
+        | Mode::Visual => None,
     }
 }
 
@@ -244,6 +267,7 @@ fn offset_showing(offset: usize, row: usize, height: usize) -> usize {
 fn render_rows(app: &App, frame: &mut Frame, area: Rect, shown: &ShownRows<'_, '_>) {
     let ShownRows {
         selected,
+        visual,
         query,
         rows,
     } = *shown;
@@ -252,10 +276,14 @@ fn render_rows(app: &App, frame: &mut Frame, area: Rect, shown: &ShownRows<'_, '
         Focus::Tasks => Slot::Selection,
         Focus::Lists => Slot::SelectionUnfocused,
     });
+    let visual_selection = theme.style(Slot::VisualSelection);
     for (row_area, row) in area.rows().zip(rows) {
         let text_area = row_area.inner(Margin::new(PADDING, 0));
         let width = usize::from(text_area.width);
         let mut highlight_selected = |row: &OutlineRow<'_, TaskItem<'_>>| {
+            if visual.contains(row.item().key()) {
+                frame.buffer_mut().set_style(row_area, visual_selection);
+            }
             if Some(row.item().key()) == selected {
                 frame.buffer_mut().set_style(row_area, selection);
             }

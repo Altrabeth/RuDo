@@ -38,6 +38,8 @@ pub enum HelpHeading {
     ListsPane,
     /// Actions on tasks.
     TasksPane,
+    /// Selecting several rows and acting on them.
+    VisualMode,
     /// Closing the help screen, answering dialogs and finishing text input.
     HelpAndDialogs,
     /// The fixed editing keys of text inputs.
@@ -52,6 +54,7 @@ impl Display for HelpHeading {
             Self::Trees => "Trees (lists pane and tasks pane)",
             Self::ListsPane => "Lists pane",
             Self::TasksPane => "Tasks pane",
+            Self::VisualMode => "Visual mode (lists and tasks pane)",
             Self::HelpAndDialogs => "Help screen, dialogs and text input",
             Self::EditingKeys => "Editing keys in text input",
         })
@@ -270,6 +273,7 @@ fn section_entries(heading: HelpHeading, keymap: &Keymap) -> Vec<HelpEntry> {
         | HelpHeading::Trees
         | HelpHeading::ListsPane
         | HelpHeading::TasksPane
+        | HelpHeading::VisualMode
         | HelpHeading::HelpAndDialogs => Action::iter()
             .filter(|action| action_heading(*action) == heading)
             .map(|action| HelpEntry::for_action(action, keymap.keys(action)))
@@ -305,9 +309,11 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::FoldAll
         | Action::UnfoldAll
         | Action::Delete => HelpHeading::Trees,
-        Action::Open | Action::NewList | Action::NewFolder | Action::Rename => {
-            HelpHeading::ListsPane
-        }
+        Action::Open
+        | Action::NewList
+        | Action::NewFolder
+        | Action::Rename
+        | Action::MoveToFolder => HelpHeading::ListsPane,
         Action::NewTaskBelow
         | Action::NewTaskAbove
         | Action::NewSubtask
@@ -328,6 +334,9 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::SortByDueDate
         | Action::SortAlphabetically
         | Action::SortByStatus => HelpHeading::TasksPane,
+        Action::VisualMode | Action::DeleteSelection | Action::YankSelection => {
+            HelpHeading::VisualMode
+        }
         Action::CloseHelp
         | Action::ConfirmYes
         | Action::ConfirmNo
@@ -631,6 +640,9 @@ mod tests {
             "o",
             "O",
             "r",
+            "m",
+            "Visual mode (lists and tasks pane)",
+            "d",
         ];
 
         let system_under_test: Vec<String> = rows(&sections).map(row_label).collect();

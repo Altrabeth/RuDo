@@ -31,6 +31,7 @@ pub mod task_visibility;
 mod task_yank;
 pub mod tasks;
 mod update;
+mod visual;
 
 pub use self::effect::{Effect, execute};
 pub use self::state::{App, Focus, Mode};

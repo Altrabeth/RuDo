@@ -45,7 +45,8 @@ in the library so it can be unit tested and documented.
 src/
   main.rs                  binary: parse CLI, set up logging, load config, run (anyhow)
   lib.rs                   crate docs and module tree
-  cli.rs                   clap definitions: options and `config` subcommands
+  cli.rs                   clap definitions: options, `config` and `bin` subcommands, the
+                           lines of `rudo bin list`
   logging.rs               file logging with `tracing-subscriber`, `RUDO_LOG` filter
   paths.rs                 XDG config, data and state directories, `~` expansion
   readme.rs                test only: README sections, tables and code spans for guard tests
@@ -77,7 +78,8 @@ src/
       content.rs           description, status and inline field edits
   storage/
     mod.rs                 module tree
-    bin.rs                 BinPath, TrashedEntry; moving lists and folders into the bin and back
+    bin.rs                 BinPath, TrashedEntry, BinEntry; moving lists and folders into the
+                           bin and back, its index, scanning, deleting from and emptying it
     fingerprint.rs         content fingerprints for detecting external changes
     workspace.rs           Workspace: scan, rescan and reload of the tree of folders and lists
     save.rs                atomic saving that refuses to overwrite external changes
@@ -100,6 +102,8 @@ src/
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
     visual.rs              visual mode (Mode::Visual): resolving and acting on the selection
     lists.rs               lists pane state: workspace tree navigation, active list
+    bin.rs                 bin view (BinView): browsing, restoring, deleting from and emptying
+                           the bin
     tasks.rs               tasks pane state: task tree navigation per list
     task_input.rs          inline task editor (Mode::InlineEdit): adding and editing tasks
     task_fields.rs         reading and writing inline fields of the selected task
@@ -172,7 +176,8 @@ src/
   visual mode (`App::end_visual_mode_without_anchor`). Every action on the selection ends visual mode
   before it acts or opens a dialog.
 - `Effect` is one of `Save`, `CreateEntry`, `RenameEntry`, `DeleteEntries`, `MoveEntries`,
-  `OpenInEditor`, `ReloadList`, `Rescan` and `StepEntries`. Every deletion of lists and
+  `OpenInEditor`, `ReloadList`, `Rescan`, `StepEntries`, `RestoreEntries`, `DeleteFromBin`
+  and `EmptyBin`. Every deletion of lists and
   folders, a single one too, is one `DeleteEntries` (asked for by
   `App::ask_to_delete_entries`, performed by `delete_entries` in `app::effect`, which moves
   the entries into the bin with `storage::bin::move_to_bin`), and every move one `MoveEntries` (`move_entries`, which
@@ -287,9 +292,9 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   description, its short label for the bottom bar, the `Context`s it is valid in and its
   default key sequences, each through an exhaustive `match`, so adding an action fails to
   compile until all four are defined.
-- `Context` is one of `Lists`, `Tasks`, `Visual`, `Help`, `Dialog`, `Input`. Global actions are
-  valid in `Lists` and `Tasks`; navigation actions additionally in `Visual` and `Help`,
-  `search` in `Help`. Keys are bound per action, so the selection actions of `Visual`
+- `Context` is one of `Lists`, `Tasks`, `Visual`, `Bin`, `Help`, `Dialog`, `Input`. Global
+  actions are valid in `Lists` and `Tasks` (`help`, `quit`, `undo` and `redo` also in `Bin`);
+  navigation actions additionally in `Visual`, `Bin` and `Help`, `search` in `Help`. Keys are bound per action, so the selection actions of `Visual`
   (`delete-selection` on `d`) are separate from those of the panes (`delete` on `d d`).
 - The effective `Keymap` is built once at start-up from the defaults and the user's
   overrides and validated per context: no key sequence bound twice, no binding that is a prefix
@@ -326,14 +331,30 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   taken, a file removed by another program) goes back onto its own stack with an error
   message, so nothing is ever overwritten and the next step tries it again. Restored entries
   enter the workspace through `App::rescan`.
+- `move_to_bin` and `restore` keep the index of the bin, `.trash/.rudo-bin.json`
+  (`serde_json`, a list of `TrashedEntry` with original path, location in the bin and
+  deletion time), written atomically. The folder is the truth: `storage::bin::scan_bin` lists
+  what is there, attaches what the index knows and shows unknown entries (notes Obsidian
+  deleted) without an original path, and a missing or corrupt index only loses that
+  information. `Workspace` holds the scanned bin (`Workspace::bin_entries`), scanned with the
+  workspace and kept in step by RuDo's own changes (`Workspace::trash`,
+  `Workspace::remove_bin_entry`, `Workspace::rescan_bin` after emptying); the live reload
+  ignores it. While the bin is not empty, the lists pane ends with the row `EntryKey::Bin`,
+  which opens the `BinView` in place of the tree (`Context::Bin`). Restoring from the view is
+  `Effect::RestoreEntries`, which shares `restore_entries` with the undo of a deletion and
+  records the move back into the bin as a new undo step. The tasks pane renders the selected
+  entry of the bin read-only from `Workspace::bin_entries`; the keys of `Context::Bin` hold no
+  task action and cannot move the focus, so no edit reaches `App::edit_list`.
 - Every loaded list remembers the `Fingerprint` of the content RuDo last loaded or saved.
   Before writing, `storage::save` compares the file on disk with it. If it differs, RuDo does
   not overwrite it: `App::save_conflicted` reloads the file and reports
   `<list> changed on disk; your last change was not applied`. After saving, the fingerprint
   of the new content is remembered, which is also how reloads recognise RuDo's own writes.
-- Deleting lists and folders asks first and moves them into the bin, the only deletion of
-  files RuDo performs; the permanent deletions of `storage::entries` are left for emptying
-  the bin. Deleting the tasks of
+- Deleting lists and folders asks first and moves them into the bin. The only permanent
+  deletions are `storage::bin::delete_from_bin` and `storage::bin::empty_bin`, which delete
+  with `delete_list` and `delete_folder` of `storage::entries`, asked for by the bin view
+  (`Effect::DeleteFromBin`, `Effect::EmptyBin`) and `rudo bin empty`; they are not undoable
+  and drop the restores of what they deleted from the history. Deleting the tasks of
   a visual selection removes their blocks from the bottom of the document up in one
   `edit_list` call, so it is one undo step.
 

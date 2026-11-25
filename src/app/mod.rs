@@ -5,6 +5,7 @@
 //! Nothing in this module reads the terminal, the clock or the environment; only [`execute`]
 //! and the reloads of [`App::reload_list`] and [`App::rescan`] touch the file system.
 
+pub mod bin;
 pub mod confirm;
 pub mod editor;
 pub mod effect;

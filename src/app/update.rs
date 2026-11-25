@@ -98,9 +98,13 @@ impl App {
             Action::Rename => self.rename_selected_entry(),
             Action::MoveToFolder => self.ask_for_move_target(),
             Action::Delete => match self.focus {
+                Focus::Lists if self.lists.bin_view().is_some() => self.ask_to_delete_from_bin(),
                 Focus::Lists => self.delete_selected_entry(),
                 Focus::Tasks => return self.delete_task(),
             },
+            Action::RestoreFromBin => return self.restore_from_bin(),
+            Action::EmptyBin => self.ask_to_empty_bin(),
+            Action::CloseBin => self.close_bin(),
             Action::ConfirmYes => return self.confirm(),
             Action::ConfirmNo => self.close_confirm(),
             Action::Indent => return self.indent_task(),

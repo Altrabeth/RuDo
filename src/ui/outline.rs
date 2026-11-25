@@ -119,6 +119,9 @@ impl OutlineCommand {
             Action::UnfoldAll => Some(Self::UnfoldAll),
             Action::Help
             | Action::Quit
+            | Action::RestoreFromBin
+            | Action::EmptyBin
+            | Action::CloseBin
             | Action::FocusNext
             | Action::FocusPrevious
             | Action::FocusLists

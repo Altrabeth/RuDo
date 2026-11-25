@@ -10,7 +10,7 @@ expression: system_under_test
 "│   • Chores       1/2 ││                                                      │"
 "│   .drafts        0/1 ││                                                      │"
 "│   Inbox          0/1 ││                                                      │"
-"│                      ││                                                      │"
+"│   Bin              1 ││                                                      │"
 "│                      ││                                                      │"
 "╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
 " o new list  O new folder  enter open  r rename  dd delete               ? help "

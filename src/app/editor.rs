@@ -198,7 +198,7 @@ impl App {
         let request = match self.focus {
             Focus::Lists => match self.lists.outline().selected() {
                 Some(EntryKey::List(list)) => Some((list, None)),
-                Some(EntryKey::Folder(_)) | None => None,
+                Some(EntryKey::Folder(_) | EntryKey::Bin(_)) | None => None,
             },
             Focus::Tasks => self
                 .lists

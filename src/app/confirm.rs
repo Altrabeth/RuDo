@@ -5,6 +5,7 @@
 //! tasks at once; confirming performs the [`ConfirmKind`].
 
 use std::mem;
+use std::path::PathBuf;
 
 use crate::app::effect::Effect;
 use crate::app::lists::EntryKey;
@@ -25,6 +26,10 @@ pub enum ConfirmKind {
         /// The selected tasks, in document order.
         tasks: Vec<TaskId>,
     },
+    /// Delete the list or folder at this path, relative to the bin, permanently.
+    DeleteFromBin(PathBuf),
+    /// Delete everything in the bin permanently.
+    EmptyBin,
 }
 
 /// An open confirmation dialog: what it asks for and the question shown to the user.
@@ -64,6 +69,8 @@ impl App {
                 match overlay.kind {
                     ConfirmKind::DeleteEntries(entries) => vec![Effect::DeleteEntries(entries)],
                     ConfirmKind::DeleteTasks { list, tasks } => self.delete_tasks(&list, &tasks),
+                    ConfirmKind::DeleteFromBin(location) => vec![Effect::DeleteFromBin(location)],
+                    ConfirmKind::EmptyBin => vec![Effect::EmptyBin],
                 }
             }
             mode @ (Mode::Normal
@@ -100,8 +107,6 @@ mod tests {
     use rstest::rstest;
     use tempfile::TempDir;
 
-    use std::path::PathBuf;
-
     use super::*;
     use crate::app::state::tests::app_in;
     use crate::config::keymap::action::Action;
@@ -136,6 +141,25 @@ mod tests {
 
         assert_eq!(system_under_test, [expected]);
         assert!(matches!(app.mode(), Mode::Normal));
+    }
+
+    #[rstest]
+    #[case::delete_from_bin(
+        ConfirmKind::DeleteFromBin(PathBuf::from("Work")),
+        Effect::DeleteFromBin(PathBuf::from("Work"))
+    )]
+    #[case::empty_bin(ConfirmKind::EmptyBin, Effect::EmptyBin)]
+    fn yes_performs_the_permanent_deletion_of_the_bin(
+        #[case] kind: ConfirmKind,
+        #[case] expected: Effect,
+    ) {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_in(directory.path());
+        app.open_confirm(kind, String::new());
+
+        let system_under_test = app.update(Action::ConfirmYes);
+
+        assert_eq!(system_under_test, [expected]);
     }
 
     #[test]

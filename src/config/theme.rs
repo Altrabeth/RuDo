@@ -54,6 +54,8 @@ pub enum Slot {
     ListCount,
     /// Hidden folder or list, whose name starts with `.`, while hidden entries are shown.
     HiddenEntry,
+    /// The row of the bin at the end of the lists pane.
+    Bin,
     /// Indentation guides and fold markers.
     TreeGuide,
     /// Text of a done task.
@@ -151,7 +153,7 @@ impl Slot {
             Self::DueToday | Self::PendingKeys | Self::HelpHeading => {
                 StyleConfig::fg(Color::Yellow, Modifier::BOLD)
             }
-            Self::Tag => StyleConfig::fg(Color::Magenta, NONE),
+            Self::Tag | Self::Bin => StyleConfig::fg(Color::Magenta, NONE),
             Self::SearchMatch => StyleConfig::fg(Color::Yellow, Modifier::REVERSED),
         }
     }

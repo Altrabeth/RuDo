@@ -129,6 +129,12 @@ const fn hint_actions(context: Context, focus: Focus) -> &'static [Action] {
                 Action::Cancel,
             ],
         },
+        Context::Bin => &[
+            Action::RestoreFromBin,
+            Action::Delete,
+            Action::EmptyBin,
+            Action::CloseBin,
+        ],
         Context::Help => &[Action::Search],
         Context::Dialog => &[Action::ConfirmYes, Action::ConfirmNo],
         Context::Input => &[Action::Submit, Action::Cancel],
@@ -140,7 +146,7 @@ const fn hint_actions(context: Context, focus: Focus) -> &'static [Action] {
 /// dialogs and text inputs pin nothing, because there `?` is not the help key.
 const fn pinned_action(context: Context) -> Option<Action> {
     match context {
-        Context::Lists | Context::Tasks => Some(Action::Help),
+        Context::Lists | Context::Tasks | Context::Bin => Some(Action::Help),
         Context::Help => Some(Action::CloseHelp),
         Context::Visual | Context::Dialog | Context::Input => None,
     }

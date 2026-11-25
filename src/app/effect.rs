@@ -9,11 +9,14 @@ use std::iter;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
+use crate::app::bin::emptied_message;
 use crate::app::history::{Direction, EntryOperation, HistoryEntry, Relocation};
 use crate::app::lists::{EntryChange, EntryKey};
 use crate::app::state::{App, Focus};
-use crate::app::status::StatusMessage;
-use crate::storage::bin::{TrashedEntry, move_to_bin, restore};
+use crate::app::status::{Severity, StatusMessage};
+use crate::storage::bin::{
+    EmptiedBin, TrashedEntry, delete_from_bin, empty_bin, move_to_bin, restore,
+};
 use crate::storage::entries::{
     EntryError, EntryName, create_folder, create_list, move_into, move_to, rename,
 };
@@ -84,6 +87,14 @@ pub enum Effect {
         /// The change of lists and folders that the step performs.
         operation: EntryOperation,
     },
+    /// Move these lists and folders from the bin to the paths they name, as one new step of
+    /// the undo history, as the bin view asks for it.
+    RestoreEntries(Vec<TrashedEntry>),
+    /// Delete the list or folder at this path, relative to the bin, permanently; this cannot
+    /// be undone.
+    DeleteFromBin(PathBuf),
+    /// Delete everything in the bin permanently; this cannot be undone.
+    EmptyBin,
 }
 
 /// Performs `effect` and reports its result to `app`.
@@ -107,6 +118,13 @@ pub fn execute(app: &mut App, effect: Effect) {
             direction,
             operation,
         } => step_entries(app, direction, operation),
+        Effect::RestoreEntries(entries) => restore_from_bin(app, entries),
+        Effect::DeleteFromBin(location) => delete_permanently(app, &location),
+        Effect::EmptyBin => {
+            let workspace = app.workspace();
+            let emptied = empty_bin(workspace.root(), workspace.bin());
+            app.bin_emptied(&emptied);
+        }
     }
 }
 
@@ -194,6 +212,36 @@ fn move_entries(app: &mut App, entries: &[EntryKey], folder: &Path) {
     app.entries_failed(EntriesOperation::Moved, entries, &failures);
 }
 
+/// Moves the lists and folders `entries` from the bin to the paths they name, records their
+/// move back into the bin as one undo step and reports the result.
+fn restore_from_bin(app: &mut App, entries: Vec<TrashedEntry>) {
+    let Performed {
+        reversal, failures, ..
+    } = restore_entries(app, entries, None);
+    if let Some(reversal) = &reversal
+        && failures.is_empty()
+    {
+        let summary = entries_summary(&reversal.workspace_paths());
+        app.show_message(StatusMessage::info(format!("restored {summary}")));
+    }
+    app.record_entries(reversal);
+    app.restore_failed(&failures);
+}
+
+/// Deletes the list or folder at `location`, relative to the bin, permanently.
+fn delete_permanently(app: &mut App, location: &Path) {
+    let workspace = app.workspace();
+    match delete_from_bin(workspace.root(), workspace.bin(), location) {
+        Ok(()) => app.deleted_from_bin(location),
+        Err(error) => {
+            app.entry_failed(&error);
+            // Part of a folder may be gone, so the bin is read again.
+            app.workspace.rescan_bin();
+            app.bin_changed();
+        }
+    }
+}
+
 /// Undoes or redoes a change of lists and folders by performing `operation`, and stores its
 /// reversal for the opposite step.
 fn step_entries(app: &mut App, direction: Direction, operation: EntryOperation) {
@@ -251,9 +299,12 @@ fn trash_entries(app: &mut App, paths: Vec<PathBuf>) -> Performed {
     let (trashed, failed, failures) = attempt(paths, |path| {
         let workspace = app.workspace();
         let trashed = move_to_bin(workspace.root(), workspace.bin(), path)?;
-        app.entry_deleted(path);
+        app.entry_trashed(trashed.clone());
         Ok(trashed)
     });
+    if !trashed.is_empty() {
+        app.bin_changed();
+    }
     let active = active.filter(|list| {
         trashed
             .iter()
@@ -279,10 +330,12 @@ fn restore_entries(
     let (restored, failed, failures) = attempt(entries, |entry| {
         let workspace = app.workspace();
         restore(workspace.root(), workspace.bin(), entry)?;
+        app.workspace.remove_bin_entry(entry.location());
         Ok(entry.original().to_path_buf())
     });
     if !restored.is_empty() {
         app.entries_restored(&restored, active.as_ref());
+        app.bin_changed();
     }
     Performed {
         reversal: operation(restored, EntryOperation::Trash),
@@ -405,14 +458,69 @@ impl App {
         self.entry_relocated(path, &key);
     }
 
-    /// Removes the folder or list at `path`, just moved into the bin, from the workspace; the
-    /// selection moves to a neighbour, a list inside it is closed and the undo history of its
-    /// documents is kept for its restore.
-    fn entry_deleted(&mut self, path: &Path) {
-        if self.workspace.remove(path).is_none() {
-            tracing::warn!(path = %path.display(), "deleted entry was not in the workspace");
+    /// Moves the folder or list just moved into the bin as `trashed` from the tree into the
+    /// bin of the workspace; the selection moves to a neighbour, a list inside it is closed and
+    /// the undo history of its documents is kept for its restore.
+    fn entry_trashed(&mut self, trashed: TrashedEntry) {
+        let original = trashed.original().to_path_buf();
+        if !self.workspace.trash(trashed) {
+            tracing::warn!(path = %original.display(), "deleted entry was not in the workspace");
         }
-        self.apply_entry_change(EntryChange::Removed(path));
+        self.apply_entry_change(EntryChange::Removed(&original));
+    }
+
+    /// Removes the entry of the bin at `location`, just deleted permanently, from the bin and
+    /// from the undo history, which can no longer restore it.
+    fn deleted_from_bin(&mut self, location: &Path) {
+        if let Some(entry) = self.workspace.remove_bin_entry(location) {
+            let name = entry.entry().name();
+            self.show_message(StatusMessage::info(format!("deleted {name} permanently")));
+        }
+        self.history
+            .forget_trashed(|entry| entry.location().starts_with(location));
+        self.bin_changed();
+    }
+
+    /// Reads the bin again after it was `emptied`, forgets the entries that are gone in the
+    /// undo history and reports the entries that could not be deleted in one message, such as
+    /// `emptied 298 of 300 entries of the bin; 2 failed: ...`.
+    fn bin_emptied(&mut self, emptied: &EmptiedBin) {
+        self.workspace.rescan_bin();
+        let remaining = self.workspace.bin_entries();
+        self.history.forget_trashed(|trashed| {
+            !remaining
+                .iter()
+                .any(|entry| trashed.location().starts_with(entry.location()))
+        });
+        let message = emptied_message(emptied);
+        if message.severity() == Severity::Error {
+            tracing::warn!(report = message.text(), "cannot empty the bin");
+        }
+        self.show_message(message);
+        self.bin_changed();
+    }
+
+    /// Reports why restoring entries from the bin failed, in one message; a taken original
+    /// path says how to free it.
+    fn restore_failed(&mut self, failures: &[EntryError]) {
+        if failures.is_empty() {
+            return;
+        }
+        let reports: Vec<String> = failures
+            .iter()
+            .map(|error| match error {
+                EntryError::AlreadyExists { .. } => {
+                    format!("{}; rename or move it first", error_report(error))
+                }
+                EntryError::Io { .. }
+                | EntryError::IntoItself { .. }
+                | EntryError::NotEmpty { .. }
+                | EntryError::InvalidName(_) => error_report(error),
+            })
+            .collect();
+        let report = format!("cannot restore: {}", reports.join("; "));
+        tracing::warn!(%report, "cannot restore from the bin");
+        self.show_message(StatusMessage::error(report));
     }
 
     /// Adds the folders and lists at `paths`, just restored from the bin, to the workspace by

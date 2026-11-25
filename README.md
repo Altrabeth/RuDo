@@ -46,7 +46,8 @@ the same tasks from the terminal and from Obsidian at the same time.
 - **Undo and redo** for every change to a task, across lists, and for creating, renaming,
   moving and deleting lists and folders.
 - **A bin for deleted lists.** Deleted lists and folders go to `.trash/` in the workspace,
-  the folder Obsidian uses for deleted notes, so a mistyped `dd` is never lost.
+  the folder Obsidian uses for deleted notes, so a mistyped `dd` is never lost; browse,
+  restore and empty it in the lists pane or with `rudo bin`.
 - **Yank and paste** tasks with their subtasks, also between lists.
 - **Live reload.** Changes made by other programs (Obsidian, your editor, `git pull`) appear
   immediately; RuDo never silently overwrites them.
@@ -94,7 +95,7 @@ first, then lists, each sorted by name ignoring case:
 | directory                       | folder, can be folded with `za`                       |
 | `*.md` file                     | todo list, named after the file without `.md`         |
 | hidden entries (`.obsidian/`, `.drafts.md`) | shown dimmed after `H` in the lists pane  |
-| `.trash/` (the bin, `workspace.bin`) | deleted lists and folders; never shown     |
+| `.trash/` (the bin, `workspace.bin`) | deleted lists and folders; the `Bin` row at the end of the tree |
 | other files                     | ignored                                               |
 | symbolic link                   | a link to a `.md` file is a list; linked directories are not followed |
 
@@ -102,7 +103,8 @@ Folders and lists whose name starts with a dot are hidden until `H` in the lists
 them; the pane title then says `hidden shown`, and `H` hides them again. Everything inside a
 hidden folder is hidden with it, hidden folders that contain no `.md` file at any depth (such
 as `.git/`) are left out completely, and the bin (`.trash/` at the top of the workspace, or
-the folder configured as `workspace.bin`) is never shown, not even after `H`. `workspace.show_hidden: true` shows hidden entries from the start.
+the folder configured as `workspace.bin`) is never part of the tree, not even after `H`; while
+it is not empty, the `Bin` row at the end of the tree opens it (see [Bin](#bin-lists-pane)). `workspace.show_hidden: true` shows hidden entries from the start.
 
 A list shows `done/total` for all its tasks, subtasks included; the active list, whose tasks
 the tasks pane shows, is marked with `•`. A file that cannot be read or is not UTF-8 stays in
@@ -111,7 +113,8 @@ must not start with a dot or contain any of `* " \ / < > : | ?`, which Obsidian 
 Deleting a list or folder asks first and moves it into the bin, keeping its path inside the
 workspace (`Home/Groceries.md` goes to `.trash/Home/Groceries.md`); folders are moved with
 everything inside them. An entry whose name is already in the bin is numbered
-(`Groceries 2.md`), so nothing in the bin is replaced. `u` brings deleted entries back to
+(`Groceries 2.md`), so nothing in the bin is replaced, and `.trash/.rudo-bin.json` remembers
+the original path and the deletion time of every entry. `u` brings deleted entries back to
 where they were, unless another entry took their place in the meantime. Lists and folders
 can be moved into another folder with `m`, and several at once in visual mode (`v`).
 
@@ -204,8 +207,10 @@ written back byte for byte; only lines you edit in RuDo are re-rendered.
    vault itself, that is the folder Obsidian uses for deleted notes when **Deleted files** is
    set to **Move to Obsidian trash**, and RuDo tolerates the notes Obsidian puts there. The
    leading dot keeps the bin out of Obsidian's search, so tasks in deleted lists never show up
-   in Tasks or Dataview queries. The bin is a plain folder: empty it by hand, or choose
-   another one with `workspace.bin`.
+   in Tasks or Dataview queries. The bin is a plain folder: browse and empty it in RuDo, with
+   `rudo bin list` and `rudo bin empty`, or by hand, or choose another one with
+   `workspace.bin`. Notes Obsidian put there show up in the bin too; RuDo does not know where
+   they came from and asks for a folder when you restore one.
 
 Renaming or moving a list in RuDo renames or moves the file but does not update
 `[[wikilinks]]` that point to it; rename or move it inside Obsidian if other notes link to the
@@ -356,6 +361,28 @@ In the lists pane `d` moves the selected lists and folders to the bin after aski
 moves them into a folder; `u` undoes either in one step. If some files cannot be deleted or
 moved, one message names them all.
 
+### Bin (lists pane)
+
+| Keys                 | Action             | Description                                            |
+| -------------------- | ------------------ | ------------------------------------------------------ |
+| `R`                  | `restore-from-bin` | move the entry back to where it came from              |
+| `E`                  | `empty-bin`        | delete everything in the bin permanently (asks first)  |
+| `h`, `left`, `esc`   | `close-bin`        | return to the lists                                    |
+
+`enter` or `l` on the `Bin` row at the end of the tree opens the bin: the lists and folders in
+it with their original path and the date they were deleted, the most recently deleted first.
+The tasks pane shows the tasks of the selected list, read-only. `R` moves the entry back to its
+original path; if another entry took that path in the meantime, RuDo says so and leaves the
+entry in the bin, so rename or move the other entry first. Entries that another program, such
+as Obsidian, put into the bin have no known original path, and `R` asks for the folder that
+receives them. `u` undoes a restore like any other change.
+
+`d d` in the bin deletes the selected entry permanently and `E` deletes everything in the bin
+permanently, also files that are not lists; both ask first, saying what is deleted
+(`Delete 12 lists with 340 tasks permanently? This cannot be undone.`), and cannot be undone.
+These are the only ways RuDo deletes files for good. The moving around keys, `u`, `ctrl-r`,
+`?` and `q` work in the bin as well.
+
 ### Help screen, dialogs and text input
 
 | Keys                 | Action        | Where         | Description                 |
@@ -486,6 +513,7 @@ there.
 | `visual_selection`                    | rows selected in visual mode                     |
 | `folder`, `list`, `list_count`        | lists pane entries and `done/total` counters     |
 | `hidden_entry`                        | hidden folders and lists while they are shown    |
+| `bin`                                 | the bin at the end of the lists pane             |
 | `tree_guide`                          | indentation guides and fold markers              |
 | `task_done`, `task_in_progress`, `task_cancelled` | task text by status                  |
 | `priority_highest`, `priority_high`, `priority_medium`, `priority_low`, `priority_lowest` | priority markers |
@@ -506,6 +534,8 @@ Commands:
   config path      Print the path of the configuration file in use
   config default   Print the default configuration
   config check     Validate the configuration file
+  bin list         List the lists and folders in the bin
+  bin empty        Delete everything in the bin permanently
 
 Options:
   -r, --root <DIR>       Workspace folder (overrides `workspace.root`)
@@ -516,6 +546,12 @@ Options:
 
 `rudo config check` exits with status 1 and prints every problem if the configuration is
 invalid.
+
+`rudo bin list` prints one line per entry of the bin of the workspace (`--root` or
+`workspace.root`), the most recently deleted first: the deletion time, the original path and,
+if it differs, the path inside the bin; `unknown` for entries another program put there.
+`rudo bin empty` asks on stdin before it deletes everything in the bin permanently, unless
+`--yes` is given, and exits with status 1 if something could not be deleted.
 
 ## Troubleshooting
 

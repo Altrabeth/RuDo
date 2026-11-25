@@ -49,7 +49,7 @@ pub struct HelpOverlay {
 impl HelpOverlay {
     /// Opens the help screen for `keymap` on a terminal of `screen_size`, scrolled to the
     /// section of the pane that has the `focus`.
-    fn open(keymap: &Keymap, focus: Focus, screen_size: Size) -> Self {
+    fn open(keymap: &Keymap, section: HelpHeading, screen_size: Size) -> Self {
         let mut help = Self {
             sections: help_sections(keymap),
             outline: Outline::new(),
@@ -57,7 +57,7 @@ impl HelpOverlay {
         };
         let row_keys = help.row_keys();
         let viewport_height = help.viewport_height(screen_size);
-        let section = HelpRowKey::Heading(section_of(focus));
+        let section = HelpRowKey::Heading(section);
         // Coming from the bottom, selecting the heading scrolls up just far enough to show
         // it, so the section starts near the top of the overlay instead of near its bottom.
         let _: Outcome = help
@@ -198,11 +198,11 @@ impl App {
     /// Opens the help screen over the focused pane and discards a pending key sequence.
     pub(super) fn open_help(&mut self) {
         self.resolver.reset();
-        self.mode = Mode::Help(HelpOverlay::open(
-            &self.keymap,
-            self.focus,
-            self.screen_size,
-        ));
+        let section = match self.lists.bin_view() {
+            Some(_) => HelpHeading::Bin,
+            None => section_of(self.focus),
+        };
+        self.mode = Mode::Help(HelpOverlay::open(&self.keymap, section, self.screen_size));
     }
 
     /// Closes the help screen.
@@ -288,7 +288,7 @@ mod tests {
         let keymap = Keymap::new(&KeyBindings::default()).unwrap();
         let expected = help_sections(&keymap);
 
-        let system_under_test = HelpOverlay::open(&keymap, Focus::Tasks, SCREEN);
+        let system_under_test = HelpOverlay::open(&keymap, HelpHeading::TasksPane, SCREEN);
 
         assert_eq!(system_under_test.sections(), expected);
         assert_eq!(system_under_test.filter(), &HelpFilter::Off);

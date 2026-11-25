@@ -140,6 +140,7 @@ impl App {
     #[must_use]
     pub fn context(&self) -> Context {
         match &self.mode {
+            Mode::Normal if self.lists.bin_view().is_some() => Context::Bin,
             Mode::Normal => self.focus.context(),
             Mode::Help(help) => help.context(),
             Mode::Prompt(_) | Mode::InlineEdit(_) | Mode::Search(_) => Context::Input,

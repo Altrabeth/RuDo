@@ -180,6 +180,19 @@ impl BoundedStack {
             HistoryEntry::Entries(_) => true,
         });
     }
+
+    /// Drops the entries of the bin that `gone` says were deleted permanently from every
+    /// restore, and restores that are left without entries.
+    fn forget_trashed(&mut self, gone: &impl Fn(&TrashedEntry) -> bool) {
+        self.entries.retain_mut(|entry| match entry {
+            HistoryEntry::Entries(EntryOperation::Restore { entries, .. }) => {
+                entries.retain(|trashed| !gone(trashed));
+                !entries.is_empty()
+            }
+            HistoryEntry::Entries(EntryOperation::Trash(_) | EntryOperation::Relocate(_))
+            | HistoryEntry::Document(_) => true,
+        });
+    }
 }
 
 /// The undo and redo stacks of all lists, each bounded to [`CAPACITY`] entries.
@@ -227,6 +240,14 @@ impl History {
         self.redo.forget(list);
     }
 
+    /// Forgets the entries of the bin for which `gone` is true, because they were deleted
+    /// permanently, so that no step tries to restore them; a step left without entries is
+    /// dropped.
+    pub(super) fn forget_trashed(&mut self, gone: impl Fn(&TrashedEntry) -> bool) {
+        self.undo.forget_trashed(&gone);
+        self.redo.forget_trashed(&gone);
+    }
+
     fn stack_mut(&mut self, direction: Direction) -> &mut BoundedStack {
         match direction {
             Direction::Undo => &mut self.undo,
@@ -246,7 +267,7 @@ mod tests {
 
     use super::*;
     use crate::config::IndentStyle;
-    use crate::storage::bin::BinPath;
+    use crate::storage::bin::{BinPath, move_to_bin};
     use crate::storage::workspace::{Entry, Workspace};
 
     /// Returns the path of a list at `relative`, which only a scanned workspace can create.
@@ -416,6 +437,36 @@ mod tests {
         let system_under_test = [history.take(direction.opposite()), history.take(direction)];
 
         assert_eq!(system_under_test, [None, Some(kept)]);
+    }
+
+    #[test]
+    fn forget_trashed_drops_deleted_entries_and_restores_left_empty() {
+        let directory = TempDir::new().unwrap();
+        for name in ["a.md", "b.md", "c.md"] {
+            fs::write(directory.path().join(name), "").unwrap();
+        }
+        let [a, b, c] = ["a.md", "b.md", "c.md"].map(|name| {
+            move_to_bin(directory.path(), &BinPath::default(), Path::new(name)).unwrap()
+        });
+        let restore = |entries: Vec<TrashedEntry>| {
+            HistoryEntry::Entries(EntryOperation::Restore {
+                entries,
+                active: None,
+            })
+        };
+        let mut history = history_with(&[
+            restore(vec![a.clone()]),
+            trash("a.md"),
+            restore(vec![b, c.clone()]),
+        ]);
+        history.forget_trashed(|entry| entry.location() != c.location());
+
+        let system_under_test = history;
+
+        assert_eq!(
+            system_under_test,
+            history_with(&[trash("a.md"), restore(vec![c])])
+        );
     }
 
     #[test]

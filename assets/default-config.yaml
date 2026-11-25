@@ -19,8 +19,9 @@ workspace:
   # in the lists pane).
   show_hidden: false
   # Folder inside the workspace that receives deleted lists and folders, relative to `root`.
-  # `.trash` is the folder Obsidian uses for deleted notes. The bin is never shown in the
-  # lists pane, also not with `H`; it must not be `root` itself or lie outside it.
+  # `.trash` is the folder Obsidian uses for deleted notes. The bin is never part of the tree,
+  # also not with `H`; the `Bin` row at the end of the lists pane opens it. It must not be
+  # `root` itself or lie outside it.
   bin: .trash
 
 tasks:
@@ -56,6 +57,7 @@ theme:
   # list: {}
   # list_count: { fg: dark-gray }
   # hidden_entry: { modifiers: [dim] }
+  # bin: { fg: magenta }
   # tree_guide: { fg: dark-gray }
   # task_done: { fg: dark-gray }
   # task_in_progress: { fg: yellow }

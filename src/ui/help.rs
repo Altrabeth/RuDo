@@ -40,6 +40,8 @@ pub enum HelpHeading {
     TasksPane,
     /// Selecting several rows and acting on them.
     VisualMode,
+    /// Restoring and deleting the entries of the bin.
+    Bin,
     /// Closing the help screen, answering dialogs and finishing text input.
     HelpAndDialogs,
     /// The fixed editing keys of text inputs.
@@ -55,6 +57,7 @@ impl Display for HelpHeading {
             Self::ListsPane => "Lists pane",
             Self::TasksPane => "Tasks pane",
             Self::VisualMode => "Visual mode (lists and tasks pane)",
+            Self::Bin => "Bin (lists pane)",
             Self::HelpAndDialogs => "Help screen, dialogs and text input",
             Self::EditingKeys => "Editing keys in text input",
         })
@@ -274,6 +277,7 @@ fn section_entries(heading: HelpHeading, keymap: &Keymap) -> Vec<HelpEntry> {
         | HelpHeading::ListsPane
         | HelpHeading::TasksPane
         | HelpHeading::VisualMode
+        | HelpHeading::Bin
         | HelpHeading::HelpAndDialogs => Action::iter()
             .filter(|action| action_heading(*action) == heading)
             .map(|action| HelpEntry::for_action(action, keymap.keys(action)))
@@ -338,6 +342,7 @@ const fn action_heading(action: Action) -> HelpHeading {
         Action::VisualMode | Action::DeleteSelection | Action::YankSelection => {
             HelpHeading::VisualMode
         }
+        Action::RestoreFromBin | Action::EmptyBin | Action::CloseBin => HelpHeading::Bin,
         Action::CloseHelp
         | Action::ConfirmYes
         | Action::ConfirmNo
@@ -459,6 +464,7 @@ mod tests {
     #[case::help(Action::CloseHelp, HelpHeading::HelpAndDialogs)]
     #[case::dialog(Action::ConfirmNo, HelpHeading::HelpAndDialogs)]
     #[case::input(Action::Submit, HelpHeading::HelpAndDialogs)]
+    #[case::bin(Action::EmptyBin, HelpHeading::Bin)]
     fn action_is_listed_in_its_section(#[case] action: Action, #[case] expected: HelpHeading) {
         let keymap = keymap("");
 

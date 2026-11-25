@@ -4,8 +4,8 @@ expression: system_under_test
 ---
 "╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
 "│ No╭ Help ────────────────────────────────────────────────────────────────╮   │"
-"│ o │  d                 delete the selected tasks, lists or folders       │   │"
-"│   │  y                 copy the selected tasks and their subtasks        │   │"
+"│ o │  E                 delete everything in the bin permanently (asks fi…│   │"
+"│   │  h, left, esc      return to the lists                               │   │"
 "│   │Help screen, dialogs and text input                                   │   │"
 "│   │  ?, q, esc         close the help screen                             │   │"
 "│   │  y, enter          confirm                                           │   │"
@@ -24,5 +24,5 @@ expression: system_under_test
 "│   │  ctrl-w            delete the word before the cursor                 █   │"
 "│   │  ctrl-u            delete to the start                               █   │"
 "│   │  ctrl-k            delete to the end                                 █   │"
-"╰───╰──────────────────────────────────────────────────────────── 58-77/77 ╯───╯"
+"╰───╰──────────────────────────────────────────────────────────── 62-81/81 ╯───╯"
 " / search                                                               ? close "

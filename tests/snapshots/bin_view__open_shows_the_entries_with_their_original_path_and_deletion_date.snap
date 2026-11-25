@@ -1,0 +1,14 @@
+---
+source: tests/bin_view.rs
+expression: system_under_test
+---
+"╭ Bin ─────────────────╮╭ Work  in the bin ────────────────────────────────────╮"
+"│ ▸ Work    2026-03-12 ││ In the bin: folder "Work" with 1 list and 1 task.    │"
+"│   Home/Gr 2026-03-10 ││ Read only. Press R to restore it.                    │"
+"│   Note       unknown ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" R restore  dd delete  E empty bin  h back                               ? help "

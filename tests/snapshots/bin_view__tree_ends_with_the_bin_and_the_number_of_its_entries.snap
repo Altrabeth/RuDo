@@ -1,0 +1,12 @@
+---
+source: tests/bin_view.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Inbox  0/1 ──────────────────────────────────────────╮"
+"│ • Inbox          0/1 ││   [ ] Call mum                                       │"
+"│   Bin              3 ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new list  O new folder  enter open  r rename  dd delete               ? help "

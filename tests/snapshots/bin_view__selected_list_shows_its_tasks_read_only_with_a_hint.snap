@@ -1,0 +1,14 @@
+---
+source: tests/bin_view.rs
+expression: system_under_test
+---
+"╭ Bin ─────────────────╮╭ Groceries  1/2  in the bin ──────────────────────────╮"
+"│ ▸ Work    2026-03-12 ││ Read only. Press R to restore it.                    │"
+"│   Home/Gr 2026-03-10 ││                                                      │"
+"│   Note       unknown ││   [ ] Milk                                           │"
+"│                      ││   [x] Eggs                                           │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" R restore  dd delete  E empty bin  h back                               ? help "

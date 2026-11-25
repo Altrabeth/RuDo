@@ -2,10 +2,12 @@
 //!
 //! [`ListsPane`] never copies the workspace. [`tree_items`] flattens the current
 //! [`Workspace`] whenever the pane needs it, so lists that are created, renamed or reloaded
-//! can never leave a stale row behind.
+//! can never leave a stale row behind. While the bin is not empty, the tree ends with a row
+//! for the bin, which opens the [`BinView`].
 
 use std::path::{Path, PathBuf};
 
+use crate::app::bin::BinView;
 use crate::app::confirm::ConfirmKind;
 use crate::app::entry_visibility::HiddenEntries;
 use crate::app::prompt::PromptKind;
@@ -14,6 +16,7 @@ use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
 use crate::config::keymap::action::Action;
+use crate::storage::bin::BinEntry;
 use crate::storage::workspace::{Entry, Folder, List, ListPath, Workspace, moved_path};
 use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem, prune};
 use crate::ui::text_input::TextInput;
@@ -25,14 +28,17 @@ pub enum EntryKey {
     Folder(PathBuf),
     /// A list, by its path.
     List(ListPath),
+    /// The row of the bin at the end of the tree, by the path of the bin relative to the
+    /// workspace root; it is no entry of the workspace, so nothing but opening acts on it.
+    Bin(PathBuf),
 }
 
 impl EntryKey {
-    /// Returns the path of the folder or list relative to the workspace root.
+    /// Returns the path of the folder, list or bin relative to the workspace root.
     #[must_use]
     pub fn path(&self) -> &Path {
         match self {
-            Self::Folder(path) => path,
+            Self::Folder(path) | Self::Bin(path) => path,
             Self::List(path) => path.as_path(),
         }
     }
@@ -75,25 +81,44 @@ impl EntryChange<'_> {
         match key {
             EntryKey::Folder(path) => moved_path(path, from, to).map(EntryKey::Folder),
             EntryKey::List(path) => path.moved(from, to).map(EntryKey::List),
+            EntryKey::Bin(_) => None,
         }
     }
 }
 
-/// A folder or list of the workspace tree with its key, nesting depth and why the filter of
-/// the lists pane shows it.
+/// What a row of the workspace tree shows.
+#[derive(Debug, Clone, Copy)]
+pub enum TreeRow<'workspace> {
+    /// A folder or list of the workspace.
+    Entry(&'workspace Entry),
+    /// The bin with the entries in it, after the tree while it is not empty.
+    Bin(&'workspace [BinEntry]),
+}
+
+/// A row of the workspace tree with its key, nesting depth and why the filter of the lists
+/// pane shows it.
 #[derive(Debug)]
 pub struct TreeItem<'workspace> {
-    entry: &'workspace Entry,
+    row: TreeRow<'workspace>,
     key: EntryKey,
     depth: usize,
     role: FilterRole,
 }
 
 impl<'workspace> TreeItem<'workspace> {
-    /// Returns the folder or list of this row.
+    /// Returns what this row shows.
     #[must_use]
-    pub fn entry(&self) -> &'workspace Entry {
-        self.entry
+    pub fn row(&self) -> TreeRow<'workspace> {
+        self.row
+    }
+
+    /// Returns the folder or list of this row, or `None` for the row of the bin.
+    #[must_use]
+    pub fn entry(&self) -> Option<&'workspace Entry> {
+        match self.row {
+            TreeRow::Entry(entry) => Some(entry),
+            TreeRow::Bin(_) => None,
+        }
     }
 
     /// Returns whether the entry matches the filter of the lists pane or only contains a
@@ -105,11 +130,12 @@ impl<'workspace> TreeItem<'workspace> {
 }
 
 impl SearchItem for TreeItem<'_> {
-    /// Lists match by name; folders are only shown because they contain a match.
+    /// Lists match by name; folders are only shown because they contain a match, and the
+    /// bin never while filtering.
     fn search_text(&self) -> Option<&str> {
-        match self.entry {
-            Entry::Folder(_) => None,
-            Entry::List(list) => Some(list.name()),
+        match self.row {
+            TreeRow::Entry(Entry::List(list)) => Some(list.name()),
+            TreeRow::Entry(Entry::Folder(_)) | TreeRow::Bin(_) => None,
         }
     }
 
@@ -131,12 +157,25 @@ impl OutlineItem for TreeItem<'_> {
 }
 
 /// Returns the folders and lists of `workspace` that `hidden_entries` shows, in display order,
-/// parents before their entries, ready for an [`Outline`].
+/// parents before their entries, followed by the row of the bin unless it is empty, ready for
+/// an [`Outline`].
 #[must_use]
 pub fn tree_items(workspace: &Workspace, hidden_entries: HiddenEntries) -> Vec<TreeItem<'_>> {
     let mut items = Vec::new();
     push_items(&mut items, workspace.entries(), 0);
-    prune(items, |item| hidden_entries.shows(item.entry)).collect()
+    if !workspace.bin_entries().is_empty() {
+        items.push(TreeItem {
+            row: TreeRow::Bin(workspace.bin_entries()),
+            key: EntryKey::Bin(workspace.bin().as_path().to_path_buf()),
+            depth: 0,
+            role: FilterRole::Match,
+        });
+    }
+    prune(items, |item| match item.row {
+        TreeRow::Entry(entry) => hidden_entries.shows(entry),
+        TreeRow::Bin(_) => true,
+    })
+    .collect()
 }
 
 fn push_items<'workspace>(
@@ -146,7 +185,7 @@ fn push_items<'workspace>(
 ) {
     for entry in entries {
         items.push(TreeItem {
-            entry,
+            row: TreeRow::Entry(entry),
             key: EntryKey::from(entry),
             depth,
             role: FilterRole::Match,
@@ -159,13 +198,15 @@ fn push_items<'workspace>(
 }
 
 /// The lists pane: the selection and folding of the workspace tree, its search filter, whether
-/// it shows hidden entries and the active list, whose tasks the tasks pane shows.
+/// it shows hidden entries, the active list, whose tasks the tasks pane shows, and the bin
+/// view while it is open instead of the tree.
 #[derive(Debug, Clone)]
 pub struct ListsPane {
     outline: Outline<EntryKey>,
     active: Option<ListPath>,
     filter: PaneFilter<EntryKey>,
     hidden_entries: HiddenEntries,
+    bin: Option<BinView>,
 }
 
 impl ListsPane {
@@ -181,7 +222,7 @@ impl ListsPane {
         let mut outline = Outline::new();
         let first_list = items.iter().find_map(|item| match &item.key {
             EntryKey::List(path) => Some((&item.key, path)),
-            EntryKey::Folder(_) => None,
+            EntryKey::Folder(_) | EntryKey::Bin(_) => None,
         });
         let Some((key, path)) = first_list else {
             outline.refresh(&items, viewport_height);
@@ -190,6 +231,7 @@ impl ListsPane {
                 active: None,
                 filter: PaneFilter::default(),
                 hidden_entries,
+                bin: None,
             };
         };
         match outline.select(&items, key, viewport_height) {
@@ -201,7 +243,25 @@ impl ListsPane {
             outline,
             filter: PaneFilter::default(),
             hidden_entries,
+            bin: None,
         }
+    }
+
+    /// Returns the bin view, or `None` while the pane shows the tree.
+    #[must_use]
+    pub fn bin_view(&self) -> Option<&BinView> {
+        self.bin.as_ref()
+    }
+
+    /// Shows the bin of `workspace` instead of the tree, from its first entry, in a viewport
+    /// `viewport_height` rows high.
+    pub(super) fn open_bin(&mut self, workspace: &Workspace, viewport_height: usize) {
+        self.bin = Some(BinView::new(workspace, viewport_height));
+    }
+
+    /// Shows the tree again instead of the bin.
+    pub(super) fn close_bin(&mut self) {
+        self.bin = None;
     }
 
     /// Returns whether the pane shows hidden folders and lists.
@@ -272,6 +332,9 @@ impl ListsPane {
     pub(super) fn refresh(&mut self, workspace: &Workspace, viewport_height: usize) {
         let items = self.items(workspace);
         self.outline.refresh(&items, viewport_height);
+        if let Some(bin) = &mut self.bin {
+            bin.refresh(workspace, viewport_height);
+        }
     }
 
     /// Returns the folder that receives a new entry, relative to the workspace root: the
@@ -280,7 +343,7 @@ impl ListsPane {
         match self.outline.selected() {
             Some(EntryKey::Folder(folder)) => folder.clone(),
             Some(EntryKey::List(list)) => list.as_path().parent().map_or_default(Path::to_path_buf),
-            None => PathBuf::new(),
+            Some(EntryKey::Bin(_)) | None => PathBuf::new(),
         }
     }
 
@@ -293,21 +356,32 @@ impl ListsPane {
         self.items(workspace)
             .into_iter()
             .find(|item| item.key == *selected)
-            .map(|item| item.entry)
+            .and_then(|item| item.entry())
     }
 
     /// Follows `change` of the workspace, which is already applied to `workspace`: renamed
     /// entries stay selected, folded and active, a removed active list is closed and a removed
-    /// selection moves to a neighbour in a viewport `viewport_height` rows high.
+    /// selection moves to a neighbour in a viewport `viewport_height` rows high, an entry before
+    /// it rather than the row of the bin.
     fn apply_entry_change(
         &mut self,
         workspace: &Workspace,
         change: EntryChange<'_>,
         viewport_height: usize,
     ) {
+        let on_bin =
+            |outline: &Outline<EntryKey>| matches!(outline.selected(), Some(EntryKey::Bin(_)));
+        let was_on_bin = on_bin(&self.outline);
         self.outline.rename_keys(|key| change.renamed_key(key));
         self.active = self.active.take().and_then(|path| change.list_path(path));
         self.refresh(workspace, viewport_height);
+        if !was_on_bin && on_bin(&self.outline) {
+            let items = self.items(workspace);
+            // Without an entry before the bin the selection stays on it, which is fine.
+            let _: Outcome = self
+                .outline
+                .apply(&items, OutlineCommand::Up, viewport_height);
+        }
     }
 
     /// Selects the entry with `key` in the tree of `workspace`, unfolding the folders that
@@ -320,17 +394,22 @@ impl ListsPane {
         let _: Outcome = self.outline.select(&items, key, viewport_height);
     }
 
-    /// Performs `action` on the tree of `workspace`, shown in a viewport `viewport_height` rows
-    /// high, and returns whether it opened a list.
+    /// Performs `action` on the tree of `workspace`, or on the bin while it is open, shown in
+    /// a viewport `viewport_height` rows high, and returns whether it opened a list.
     ///
-    /// `open` opens a selected list and folds or unfolds a selected folder; `expand` opens a
-    /// list when there is nothing to unfold.
+    /// `open` opens a selected list or the bin and folds or unfolds a selected folder;
+    /// `expand` opens a list or the bin when there is nothing to unfold.
     fn update(&mut self, workspace: &Workspace, action: Action, viewport_height: usize) -> bool {
+        if let Some(bin) = &mut self.bin {
+            bin.update(workspace, action, viewport_height);
+            return false;
+        }
         let command = if action == Action::Open {
-            if self.open_selected_list() {
-                return true;
+            match self.open_selected(workspace, viewport_height) {
+                Opened::List => return true,
+                Opened::Bin => return false,
+                Opened::Nothing => OutlineCommand::ToggleFold,
             }
-            OutlineCommand::ToggleFold
         } else if let Some(command) = OutlineCommand::from_action(action) {
             command
         } else {
@@ -338,26 +417,36 @@ impl ListsPane {
         };
         let items = self.items(workspace);
         let outcome = self.outline.apply(&items, command, viewport_height);
-        command == OutlineCommand::Expand
-            && outcome == Outcome::Unchanged
-            && self.open_selected_list()
+        if command != OutlineCommand::Expand || outcome != Outcome::Unchanged {
+            return false;
+        }
+        match self.open_selected(workspace, viewport_height) {
+            Opened::List => true,
+            Opened::Bin | Opened::Nothing => false,
+        }
     }
 
     /// Selects the list at `path` in the tree of `workspace` and makes it the active one, in a
-    /// viewport `viewport_height` rows high.
+    /// viewport `viewport_height` rows high; the tree is shown again if the bin was open.
     pub(super) fn open(&mut self, workspace: &Workspace, path: &ListPath, viewport_height: usize) {
+        self.close_bin();
         self.select(workspace, &EntryKey::List(path.clone()), viewport_height);
         self.active = Some(path.clone());
     }
 
-    /// Makes the selected list the active one; returns `false` if no list is selected.
-    fn open_selected_list(&mut self) -> bool {
+    /// Makes the selected list the active one or opens the bin of `workspace` in a viewport
+    /// `viewport_height` rows high, and tells which it did.
+    fn open_selected(&mut self, workspace: &Workspace, viewport_height: usize) -> Opened {
         match self.outline.selected() {
             Some(EntryKey::List(path)) => {
                 self.active = Some(path.clone());
-                true
+                Opened::List
             }
-            Some(EntryKey::Folder(_)) | None => false,
+            Some(EntryKey::Bin(_)) => {
+                self.open_bin(workspace, viewport_height);
+                Opened::Bin
+            }
+            Some(EntryKey::Folder(_)) | None => Opened::Nothing,
         }
     }
 }
@@ -458,6 +547,17 @@ impl App {
     }
 }
 
+/// What opening the selected row of the tree did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Opened {
+    /// It made the selected list the active one.
+    List,
+    /// It opened the bin.
+    Bin,
+    /// The selected row is a folder, or nothing is selected.
+    Nothing,
+}
+
 /// Checks that `folder`, relative to the root of `workspace`, can receive the lists and folders
 /// `entries`: it must be a folder of the workspace, or the root, and not one of the folders or
 /// inside one of them.
@@ -475,7 +575,7 @@ pub(super) fn check_move_target(
     }
     let moved_into_itself = entries.iter().find_map(|entry| match entry {
         EntryKey::Folder(path) if folder.starts_with(path) => Some(path),
-        EntryKey::Folder(_) | EntryKey::List(_) => None,
+        EntryKey::Folder(_) | EntryKey::List(_) | EntryKey::Bin(_) => None,
     });
     match moved_into_itself {
         Some(path) => Err(format!("cannot move folder {} into itself", path.display())),
@@ -489,40 +589,50 @@ const ONLY_ENTRIES_ARE_MOVED: &str = "only lists and folders can be moved into a
 /// Asks whether to move `entries` to the bin, saying what moves, or tells that there are no
 /// entries at all.
 fn delete_question(entries: &[&Entry]) -> Result<String, String> {
-    match entries {
-        [] => Err("the selected lists are gone".to_owned()),
-        [Entry::List(list)] => Ok(match list.content() {
+    let description = match entries {
+        [] => return Err("the selected lists are gone".to_owned()),
+        [entry] => entry_description(entry),
+        several => several_description(several),
+    };
+    Ok(format!("Move {description} to the bin?"))
+}
+
+/// Names `entry` with what it holds, as a question about it says it: `list "Groceries" with 7
+/// tasks`, `folder "Work" with 5 lists and 42 tasks` (lists at any depth) or `folder "Old"`.
+pub(crate) fn entry_description(entry: &Entry) -> String {
+    match entry {
+        Entry::List(list) => match list.content() {
             Ok(_) => format!(
-                "Move list \"{}\" with {} to the bin?",
+                "list \"{}\" with {}",
                 list.name(),
                 counted_tasks(task_count(list))
             ),
-            Err(_) => format!("Move list \"{}\" to the bin?", list.name()),
-        }),
-        [Entry::Folder(folder)] => Ok(move_folder_question(folder)),
-        several => Ok(move_several_question(several)),
+            Err(_) => format!("list \"{}\"", list.name()),
+        },
+        Entry::Folder(folder) => folder_description(folder),
     }
 }
 
-/// Asks whether to move `folder` to the bin, with the number of lists inside it, at any
-/// depth, and their tasks, such as `Move folder "Work" with 5 lists and 42 tasks to the bin?`.
-fn move_folder_question(folder: &Folder) -> String {
+/// Names `folder` with the number of lists inside it, at any depth, and their tasks.
+fn folder_description(folder: &Folder) -> String {
     let (lists, tasks) = count_lists_and_tasks(folder.entries());
     let name = folder.name();
     if lists == 0 {
-        return format!("Move folder \"{name}\" to the bin?");
+        return format!("folder \"{name}\"");
     }
     format!(
-        "Move folder \"{name}\" with {} and {} to the bin?",
+        "folder \"{name}\" with {} and {}",
         counted(lists, "list", "lists"),
         counted_tasks(tasks)
     )
 }
 
 /// Returns the number of lists in `entries`, at any depth, and of their tasks.
-fn count_lists_and_tasks(entries: &[Entry]) -> (usize, usize) {
+pub(super) fn count_lists_and_tasks<'workspace>(
+    entries: impl IntoIterator<Item = &'workspace Entry>,
+) -> (usize, usize) {
     entries
-        .iter()
+        .into_iter()
         .fold((0, 0), |(lists, tasks), entry| match entry {
             Entry::List(list) => (lists + 1, tasks + task_count(list)),
             Entry::Folder(folder) => {
@@ -532,9 +642,8 @@ fn count_lists_and_tasks(entries: &[Entry]) -> (usize, usize) {
         })
 }
 
-/// Asks whether to move several lists and folders to the bin, counting both, such as
-/// `Move 12 lists and 2 folders to the bin?`.
-fn move_several_question(entries: &[&Entry]) -> String {
+/// Names several lists and folders by counting both, such as `12 lists and 2 folders`.
+fn several_description(entries: &[&Entry]) -> String {
     let lists = entries
         .iter()
         .filter(|entry| matches!(entry, Entry::List(_)))
@@ -543,11 +652,11 @@ fn move_several_question(entries: &[&Entry]) -> String {
     let lists = (lists > 0).then(|| counted(lists, "list", "lists"));
     let folders = (folders > 0).then(|| counted(folders, "folder", "folders"));
     let parts: Vec<String> = lists.into_iter().chain(folders).collect();
-    format!("Move {} to the bin?", parts.join(" and "))
+    parts.join(" and ")
 }
 
 /// Returns `count` with the `singular` noun for one and the `plural` otherwise.
-fn counted(count: usize, singular: &str, plural: &str) -> String {
+pub(super) fn counted(count: usize, singular: &str, plural: &str) -> String {
     let noun = if count == 1 { singular } else { plural };
     format!("{count} {noun}")
 }
@@ -660,7 +769,7 @@ mod tests {
 
         let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, HiddenEntries::Hidden)
             .iter()
-            .map(|item| (item.entry().name(), item.depth()))
+            .map(|item| (item.entry().unwrap().name(), item.depth()))
             .collect();
 
         assert_eq!(system_under_test, expected);
@@ -687,8 +796,46 @@ mod tests {
 
         let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, hidden_entries)
             .iter()
-            .map(|item| (item.entry().name(), item.depth()))
+            .map(|item| (item.entry().unwrap().name(), item.depth()))
             .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::shown(HiddenEntries::Shown)]
+    #[case::hidden(HiddenEntries::Hidden)]
+    fn tree_items_end_with_the_bin_unless_it_is_empty(#[case] hidden_entries: HiddenEntries) {
+        let root = TempDir::new().unwrap();
+        fs::create_dir_all(root.path().join(".trash")).unwrap();
+        fs::write(root.path().join(".trash/old.md"), "").unwrap();
+        fs::write(root.path().join("inbox.md"), "").unwrap();
+        let workspace =
+            Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap();
+        let expected = EntryKey::Bin(PathBuf::from(".trash"));
+
+        let system_under_test = tree_items(&workspace, hidden_entries);
+
+        assert_eq!(system_under_test.len(), 2);
+        assert_eq!(system_under_test[1].key(), &expected);
+        assert!(matches!(system_under_test[1].row(), TreeRow::Bin([_])));
+        assert_eq!(system_under_test[1].search_text(), None);
+    }
+
+    #[rstest]
+    #[case::list("inbox.md", "list \"inbox\" with 1 task")]
+    #[case::unreadable_list("binary.md", "list \"binary\"")]
+    #[case::empty_folder("empty", "folder \"empty\"")]
+    #[case::folder("outer", "folder \"outer\" with 2 lists and 3 tasks")]
+    fn entry_description_names_the_entry_with_what_it_holds(
+        #[case] path: &str,
+        #[case] expected: &str,
+    ) {
+        let root = TempDir::new().unwrap();
+        let workspace = workspace(&root);
+        let entry = workspace.entry(Path::new(path)).unwrap();
+
+        let system_under_test = entry_description(entry);
 
         assert_eq!(system_under_test, expected);
     }

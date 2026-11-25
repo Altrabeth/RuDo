@@ -73,8 +73,11 @@ set to the Dataview task format, and RuDo next to it.
       edit; RuDo says that its last change was not applied.
 - [ ] Creating, renaming and deleting a list in Obsidian updates the lists pane.
 - [ ] The `.obsidian/` folder is not shown in the lists pane until **`H`** there shows it
-      dimmed (title `hidden shown`); `.git/` and `.trash/` never appear, and **`H`** again
-      hides them.
+      dimmed (title `hidden shown`); `.git/` and `.trash/` never appear in the tree, and **`H`**
+      again hides them.
+- [ ] A note deleted in Obsidian (**Move to Obsidian trash**) shows up in RuDo's bin after a
+      restart with the date `unknown`; **`R`** asks for a folder and puts it there, and
+      Obsidian shows it again.
 
 ## Editor
 

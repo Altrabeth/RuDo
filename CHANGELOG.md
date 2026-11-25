@@ -23,6 +23,9 @@ The first release, not tagged yet. The [README](README.md) specifies the behavio
 - **Lists pane.** Create, rename and delete lists and folders (`o`, `O`, `r`, `dd`), with
   names Obsidian accepts and a confirmation before deleting; deleted lists and folders, also
   non-empty ones, go to a bin folder in the workspace (`.trash/`, `workspace.bin`); `done/total` counters; folding;
+  a `Bin` row at the end of the tree that shows the bin with original paths and deletion
+  dates, restores entries (`R`, undoable), deletes them permanently (`dd`) and empties the bin
+  (`E`), with `rudo bin list` and `rudo bin empty` on the command line;
   showing hidden folders and lists such as `.obsidian/` dimmed (`H`, `workspace.show_hidden`).
 - **Tasks pane.** Nested tasks with tree guides and folding; adding tasks and subtasks
   (`o`, `O`, `a`) and editing them in place (`i`); marking done (`x`) with an optional

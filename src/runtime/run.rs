@@ -124,7 +124,10 @@ fn perform(
         | Effect::MoveEntries { .. }
         | Effect::ReloadList(_)
         | Effect::Rescan
-        | Effect::StepEntries { .. }) => {
+        | Effect::StepEntries { .. }
+        | Effect::RestoreEntries(_)
+        | Effect::DeleteFromBin(_)
+        | Effect::EmptyBin) => {
             execute(app, effect);
             Ok(input)
         }

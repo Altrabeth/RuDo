@@ -1,10 +1,11 @@
 //! Runs the `rudo` binary with `config` subcommands against temporary configuration files.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use rstest::rstest;
 use rudo::config::DEFAULT_CONFIG_YAML;
 use tempfile::TempDir;
 
@@ -220,4 +221,147 @@ fn config_subcommands_do_not_create_the_workspace() {
 
     assert_eq!(system_under_test, [true; 3]);
     assert!(!workspace.exists());
+}
+
+/// What the index of the bin remembers about `Home/Groceries.md`, which is numbered in the bin.
+const INDEX: &str = r#"[{"original": "Home/Groceries.md", "location": "Home/Groceries 2.md", "deleted_at": "2026-03-10T12:30:00Z"}]"#;
+
+impl Sandbox {
+    /// Creates a workspace whose bin holds a list RuDo deleted and a note another program put
+    /// there, and returns its path.
+    fn workspace_with_bin(&self) -> PathBuf {
+        let workspace = self.path("workspace");
+        for (path, content) in [
+            ("Inbox.md", "- [ ] Call mum\n"),
+            (".trash/Home/Groceries 2.md", "- [ ] Milk\n- [ ] Eggs\n"),
+            (".trash/Note.md", "- [ ] Read\n"),
+            (".trash/.rudo-bin.json", INDEX),
+        ] {
+            let file = workspace.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, content).unwrap();
+        }
+        workspace
+    }
+
+    /// Runs `rudo bin <arguments>` on `workspace` in UTC with `input` on stdin.
+    fn run_bin(&self, workspace: &Path, arguments: &[&str], input: &str) -> Output {
+        let root = display(workspace);
+        let arguments: Vec<&str> = ["--root", &root, "bin"]
+            .into_iter()
+            .chain(arguments.iter().copied())
+            .collect();
+        let mut child = self
+            .command(&arguments)
+            .env("TZ", "UTC")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        child.wait_with_output().unwrap()
+    }
+}
+
+#[test]
+fn bin_list_prints_the_entries_newest_first() {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.workspace_with_bin();
+    let expected_stdout = "2026-03-10 12:30  Home/Groceries.md (in the bin as Home/Groceries 2.md)\n\
+                           unknown           Note.md (original path unknown)\n";
+
+    let system_under_test = sandbox.run_bin(&workspace, &["list"], "");
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), expected_stdout);
+    assert_eq!(text(&system_under_test.stderr), "");
+}
+
+#[test]
+fn bin_list_of_an_empty_bin_prints_nothing() {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.path("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let system_under_test = sandbox.run_bin(&workspace, &["list"], "");
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), "");
+}
+
+#[test]
+fn bin_list_reports_a_missing_workspace() {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.path("missing");
+
+    let system_under_test = sandbox.run_bin(&workspace, &["list"], "");
+
+    assert!(!system_under_test.status.success());
+    assert!(
+        text(&system_under_test.stderr).contains("cannot open the workspace folder"),
+        "{}",
+        text(&system_under_test.stderr)
+    );
+}
+
+#[test]
+fn bin_empty_with_yes_deletes_everything_without_asking() {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.workspace_with_bin();
+
+    let system_under_test = sandbox.run_bin(&workspace, &["empty", "--yes"], "");
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), "emptied the bin\n");
+    assert_eq!(fs::read_dir(workspace.join(".trash")).unwrap().count(), 0);
+    assert!(workspace.join("Inbox.md").is_file());
+}
+
+#[rstest]
+#[case::y("y\n")]
+#[case::yes("Yes\n")]
+fn bin_empty_asks_and_deletes_on_yes(#[case] answer: &str) {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.workspace_with_bin();
+    let expected_stdout = "Delete 2 lists with 3 tasks permanently? This cannot be undone. \
+                           [y/N] emptied the bin\n";
+
+    let system_under_test = sandbox.run_bin(&workspace, &["empty"], answer);
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), expected_stdout);
+    assert!(!workspace.join(".trash/Note.md").exists());
+}
+
+#[rstest]
+#[case::no("n\n")]
+#[case::nothing("")]
+#[case::other("delete\n")]
+fn bin_empty_keeps_everything_without_a_yes(#[case] answer: &str) {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.workspace_with_bin();
+
+    let system_under_test = sandbox.run_bin(&workspace, &["empty"], answer);
+
+    assert_eq!(system_under_test.status.code(), Some(1));
+    assert_eq!(text(&system_under_test.stderr), "nothing deleted\n");
+    assert!(workspace.join(".trash/Note.md").is_file());
+}
+
+#[test]
+fn bin_empty_of_an_empty_bin_says_so() {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.path("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let system_under_test = sandbox.run_bin(&workspace, &["empty"], "");
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), "the bin is empty\n");
 }

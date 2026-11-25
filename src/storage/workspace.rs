@@ -20,7 +20,7 @@ use tracing::warn;
 
 use crate::config::IndentStyle;
 use crate::markdown::document::TodoDocument;
-use crate::storage::bin::BinPath;
+use crate::storage::bin::{BinEntry, BinPath, TrashedEntry, scan_bin};
 use crate::storage::entries::EntryName;
 use crate::storage::fingerprint::Fingerprint;
 
@@ -34,6 +34,8 @@ pub struct Workspace {
     bin: BinPath,
     default_indent: IndentStyle,
     entries: Vec<Entry>,
+    /// The content of the bin, most recently deleted first; see [`scan_bin`].
+    bin_entries: Vec<BinEntry>,
 }
 
 impl Workspace {
@@ -43,8 +45,8 @@ impl Workspace {
     /// become [`List`]s; all other files are never opened. Hidden entries, whose name starts
     /// with `.`, are kept and tell so with [`Entry::is_hidden`], but a hidden folder without
     /// lists at any depth is left out, and the bin `bin` is never part of the tree, wherever it
-    /// is configured. Symlinked directories are not followed, so symlink loops cannot make the
-    /// scan endless. Every directory is sorted folders first, then lists, each
+    /// is configured; its content is scanned separately, see [`Workspace::bin_entries`].
+    /// Symlinked directories are not followed, so symlink loops cannot make the scan endless. Every directory is sorted folders first, then lists, each
     /// case-insensitively with ties broken by the exact name.
     ///
     /// List files are read and parsed in parallel. A list that cannot be read or is not UTF-8
@@ -63,16 +65,17 @@ impl Workspace {
         default_indent: IndentStyle,
     ) -> Result<Self, WorkspaceError> {
         let root = root.into();
-        let pending = match read_directory(&root, &bin, Path::new("")) {
-            Ok(pending) => pending,
+        let entries = match scan_tree(&root, &bin) {
+            Ok(entries) => entries,
             Err(source) => return Err(WorkspaceError::ReadRoot { path: root, source }),
         };
-        let (entries, _) = load_entries(&root, pending);
+        let bin_entries = scan_bin(&root, &bin);
         Ok(Self {
             root,
             bin,
             default_indent,
             entries,
+            bin_entries,
         })
     }
 
@@ -121,6 +124,52 @@ impl Workspace {
     #[must_use]
     pub fn bin(&self) -> &BinPath {
         &self.bin
+    }
+
+    /// Returns the lists and folders in the bin, the most recently deleted first, as the last
+    /// scan of the bin found them and RuDo changed them since.
+    ///
+    /// The bin is scanned with the workspace and again by [`Workspace::rescan_bin`]; a
+    /// [`Workspace::rescan`] leaves it alone, because the live reload ignores the bin.
+    #[must_use]
+    pub fn bin_entries(&self) -> &[BinEntry] {
+        &self.bin_entries
+    }
+
+    /// Returns the entry of the bin at `location`, relative to the bin, or `None` if the bin
+    /// has no such entry.
+    #[must_use]
+    pub fn bin_entry(&self, location: &Path) -> Option<&BinEntry> {
+        self.bin_entries
+            .iter()
+            .find(|entry| entry.location() == location)
+    }
+
+    /// Scans the bin again, for example after emptying it left some entries behind.
+    pub fn rescan_bin(&mut self) {
+        self.bin_entries = scan_bin(&self.root, &self.bin);
+    }
+
+    /// Moves the folder or list that was just moved into the bin as `trashed` from the tree
+    /// into the bin, with its loaded documents, and returns `false` if the tree has no entry
+    /// at its original path.
+    pub fn trash(&mut self, trashed: TrashedEntry) -> bool {
+        let Some(entry) = self.remove(trashed.original()) else {
+            return false;
+        };
+        self.bin_entries
+            .insert(0, BinEntry::moved_in(entry, trashed));
+        true
+    }
+
+    /// Removes the entry at `location`, relative to the bin, after it left the bin on disk,
+    /// and returns it; `None` if the bin has no such entry.
+    pub fn remove_bin_entry(&mut self, location: &Path) -> Option<BinEntry> {
+        let index = self
+            .bin_entries
+            .iter()
+            .position(|entry| entry.location() == location)?;
+        Some(self.bin_entries.remove(index))
     }
 
     /// Returns the configured indentation for lists without indented tasks.
@@ -260,7 +309,7 @@ impl Workspace {
                     .into_owned();
             }
         }
-        move_entry(&mut entry, to.to_path_buf());
+        relocate_entry(&mut entry, to.to_path_buf());
         let target = folder_entries_mut(&mut self.entries, folder)
             .expect("the target folder exists and is not inside the moved entry");
         Some(insert_in_display_order(target, entry))
@@ -299,8 +348,15 @@ fn insert_in_display_order(entries: &mut Vec<Entry>, entry: Entry) -> &Entry {
     &entries[index]
 }
 
+/// Reads the folder `root` recursively into its tree of folders and lists, without the bin
+/// `bin`, and loads every list, as [`Workspace::scan`] does.
+pub(crate) fn scan_tree(root: &Path, bin: &BinPath) -> io::Result<Vec<Entry>> {
+    let pending = read_directory(root, bin, Path::new(""))?;
+    Ok(load_entries(root, pending).0)
+}
+
 /// Moves `entry` to the relative path `to`, together with everything inside it.
-fn move_entry(entry: &mut Entry, to: PathBuf) {
+pub(crate) fn relocate_entry(entry: &mut Entry, to: PathBuf) {
     match entry {
         Entry::Folder(folder) => {
             for child in &mut folder.entries {
@@ -309,7 +365,7 @@ fn move_entry(entry: &mut Entry, to: PathBuf) {
                     .file_name()
                     .expect("the path of an entry ends with its file name");
                 let child_to = to.join(file_name);
-                move_entry(child, child_to);
+                relocate_entry(child, child_to);
             }
             folder.path = to;
         }
@@ -422,6 +478,11 @@ impl Folder {
     #[must_use]
     pub fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    /// Returns the folders and lists inside this folder, consuming it.
+    pub(crate) fn into_entries(self) -> Vec<Entry> {
+        self.entries
     }
 }
 
@@ -906,7 +967,7 @@ mod tests {
 
     use super::*;
     use crate::markdown::document::TaskId;
-    use crate::storage::bin::BinPath;
+    use crate::storage::bin::{BinPath, move_to_bin};
 
     fn write_file(root: &Path, relative: &str, content: &[u8]) {
         let path = root.join(relative);
@@ -1043,6 +1104,78 @@ mod tests {
         let system_under_test = scan(&root);
 
         assert_eq!(outline(system_under_test.entries()), expected);
+    }
+
+    #[test]
+    fn scan_loads_the_content_of_the_bin_separately() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), ".trash/deleted.md", b"- [ ] Gone\n");
+        write_file(root.path(), "inbox.md", b"");
+        let expected = Path::new("deleted.md");
+
+        let system_under_test = scan(&root);
+
+        let locations: Vec<&Path> = system_under_test
+            .bin_entries()
+            .iter()
+            .map(BinEntry::location)
+            .collect();
+        assert_eq!(locations, [expected]);
+        assert!(system_under_test.bin_entry(expected).is_some());
+        assert!(system_under_test.bin_entry(Path::new("inbox.md")).is_none());
+    }
+
+    #[test]
+    fn trash_moves_an_entry_with_its_documents_from_the_tree_into_the_bin() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/chores.md", b"- [ ] Vacuum\n");
+        let mut workspace = scan(&root);
+        let trashed = move_to_bin(root.path(), workspace.bin(), Path::new("home")).unwrap();
+        let expected = Path::new("home/chores.md");
+
+        let system_under_test = workspace.trash(trashed);
+
+        assert!(system_under_test);
+        assert!(workspace.entries().is_empty());
+        let Entry::Folder(folder) = workspace.bin_entries()[0].entry() else {
+            panic!("expected the folder in the bin");
+        };
+        let Entry::List(list) = &folder.entries()[0] else {
+            panic!("expected the list inside the folder");
+        };
+        assert_eq!(list.path().as_path(), expected);
+        assert_eq!(list.content().unwrap().document().progress().total(), 1);
+    }
+
+    #[test]
+    fn trash_of_an_entry_missing_from_the_tree_changes_nothing() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"");
+        let trashed = move_to_bin(root.path(), &BinPath::default(), Path::new("inbox.md")).unwrap();
+        let mut workspace = scan(&root);
+        let bin_entries = workspace.bin_entries().len();
+
+        let system_under_test = workspace.trash(trashed);
+
+        assert!(!system_under_test);
+        assert_eq!(workspace.bin_entries().len(), bin_entries);
+    }
+
+    #[test]
+    fn remove_bin_entry_forgets_it_and_rescan_bin_finds_it_again() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), ".trash/deleted.md", b"");
+        let mut workspace = scan(&root);
+        let removed = workspace
+            .remove_bin_entry(Path::new("deleted.md"))
+            .map(|entry| entry.location().to_path_buf());
+        let after_removal = workspace.bin_entries().len();
+
+        workspace.rescan_bin();
+
+        assert_eq!(removed, Some(PathBuf::from("deleted.md")));
+        assert_eq!(after_removal, 0);
+        assert_eq!(workspace.bin_entries().len(), 1);
     }
 
     #[rstest]

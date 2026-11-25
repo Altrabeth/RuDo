@@ -75,7 +75,7 @@ fn shown_entries(test_app: &TestApp) -> Vec<String> {
         .outline()
         .visible_rows(&items)
         .iter()
-        .map(|row| row.item().entry().name().to_owned())
+        .filter_map(|row| row.item().entry().map(|entry| entry.name().to_owned()))
         .collect()
 }
 

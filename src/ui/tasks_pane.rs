@@ -9,6 +9,9 @@
 //! is shown where the task will be inserted; the document itself is only changed on submit.
 //! While an existing task is edited, its row shows the text input in place of its
 //! description.
+//!
+//! While the bin is open, the pane shows the entry selected in the bin instead of the active
+//! list, read-only and below a hint how to restore it.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -20,6 +23,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use crate::app::filter::SmartCaseQuery;
+use crate::app::lists::entry_description;
 use crate::app::search::PaneFilter;
 use crate::app::task_input::InlineEditKind;
 use crate::app::task_visibility::CompletedTasks;
@@ -33,6 +37,8 @@ use crate::domain::priority::Priority;
 use crate::domain::tags;
 use crate::markdown::document::{InsertPosition, TaskId};
 use crate::markdown::task_line::{FieldKey, TaskLine, TaskStatus};
+use crate::storage::bin::BinEntry;
+use crate::storage::workspace::Entry;
 use crate::ui::highlight::Highlight;
 use crate::ui::outline::{FilterRole, Fold, Outline, OutlineItem, OutlineRow};
 use crate::ui::pane_message::{NO_MATCHES, key_sentence, render_message};
@@ -56,6 +62,8 @@ const LEAF_MARKER: &str = "  ";
 pub(crate) const TITLE_SEPARATOR: &str = "  ";
 /// Ends the title while completed tasks are hidden.
 const COMPLETED_HIDDEN: &str = "completed hidden";
+/// Ends the title of an entry of the bin.
+const IN_THE_BIN: &str = "in the bin";
 /// Columns that tree guides never take from a row: the fold marker, the checkbox and the
 /// first ten cells of the description.
 const MIN_TEXT_WIDTH: usize = 16;
@@ -65,9 +73,17 @@ const METADATA_GAP: &str = " ";
 /// Returns the title of the tasks pane of `app`: the name of the active list with its
 /// `done/total` counter of all tasks, followed by `completed hidden` while completed tasks
 /// are hidden and by the search filter while one is active, or [`TITLE`] while no list is
-/// open.
+/// open. While the bin is open, it names the selected entry of the bin, such as
+/// `Groceries  1/3  in the bin`.
 #[must_use]
 pub fn title(app: &App) -> Cow<'_, str> {
+    if app.lists().bin_view().is_some() {
+        return app
+            .selected_bin_entry()
+            .map_or(Cow::Borrowed(TITLE), |entry| {
+                Cow::Owned(bin_entry_title(entry))
+            });
+    }
     let Some(list) = app.active_list() else {
         return Cow::Borrowed(TITLE);
     };
@@ -96,11 +112,33 @@ pub fn title(app: &App) -> Cow<'_, str> {
     }
 }
 
+/// Returns the title of `entry` of the bin: its name, the `done/total` counter of a list and
+/// [`IN_THE_BIN`].
+fn bin_entry_title(entry: &BinEntry) -> String {
+    let name = entry.entry().name();
+    match entry.entry() {
+        Entry::List(list) => match list.content() {
+            Ok(loaded) => format!(
+                "{name}{TITLE_SEPARATOR}{}{TITLE_SEPARATOR}{IN_THE_BIN}",
+                loaded.document().progress()
+            ),
+            Err(_) => format!("{name}{TITLE_SEPARATOR}{IN_THE_BIN}"),
+        },
+        Entry::Folder(_) => format!("{name}{TITLE_SEPARATOR}{IN_THE_BIN}"),
+    }
+}
+
 /// Renders the contents of the tasks pane of `app` into `area`, the inside of its border.
 ///
 /// The rows start at the scroll offset of the outline, which the app keeps valid for the
 /// height of `area` because it derives the viewport from the same layout.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
+    if app.lists().bin_view().is_some() {
+        if let Some(entry) = app.selected_bin_entry() {
+            render_bin_entry(app, frame, area, entry);
+        }
+        return;
+    }
     let text_area = area.inner(Margin::new(PADDING, 0));
     let Some(list) = app.active_list() else {
         render_message(
@@ -174,6 +212,58 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         rows: &rows[first_row..],
     };
     render_rows(app, frame, area, &shown);
+}
+
+/// Renders `entry` of the bin into `area` without letting it be edited: the hint how to
+/// restore it, followed by the tasks of a list, all unfolded and none selected.
+fn render_bin_entry(app: &App, frame: &mut Frame, area: Rect, entry: &BinEntry) {
+    let text_area = area.inner(Margin::new(PADDING, 0));
+    let hint = restore_hint(app.keymap());
+    let list = match entry.entry() {
+        Entry::List(list) => list,
+        Entry::Folder(_) => {
+            let message = format!("In the bin: {}. {hint}", entry_description(entry.entry()));
+            render_message(app, frame, text_area, &message, Slot::Text);
+            return;
+        }
+    };
+    let loaded = match list.content() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            let message = error.to_string();
+            render_message(app, frame, text_area, &message, Slot::MessageError);
+            return;
+        }
+    };
+    let [hint_area, _, rows_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+    ])
+    .areas(area);
+    let hint_area = hint_area.inner(Margin::new(PADDING, 0));
+    render_message(app, frame, hint_area, &hint, Slot::FilterContext);
+    let items = visible_task_items(loaded.document(), app.completed_tasks(), None);
+    let rows: Vec<PaneRow<'_, '_>> = Outline::new()
+        .visible_rows(&items)
+        .into_iter()
+        .map(PaneRow::Task)
+        .collect();
+    let shown = ShownRows {
+        selected: None,
+        visual: &HashSet::new(),
+        query: None,
+        rows: &rows,
+    };
+    render_rows(app, frame, rows_area, &shown);
+}
+
+/// Tells that an entry of the bin is read-only and which key restores it, as the keymap
+/// actually binds it.
+fn restore_hint(keymap: &Keymap) -> String {
+    key_sentence(keymap, Action::RestoreFromBin, |keys| {
+        format!("Read only. Press {keys} to restore it.")
+    })
 }
 
 /// Returns the tasks among `rows` that are selected in visual mode, computed once per frame;
@@ -964,6 +1054,21 @@ mod tests {
         let keymap = keymap(yaml);
 
         let system_under_test = no_tasks_hint(&keymap);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::default("", "Read only. Press R to restore it.")]
+    #[case::rebound("restore-from-bin: [ctrl-x]", "Read only. Press ctrl-x to restore it.")]
+    #[case::unbound("restore-from-bin: []", "Bind restore-from-bin in your configuration")]
+    fn restore_hint_names_the_key_bound_to_restore_from_bin(
+        #[case] yaml: &str,
+        #[case] expected: &str,
+    ) {
+        let keymap = keymap(yaml);
+
+        let system_under_test = restore_hint(&keymap);
 
         assert_eq!(system_under_test, expected);
     }

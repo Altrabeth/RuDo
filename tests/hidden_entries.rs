@@ -20,8 +20,9 @@ use rudo::storage::watch::{FsChange, PathState};
 use crate::common::TestApp;
 
 /// Rows in display order while hidden entries are shown: `.obsidian/` (`templates/` with
-/// `Daily`), `Home/` (`Chores`), `.drafts`, `Inbox`. Only `Home/`, `Chores` and `Inbox` are
-/// visible; `.git/` has no list and `.trash/` is the bin, so neither is ever shown.
+/// `Daily`), `Home/` (`Chores`), `.drafts`, `Inbox`, then the row of the bin. Only `Home/`,
+/// `Chores`, `Inbox` and the bin are visible; `.git/` has no list and `.trash/` is the bin, so
+/// neither is ever part of the tree.
 const WORKSPACE: &[(&str, &str)] = &[
     (".obsidian/workspace.json", "{}"),
     (".obsidian/templates/Daily.md", "- [ ] Plan the day\n"),
@@ -58,13 +59,14 @@ fn style_at(backend: &TestBackend, x: u16, y: u16) -> Style {
     Style::new().fg(cell.fg).add_modifier(cell.modifier)
 }
 
-/// Returns the names of the entries the lists pane shows, in display order.
+/// Returns the names of the entries the lists pane shows, in display order, without the row
+/// of the bin.
 fn row_names(test_app: &TestApp) -> Vec<String> {
     let app = test_app.app();
     app.lists()
         .items(app.workspace())
         .iter()
-        .map(|item| item.entry().name().to_owned())
+        .filter_map(|item| item.entry().map(|entry| entry.name().to_owned()))
         .collect()
 }
 
@@ -155,8 +157,8 @@ fn h_twice_hides_them_again() {
 }
 
 #[rstest]
-#[case::visible_entry_stays_selected("G H", "Inbox")]
-#[case::hidden_list_hands_over_to_the_nearest_entry("G k H", "Inbox")]
+#[case::visible_entry_stays_selected("G k H", "Inbox")]
+#[case::hidden_list_hands_over_to_the_nearest_entry("G k k H", "Inbox")]
 #[case::entry_in_a_hidden_folder_hands_over_to_the_next("g g j j H", "Home")]
 #[case::hidden_folder_hands_over_to_the_next("g g H", "Home")]
 fn hiding_again_keeps_the_selection_sensible(#[case] keys: &str, #[case] expected: &str) {
@@ -173,7 +175,7 @@ fn showing_hidden_entries_keeps_the_selection() {
     let mut test_app = TestApp::new(WORKSPACE);
     let expected = Some("Inbox".to_owned());
 
-    let system_under_test = test_app.press("G H");
+    let system_under_test = test_app.press("G k H");
 
     assert_eq!(selected_name(system_under_test), expected);
 }
@@ -293,7 +295,7 @@ fn a_new_list_in_the_bin_never_appears() {
 #[test]
 fn visual_mode_deletes_a_shown_hidden_list_with_a_visible_one() {
     let mut test_app = TestApp::new(WORKSPACE);
-    test_app.press("H G k");
+    test_app.press("H G k k");
 
     let system_under_test = test_app.press("v j d y");
 

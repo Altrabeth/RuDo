@@ -192,11 +192,16 @@ impl App {
         }
     }
 
-    /// Returns the lists and folders selected in the lists pane, or `None` without a
-    /// selection there.
+    /// Returns the lists and folders selected in the lists pane, never the row of the bin, or
+    /// `None` without a selection there.
     fn selected_entries(&self) -> Option<Vec<EntryKey>> {
         let items = self.lists.items(&self.workspace);
-        selected_keys(self.lists.outline(), &items, TreeItem::role)
+        let mut keys = selected_keys(self.lists.outline(), &items, TreeItem::role)?;
+        keys.retain(|key| match key {
+            EntryKey::Folder(_) | EntryKey::List(_) => true,
+            EntryKey::Bin(_) => false,
+        });
+        Some(keys)
     }
 
     /// Returns the active list with the tasks selected in its tasks pane, or `None` without a

@@ -317,9 +317,12 @@ fn prefix_conflicts(
 const fn types_text(context: Context) -> bool {
     match context {
         Context::Input => true,
-        Context::Lists | Context::Tasks | Context::Visual | Context::Help | Context::Dialog => {
-            false
-        }
+        Context::Lists
+        | Context::Tasks
+        | Context::Visual
+        | Context::Bin
+        | Context::Help
+        | Context::Dialog => false,
     }
 }
 
@@ -460,7 +463,7 @@ mod tests {
     #[test]
     fn key_of_another_action_is_a_conflict_in_every_shared_context() {
         let overrides = bindings("undo: q");
-        let expected: Vec<KeymapError> = [Context::Lists, Context::Tasks]
+        let expected: Vec<KeymapError> = [Context::Lists, Context::Tasks, Context::Bin]
             .into_iter()
             .map(|context| KeymapError::Conflict {
                 context,
@@ -496,7 +499,7 @@ mod tests {
     #[test]
     fn binding_that_begins_another_is_a_prefix_conflict() {
         let overrides = bindings("help: g");
-        let expected: Vec<KeymapError> = [Context::Lists, Context::Tasks]
+        let expected: Vec<KeymapError> = [Context::Lists, Context::Tasks, Context::Bin]
             .into_iter()
             .map(|context| KeymapError::PrefixConflict {
                 context,
@@ -530,7 +533,7 @@ mod tests {
 
         let system_under_test = Keymap::new(&overrides).unwrap_err();
 
-        assert_eq!(system_under_test[2..], expected);
+        assert_eq!(system_under_test[2..4], expected);
     }
 
     #[rstest]
@@ -617,6 +620,19 @@ mod tests {
             },
             KeymapError::PrefixConflict {
                 context: Context::Tasks,
+                prefix: sequence("g"),
+                prefix_action: Action::Help,
+                sequence: sequence("g g"),
+                action: Action::MoveToTop,
+            },
+            KeymapError::Conflict {
+                context: Context::Bin,
+                sequence: sequence("q"),
+                first: Action::Quit,
+                second: Action::Undo,
+            },
+            KeymapError::PrefixConflict {
+                context: Context::Bin,
                 prefix: sequence("g"),
                 prefix_action: Action::Help,
                 sequence: sequence("g g"),

@@ -1,18 +1,20 @@
 //! The `rudo` binary: parses the command line, sets up logging, loads the configuration and
-//! the keymap and either runs a `config` subcommand or runs the terminal interface on the
-//! workspace folder.
+//! the keymap and either runs a `config` or `bin` subcommand or runs the terminal interface on
+//! the workspace folder.
 
 use std::env;
-use std::fmt;
-use std::io::{self, Write};
+use std::fmt::{self, Write as _};
+use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::Parser;
 use jiff::ZonedDateTime;
-use rudo::app::App;
-use rudo::cli::{Cli, Command, ConfigCommand};
+use jiff::tz::TimeZone;
+use rudo::app::bin::{emptied_message, empty_bin_question};
+use rudo::app::{App, Severity};
+use rudo::cli::{BinCommand, Cli, Command, ConfigCommand, bin_entry_line};
 use rudo::config::root::WorkspaceRoot;
 use rudo::config::settings::Settings;
 use rudo::config::theme::ColourMode;
@@ -20,6 +22,7 @@ use rudo::config::{self, CONFIG_FILE_NAMES, DEFAULT_CONFIG_YAML};
 use rudo::logging::{self, LOG_FILE_NAME};
 use rudo::paths::{self, BaseDir};
 use rudo::runtime;
+use rudo::storage::bin::{BinPath, empty_bin, scan_bin};
 use rudo::storage::workspace::Workspace;
 
 fn main() -> anyhow::Result<ExitCode> {
@@ -50,6 +53,18 @@ fn main() -> anyhow::Result<ExitCode> {
         Some(Command::Config(ConfigCommand::Check)) => {
             check_config(config_file.as_deref(), &home, colour_mode)
         }
+        Some(Command::Bin(command)) => {
+            let (settings, root) =
+                open_workspace(&cli, config_file.as_deref(), &home, colour_mode)?;
+            let bin = settings.config().workspace().bin();
+            match command {
+                BinCommand::List => list_bin(root.path(), bin),
+                BinCommand::Empty { yes: true } => empty_whole_bin(root.path(), bin),
+                BinCommand::Empty { yes: false } => {
+                    ask_and_empty_bin(root.path(), bin, &mut io::stdin().lock())
+                }
+            }
+        }
         None => {
             run(&cli, config_file.as_deref(), &home, colour_mode)?;
             Ok(ExitCode::SUCCESS)
@@ -57,13 +72,13 @@ fn main() -> anyhow::Result<ExitCode> {
     }
 }
 
-/// Runs the terminal interface on the workspace folder until the user quits.
-fn run(
+/// Loads the settings and returns them with the workspace folder, which exists.
+fn open_workspace(
     cli: &Cli,
     config_file: Option<&Path>,
     home: &Path,
     colour_mode: ColourMode,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(Settings, WorkspaceRoot)> {
     let settings =
         Settings::load(config_file, home, colour_mode).context("cannot load the configuration")?;
     tracing::info!(?config_file, ?settings, "configuration loaded");
@@ -80,7 +95,17 @@ fn run(
     root.ensure_exists()
         .context("cannot open the workspace folder")?;
     tracing::info!(?root, "workspace root resolved");
+    Ok((settings, root))
+}
 
+/// Runs the terminal interface on the workspace folder until the user quits.
+fn run(
+    cli: &Cli,
+    config_file: Option<&Path>,
+    home: &Path,
+    colour_mode: ColourMode,
+) -> anyhow::Result<()> {
+    let (settings, root) = open_workspace(cli, config_file, home, colour_mode)?;
     let (config, theme, keymap) = settings.into_parts();
     let workspace = Workspace::scan(
         root.path(),
@@ -131,6 +156,57 @@ fn check_config(
             Ok(ExitCode::FAILURE)
         }
     }
+}
+
+/// Runs `rudo bin list`: prints one line per entry of the bin `bin` of the workspace `root`.
+fn list_bin(root: &Path, bin: &BinPath) -> anyhow::Result<ExitCode> {
+    let time_zone = TimeZone::system();
+    let mut listing = String::new();
+    for entry in scan_bin(root, bin) {
+        writeln!(listing, "{}", bin_entry_line(&entry, &time_zone))
+            .expect("writing to a string cannot fail");
+    }
+    write_output(io::stdout().lock(), format_args!("{listing}"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Runs `rudo bin empty` without `--yes`: asks the question of the bin view on stdout and
+/// empties the bin `bin` of the workspace `root` only if `answers` starts with `y` or `yes`.
+fn ask_and_empty_bin(
+    root: &Path,
+    bin: &BinPath,
+    answers: &mut impl BufRead,
+) -> anyhow::Result<ExitCode> {
+    let entries = scan_bin(root, bin);
+    if entries.is_empty() {
+        write_output(io::stdout().lock(), format_args!("the bin is empty\n"))?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    let question = empty_bin_question(&entries);
+    write_output(io::stdout().lock(), format_args!("{question} [y/N] "))?;
+    let mut answer = String::new();
+    answers
+        .read_line(&mut answer)
+        .context("cannot read the answer")?;
+    if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+        write_output(io::stderr().lock(), format_args!("nothing deleted\n"))?;
+        return Ok(ExitCode::FAILURE);
+    }
+    empty_whole_bin(root, bin)
+}
+
+/// Deletes everything in the bin `bin` of the workspace `root` permanently and reports the
+/// result: success on stdout, the entries that could not be deleted on stderr with a failing
+/// exit code.
+fn empty_whole_bin(root: &Path, bin: &BinPath) -> anyhow::Result<ExitCode> {
+    let message = emptied_message(&empty_bin(root, bin));
+    if message.severity() == Severity::Error {
+        tracing::warn!(report = message.text(), "cannot empty the bin");
+        write_output(io::stderr().lock(), format_args!("{}\n", message.text()))?;
+        return Ok(ExitCode::FAILURE);
+    }
+    write_output(io::stdout().lock(), format_args!("{}\n", message.text()))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Writes program output (not logging) to `writer` and flushes it.

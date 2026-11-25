@@ -22,6 +22,8 @@ pub enum Context {
     Tasks,
     /// Several rows of the focused pane are selected in visual mode.
     Visual,
+    /// The lists pane shows the content of the bin.
+    Bin,
     /// The help screen is open.
     Help,
     /// A confirmation dialog is open.
@@ -41,7 +43,7 @@ pub enum Context {
 /// use rudo::config::keymap::action::{Action, Context};
 ///
 /// let action = Action::Quit;
-/// assert_eq!(action.contexts(), [Context::Lists, Context::Tasks]);
+/// assert_eq!(action.contexts(), [Context::Lists, Context::Tasks, Context::Bin]);
 /// let keys: Vec<String> = action.default_keys().iter().map(ToString::to_string).collect();
 /// assert_eq!(keys, ["q", "ctrl-c"]);
 /// ```
@@ -169,6 +171,12 @@ pub enum Action {
     DeleteSelection,
     /// Copy the selected tasks and their subtasks.
     YankSelection,
+    /// Move the selected entry of the bin back to where it came from.
+    RestoreFromBin,
+    /// Delete everything in the bin permanently.
+    EmptyBin,
+    /// Return from the bin to the lists.
+    CloseBin,
     /// Close the help screen.
     CloseHelp,
     /// Confirm a dialog.
@@ -187,6 +195,7 @@ impl Display for Context {
             Self::Lists => "lists pane",
             Self::Tasks => "tasks pane",
             Self::Visual => "visual mode",
+            Self::Bin => "bin",
             Self::Help => "help screen",
             Self::Dialog => "dialogs",
             Self::Input => "text input",
@@ -195,14 +204,18 @@ impl Display for Context {
 }
 
 const GLOBAL: &[Context] = &[Context::Lists, Context::Tasks];
+const EVERYWHERE: &[Context] = &[Context::Lists, Context::Tasks, Context::Bin];
 const SEARCH: &[Context] = &[Context::Lists, Context::Tasks, Context::Help];
 const NAVIGATION: &[Context] = &[
     Context::Lists,
     Context::Tasks,
     Context::Visual,
+    Context::Bin,
     Context::Help,
 ];
 const TREE: &[Context] = &[Context::Lists, Context::Tasks];
+const TREE_AND_BIN: &[Context] = &[Context::Lists, Context::Tasks, Context::Bin];
+const BIN: &[Context] = &[Context::Bin];
 const LISTS: &[Context] = &[Context::Lists];
 const LISTS_AND_VISUAL: &[Context] = &[Context::Lists, Context::Visual];
 const TASKS: &[Context] = &[Context::Tasks];
@@ -273,6 +286,9 @@ impl Action {
             Self::VisualMode => "select several rows from here on, or stop selecting",
             Self::DeleteSelection => "delete the selected tasks, lists or folders",
             Self::YankSelection => "copy the selected tasks and their subtasks",
+            Self::RestoreFromBin => "move the entry back to where it came from",
+            Self::EmptyBin => "delete everything in the bin permanently (asks first)",
+            Self::CloseBin => "return to the lists",
             Self::CloseHelp => "close the help screen",
             Self::ConfirmYes => "confirm",
             Self::ConfirmNo => "cancel",
@@ -336,6 +352,9 @@ impl Action {
             Self::SortAlphabetically => "sort a-z",
             Self::SortByStatus => "sort status",
             Self::VisualMode => "visual",
+            Self::RestoreFromBin => "restore",
+            Self::EmptyBin => "empty bin",
+            Self::CloseBin => "back",
             Self::CloseHelp => "close",
             Self::ConfirmYes => "yes",
             Self::ConfirmNo => "no",
@@ -347,19 +366,16 @@ impl Action {
     /// Returns the contexts in which the action can be triggered; never empty.
     ///
     /// Global actions are valid in the lists and tasks pane, navigation actions also in
-    /// visual mode and on the help screen.
+    /// visual mode, in the bin and on the help screen.
     #[must_use]
     pub const fn contexts(self) -> &'static [Context] {
         match self {
-            Self::Help
-            | Self::Quit
-            | Self::FocusNext
+            Self::Help | Self::Quit | Self::Undo | Self::Redo => EVERYWHERE,
+            Self::FocusNext
             | Self::FocusPrevious
             | Self::FocusLists
             | Self::FocusTasks
             | Self::ClearFilter
-            | Self::Undo
-            | Self::Redo
             | Self::OpenInEditor => GLOBAL,
             Self::Search => SEARCH,
             Self::MoveDown
@@ -368,12 +384,10 @@ impl Action {
             | Self::MoveToBottom
             | Self::HalfPageDown
             | Self::HalfPageUp => NAVIGATION,
-            Self::Collapse
-            | Self::Expand
-            | Self::ToggleFold
-            | Self::FoldAll
-            | Self::UnfoldAll
-            | Self::Delete => TREE,
+            Self::Collapse | Self::Expand | Self::ToggleFold | Self::FoldAll | Self::UnfoldAll => {
+                TREE
+            }
+            Self::Delete => TREE_AND_BIN,
             Self::Open | Self::NewList | Self::NewFolder | Self::Rename | Self::ToggleHidden => {
                 LISTS
             }
@@ -401,6 +415,7 @@ impl Action {
             | Self::ToggleCompleted => TASKS,
             Self::VisualMode => PANES_AND_VISUAL,
             Self::DeleteSelection | Self::YankSelection => VISUAL,
+            Self::RestoreFromBin | Self::EmptyBin | Self::CloseBin => BIN,
             Self::CloseHelp => HELP,
             Self::ConfirmYes | Self::ConfirmNo => DIALOG,
             Self::Submit => INPUT,
@@ -443,6 +458,9 @@ impl Action {
             Self::HalfPageDown => &["ctrl-d", "pagedown"],
             Self::HalfPageUp => &["ctrl-u", "pageup"],
             Self::Collapse => &["h", "left"],
+            Self::CloseBin => &["h", "left", "esc"],
+            Self::RestoreFromBin => &["R"],
+            Self::EmptyBin => &["E"],
             Self::Expand => &["l", "right"],
             Self::ToggleFold => &["z a"],
             Self::FoldAll => &["z M"],
@@ -558,6 +576,9 @@ mod tests {
     #[case::move_to_folder(Action::MoveToFolder, &["m"])]
     #[case::toggle_completed(Action::ToggleCompleted, &["H"])]
     #[case::toggle_hidden(Action::ToggleHidden, &["H"])]
+    #[case::restore_from_bin(Action::RestoreFromBin, &["R"])]
+    #[case::empty_bin(Action::EmptyBin, &["E"])]
+    #[case::close_bin(Action::CloseBin, &["h", "left", "esc"])]
     fn default_keys_match_the_readme(#[case] action: Action, #[case] notations: &[&str]) {
         let expected = sequences(notations);
 
@@ -567,14 +588,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case::global(Action::Quit, &[Context::Lists, Context::Tasks])]
+    #[case::everywhere(Action::Quit, &[Context::Lists, Context::Tasks, Context::Bin])]
+    #[case::global(Action::FocusNext, &[Context::Lists, Context::Tasks])]
     #[case::search(Action::Search, &[Context::Lists, Context::Tasks, Context::Help])]
     #[case::navigation(
         Action::MoveDown,
-        &[Context::Lists, Context::Tasks, Context::Visual, Context::Help]
+        &[Context::Lists, Context::Tasks, Context::Visual, Context::Bin, Context::Help]
     )]
     #[case::tree(Action::ToggleFold, &[Context::Lists, Context::Tasks])]
-    #[case::delete(Action::Delete, &[Context::Lists, Context::Tasks])]
+    #[case::delete(Action::Delete, &[Context::Lists, Context::Tasks, Context::Bin])]
+    #[case::bin(Action::RestoreFromBin, &[Context::Bin])]
     #[case::lists(Action::NewList, &[Context::Lists])]
     #[case::tasks(Action::NewTaskBelow, &[Context::Tasks])]
     #[case::toggle_completed(Action::ToggleCompleted, &[Context::Tasks])]
@@ -618,6 +641,7 @@ mod tests {
     #[case::lists(Context::Lists, "lists pane")]
     #[case::tasks(Context::Tasks, "tasks pane")]
     #[case::visual(Context::Visual, "visual mode")]
+    #[case::bin(Context::Bin, "bin")]
     #[case::help(Context::Help, "help screen")]
     #[case::dialog(Context::Dialog, "dialogs")]
     #[case::input(Context::Input, "text input")]

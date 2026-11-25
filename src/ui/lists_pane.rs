@@ -1,22 +1,26 @@
 //! The lists pane: the workspace tree of folders and lists.
 //!
-//! Every row is a folder with its fold marker or a list with its `done/total` counter. The
-//! counters are computed from the documents for the rendered rows only, so they follow every
-//! edit without a cache.
+//! Every row is a folder with its fold marker or a list with its `done/total` counter, and the
+//! last row the bin with the number of entries in it. The counters are computed from the
+//! documents for the rendered rows only, so they follow every edit without a cache. While the
+//! bin is open, the pane shows its entries with their original path and deletion date instead.
 
 use std::borrow::Cow;
 
+use jiff::tz::TimeZone;
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::app::bin::{BinView, bin_items};
 use crate::app::entry_visibility::HiddenEntries;
-use crate::app::lists::TreeItem;
+use crate::app::lists::{TreeItem, TreeRow};
 use crate::app::{App, Focus};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::Slot;
+use crate::storage::bin::BinEntry;
 use crate::storage::workspace::{Entry, List};
 use crate::ui::highlight::Highlight;
 use crate::ui::outline::{FilterRole, Fold, OutlineItem, OutlineRow};
@@ -25,6 +29,10 @@ use crate::ui::tasks_pane::TITLE_SEPARATOR;
 
 /// Title of the lists pane.
 pub const TITLE: &str = "Lists";
+/// Title of the lists pane while it shows the bin, and the name of its row in the tree.
+pub const BIN_TITLE: &str = "Bin";
+/// Shown instead of the deletion date of an entry that another program put into the bin.
+const UNKNOWN_DATE: &str = "unknown";
 
 /// Blank columns between the border and the text of a row.
 const PADDING: u16 = 1;
@@ -45,9 +53,12 @@ const HIDDEN_SHOWN: &str = "hidden shown";
 
 /// Returns the title of the lists pane of `app`: [`TITLE`], followed by `hidden shown` while
 /// hidden entries are shown and by the search filter while one is active, such as
-/// `Lists  hidden shown  /milk`.
+/// `Lists  hidden shown  /milk`, or [`BIN_TITLE`] while the bin is open.
 #[must_use]
 pub fn title(app: &App) -> Cow<'_, str> {
+    if app.lists().bin_view().is_some() {
+        return Cow::Borrowed(BIN_TITLE);
+    }
     let filter = app.lists().filter();
     let hidden_shown = match app.hidden_entries() {
         HiddenEntries::Shown => Some(HIDDEN_SHOWN),
@@ -73,8 +84,12 @@ pub fn title(app: &App) -> Cow<'_, str> {
 /// The rows start at the scroll offset of the outline, which the app keeps valid for the
 /// height of `area` because it derives the viewport from the same layout. Rows selected in
 /// visual mode are drawn with [`Slot::VisualSelection`], except folders shown only because
-/// they contain a search match.
+/// they contain a search match and the bin, which no selection acts on.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
+    if let Some(view) = app.lists().bin_view() {
+        render_bin(app, frame, area, view);
+        return;
+    }
     let items = app.lists().items(app.workspace());
     if items.is_empty() {
         let text_area = area.inner(Margin::new(PADDING, 0));
@@ -100,7 +115,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         .rows()
         .zip(rows.iter().enumerate().skip(outline.offset()))
     {
-        if visual_rows.contains(&index) && row.item().role() == FilterRole::Match {
+        if visual_rows.contains(&index)
+            && row.item().role() == FilterRole::Match
+            && row.item().entry().is_some()
+        {
             frame.buffer_mut().set_style(row_area, visual_selection);
         }
         if Some(index) == selected_row {
@@ -121,7 +139,19 @@ fn render_row(app: &App, frame: &mut Frame, area: Rect, row: &OutlineRow<'_, Tre
         width: area.width - indent,
         ..area
     };
-    let entry = row.item().entry();
+    let entry = match row.item().row() {
+        TreeRow::Entry(entry) => entry,
+        TreeRow::Bin(entries) => {
+            let label =
+                Line::from_iter([LIST_MARKER, BIN_TITLE]).style(app.theme().style(Slot::Bin));
+            let counter = Span::styled(
+                entries.len().to_string(),
+                app.theme().style(Slot::ListCount),
+            );
+            render_with_counter(frame, label_area, label, counter);
+            return;
+        }
+    };
     match entry {
         Entry::Folder(folder) => {
             let marker = match row.fold() {
@@ -154,17 +184,8 @@ fn label_style(app: &App, entry: &Entry, slot: Slot) -> Style {
     }
 }
 
-/// Renders `list` with its marker and its right-aligned counter into `area`, its name in
-/// `style`.
-fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List, style: Style) {
-    let theme = app.theme();
-    let counter = match list.content() {
-        Ok(loaded) => Span::styled(
-            loaded.document().progress().to_string(),
-            theme.style(Slot::ListCount),
-        ),
-        Err(_) => Span::styled(UNREADABLE, theme.style(Slot::MessageError)),
-    };
+/// Renders `label` into `area` with `counter` aligned to its right edge.
+fn render_with_counter(frame: &mut Frame, area: Rect, label: Line<'_>, counter: Span<'_>) {
     let counter_width = u16::try_from(counter.width())
         .unwrap_or(u16::MAX)
         .min(area.width);
@@ -177,6 +198,21 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List, style: Sty
         width: area.width.saturating_sub(counter_width + 1),
         ..area
     };
+    frame.render_widget(label, label_area);
+    frame.render_widget(counter, counter_area);
+}
+
+/// Renders `list` with its marker and its right-aligned counter into `area`, its name in
+/// `style`.
+fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List, style: Style) {
+    let theme = app.theme();
+    let counter = match list.content() {
+        Ok(loaded) => Span::styled(
+            loaded.document().progress().to_string(),
+            theme.style(Slot::ListCount),
+        ),
+        Err(_) => Span::styled(UNREADABLE, theme.style(Slot::MessageError)),
+    };
     let marker = if app.lists().active() == Some(list.path()) {
         ACTIVE_MARKER
     } else {
@@ -186,8 +222,55 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List, style: Sty
     let mut spans = vec![Span::raw(marker)];
     highlight.push_spans(&mut spans, list.name(), 0, Style::new());
     let label = Line::from(spans).style(style);
-    frame.render_widget(label, label_area);
-    frame.render_widget(counter, counter_area);
+    render_with_counter(frame, area, label, counter);
+}
+
+/// Renders the entries of the bin of `app` that `view` scrolled to into `area`, the selected
+/// one highlighted; the focus never leaves the lists pane while the bin is open.
+fn render_bin(app: &App, frame: &mut Frame, area: Rect, view: &BinView) {
+    let items = bin_items(app.workspace());
+    let outline = view.outline();
+    let rows = outline.visible_rows(&items);
+    let selection = app.theme().style(Slot::Selection);
+    for (row_area, row) in area.rows().zip(rows.iter().skip(outline.offset())) {
+        if Some(row.item().key()) == outline.selected() {
+            frame.buffer_mut().set_style(row_area, selection);
+        }
+        let text_area = row_area.inner(Margin::new(PADDING, 0));
+        render_bin_entry(app, frame, text_area, row.item().entry());
+    }
+}
+
+/// Renders `entry` of the bin into `area`: its original path, or its path in the bin if that is
+/// unknown, with the date it was deleted aligned to the right.
+fn render_bin_entry(app: &App, frame: &mut Frame, area: Rect, entry: &BinEntry) {
+    let theme = app.theme();
+    let (marker, slot) = match entry.entry() {
+        Entry::Folder(_) => (COLLAPSED_MARKER, Slot::Folder),
+        Entry::List(_) => (LIST_MARKER, Slot::List),
+    };
+    let path = entry.original().unwrap_or(entry.location());
+    let name = match entry.entry() {
+        Entry::Folder(_) => path.display().to_string(),
+        Entry::List(_) => path.with_extension("").display().to_string(),
+    };
+    let label = Line::from_iter([Span::raw(marker), Span::raw(name)]).style(theme.style(slot));
+    let date = entry
+        .deleted_at()
+        .map_or(Cow::Borrowed(UNKNOWN_DATE), |deleted_at| {
+            Cow::Owned(
+                deleted_at
+                    .to_zoned_datetime(TimeZone::system())
+                    .date()
+                    .to_string(),
+            )
+        });
+    render_with_counter(
+        frame,
+        area,
+        label,
+        Span::styled(date, theme.style(Slot::ListCount)),
+    );
 }
 
 /// Renders the hint how to create the first list into `area`.

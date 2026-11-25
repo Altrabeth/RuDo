@@ -65,6 +65,12 @@ pub enum PromptKind {
         /// The task whose recurrence rule is set or cleared.
         task: TaskId,
     },
+    /// The folder that receives the entry of the bin at `location`, relative to the bin, whose
+    /// original path is unknown; relative to the workspace root and empty for the root itself.
+    RestoreInto {
+        /// The entry to restore.
+        location: PathBuf,
+    },
 }
 
 impl PromptKind {
@@ -82,6 +88,7 @@ impl PromptKind {
                 ..
             } => "Rename folder",
             Self::MoveToFolder { .. } => "Move to folder",
+            Self::RestoreInto { .. } => "Restore into folder",
             Self::DueDate { .. } => "Due date",
             Self::Recurrence { .. } => "Recurrence",
         }
@@ -94,6 +101,7 @@ impl PromptKind {
             Self::NewList { parent } | Self::NewFolder { parent } => location_hint(parent),
             Self::Rename { path, .. } => location_hint(path.parent().unwrap_or(Path::new(""))),
             Self::MoveToFolder { .. } => Cow::Borrowed(MOVE_HINT),
+            Self::RestoreInto { .. } => Cow::Borrowed(RESTORE_HINT),
             Self::DueDate { .. } => Cow::Borrowed(DUE_DATE_HINT),
             Self::Recurrence { .. } => Cow::Borrowed(RECURRENCE_HINT),
         }
@@ -111,7 +119,8 @@ impl PromptKind {
             Self::NewList { .. }
             | Self::NewFolder { .. }
             | Self::Rename { .. }
-            | Self::MoveToFolder { .. } => Ok(None),
+            | Self::MoveToFolder { .. }
+            | Self::RestoreInto { .. } => Ok(None),
             Self::DueDate { .. } => due_preview(text, today).map(Some),
             Self::Recurrence { .. } => recurrence_preview(text).map(Some),
         }
@@ -149,6 +158,10 @@ impl PromptKind {
                 task: *task,
                 recurrence: parse_recurrence_text(text)?,
             },
+            Self::RestoreInto { location } => Submission::RestoreInto {
+                location: location.clone(),
+                folder: folder_path(text),
+            },
         })
     }
 }
@@ -171,10 +184,14 @@ enum Submission {
         task: TaskId,
         recurrence: Option<Recurrence>,
     },
+    /// Restoring the entry of the bin at `location` into `folder`.
+    RestoreInto { location: PathBuf, folder: PathBuf },
 }
 
 /// Explains the text of the prompt for the target folder of a move.
 const MOVE_HINT: &str = "like Home/Garden; empty for the top level";
+/// Explains the text of the prompt for the folder that receives a restored entry.
+const RESTORE_HINT: &str = "its original folder is unknown; like Home, empty for the top level";
 
 /// Returns the folder named by `text`, relative to the workspace root: surrounding whitespace
 /// and slashes are ignored, so that empty text names the root.
@@ -268,7 +285,16 @@ impl App {
         let Some(submission) = prompt.submit(self.today) else {
             return Vec::new();
         };
-        if let Submission::Effect(Effect::MoveEntries { entries, folder }) = &submission
+        let target = match &submission {
+            Submission::Effect(Effect::MoveEntries { entries, folder }) => {
+                Some((&entries[..], folder))
+            }
+            Submission::RestoreInto { folder, .. } => Some((&[][..], folder)),
+            Submission::Effect(_)
+            | Submission::SetDue { .. }
+            | Submission::SetRecurrence { .. } => None,
+        };
+        if let Some((entries, folder)) = target
             && let Err(error) = check_move_target(&self.workspace, entries, folder)
         {
             prompt.prompt.set_error(Some(Cow::Owned(error)));
@@ -283,6 +309,7 @@ impl App {
                 task,
                 recurrence,
             } => self.set_recurrence(&list, task, recurrence),
+            Submission::RestoreInto { location, folder } => self.restore_into(&location, &folder),
         }
     }
 

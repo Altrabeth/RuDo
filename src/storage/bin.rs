@@ -105,10 +105,14 @@ pub enum InvalidBinError {
 /// A list file or folder in the bin with the path it is restored to: where RuDo moved it from,
 /// or a folder the user chose for an entry that another program put into the bin.
 ///
-/// The index of the bin stores one per entry RuDo moved there.
+/// The index of the bin stores one per entry RuDo moved there, with `/` between the components
+/// of its paths on every platform, so that a workspace synced between Windows and Linux reads
+/// the same; either separator is read.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TrashedEntry {
+    #[serde(with = "portable_path")]
     original: PathBuf,
+    #[serde(with = "portable_path")]
     location: PathBuf,
     /// `None` for an entry that RuDo did not move into the bin.
     deleted_at: Option<Timestamp>,
@@ -131,6 +135,35 @@ impl TrashedEntry {
     #[must_use]
     pub fn deleted_at(&self) -> Option<Timestamp> {
         self.deleted_at
+    }
+}
+
+/// Writes the paths of the index with [`portable`] and reads them with [`parse_portable`].
+mod portable_path {
+    use std::path::{Path, PathBuf};
+
+    use serde::Deserialize as _;
+    use serde::de::Deserializer;
+    use serde::ser::{Error as _, Serializer};
+
+    use crate::paths::{parse_portable, portable};
+
+    /// Writes `path` with `/` between its components; a path that is not valid Unicode is an
+    /// error, as it is for a [`Path`] serialised by `serde`, so that no record names a wrong
+    /// file.
+    pub(super) fn serialize<S: Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+        if path.to_str().is_none() {
+            return Err(S::Error::custom("path contains invalid UTF-8 characters"));
+        }
+        serializer.collect_str(&portable(path))
+    }
+
+    /// Reads a path with `/` or `\` between its components.
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<PathBuf, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Ok(parse_portable(&text))
     }
 }
 
@@ -550,6 +583,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::paths::portable;
 
     fn bin() -> BinPath {
         BinPath::default()
@@ -820,8 +854,8 @@ mod tests {
             .iter()
             .map(|entry| {
                 (
-                    entry.location().display().to_string(),
-                    entry.original().map(|path| path.display().to_string()),
+                    portable(entry.location()).to_string(),
+                    entry.original().map(|path| portable(path).to_string()),
                 )
             })
             .collect()
@@ -844,6 +878,64 @@ mod tests {
                 .deleted_at()
                 .is_some_and(|deleted_at| deleted_at >= before && deleted_at <= Timestamp::now())
         );
+    }
+
+    #[test]
+    fn index_stores_paths_with_slashes() {
+        let root = TempDir::new().unwrap();
+        create(root.path(), &[("Home/Garden/Seeds.md", "")]);
+        let path: PathBuf = ["Home", "Garden", "Seeds.md"].iter().collect();
+        let index = root.path().join(".trash").join(INDEX_FILE_NAME);
+        let expected_line = r#""original": "Home/Garden/Seeds.md","#;
+        move_to_bin(root.path(), &bin(), &path).unwrap();
+
+        let system_under_test = fs::read_to_string(index).unwrap();
+
+        assert!(
+            system_under_test.contains(expected_line),
+            "{system_under_test}"
+        );
+    }
+
+    #[test]
+    fn index_with_backslashes_is_read_on_every_platform() {
+        let root = TempDir::new().unwrap();
+        let index = r#"[{
+            "original": "Home\\Groceries.md",
+            "location": "Home\\Groceries.md",
+            "deleted_at": "2026-11-20T12:00:00Z"
+        }]"#;
+        create(
+            root.path(),
+            &[
+                (".trash/Home/Groceries.md", ""),
+                (".trash/.rudo-bin.json", index),
+            ],
+        );
+        let expected = [(
+            "Home/Groceries.md".to_owned(),
+            Some("Home/Groceries.md".to_owned()),
+        )];
+
+        let system_under_test = scanned(root.path());
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn index_refuses_a_path_that_is_not_unicode() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let record = TrashedEntry {
+            original: PathBuf::from(OsStr::from_bytes(b"Caf\xe9.md")),
+            location: PathBuf::from("Cafe.md"),
+            deleted_at: None,
+        };
+
+        let system_under_test = serde_json::to_string(&record);
+
+        assert!(system_under_test.is_err());
     }
 
     #[test]

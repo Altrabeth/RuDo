@@ -128,6 +128,41 @@ fn config_path_prints_the_default_location_when_no_file_exists() {
     assert_eq!(text(&system_under_test.stdout), expected_stdout);
 }
 
+#[cfg(unix)]
+#[test]
+fn config_path_without_xdg_variable_is_in_the_config_folder_of_home() {
+    let sandbox = Sandbox::new();
+    let expected_path = sandbox.path("home/.config/rudo/config.yaml");
+    let expected_stdout = format!("{}\n", display(&expected_path));
+
+    let system_under_test = sandbox
+        .command(&["config", "path"])
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .unwrap();
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), expected_stdout);
+}
+
+#[cfg(windows)]
+#[test]
+fn config_path_without_xdg_variable_is_in_app_data() {
+    let sandbox = Sandbox::new();
+    let expected_path = sandbox.path(r"appdata\rudo\config.yaml");
+    let expected_stdout = format!("{}\n", display(&expected_path));
+
+    let system_under_test = sandbox
+        .command(&["config", "path"])
+        .env_remove("XDG_CONFIG_HOME")
+        .env("APPDATA", sandbox.path("appdata"))
+        .output()
+        .unwrap();
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), expected_stdout);
+}
+
 #[test]
 fn config_check_accepts_a_valid_file() {
     let sandbox = Sandbox::new();

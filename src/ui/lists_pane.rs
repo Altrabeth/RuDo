@@ -20,6 +20,7 @@ use crate::app::{App, Focus};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::Slot;
+use crate::paths::portable;
 use crate::storage::bin::BinEntry;
 use crate::storage::workspace::{Entry, List};
 use crate::ui::highlight::Highlight;
@@ -260,8 +261,8 @@ fn render_bin_entry(app: &App, frame: &mut Frame, area: Rect, entry: &BinEntry) 
     };
     let path = entry.original().unwrap_or(entry.location());
     let name = match entry.entry() {
-        Entry::Folder(_) => path.display().to_string(),
-        Entry::List(_) => path.with_extension("").display().to_string(),
+        Entry::Folder(_) => portable(path).to_string(),
+        Entry::List(_) => portable(&path.with_extension("")).to_string(),
     };
     let label = Line::from_iter([Span::raw(marker), Span::raw(name)]).style(theme.style(slot));
     let date = entry

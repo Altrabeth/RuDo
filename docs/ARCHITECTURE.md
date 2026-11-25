@@ -48,7 +48,9 @@ src/
   cli.rs                   clap definitions: options, `config` and `bin` subcommands, the
                            lines of `rudo bin list`
   logging.rs               file logging with `tracing-subscriber`, `RUDO_LOG` filter
-  paths.rs                 XDG config, data and state directories, `~` expansion
+  paths.rs                 config, data and state directories per Platform (XDG, Windows
+                           folders), `~` expansion, workspace paths shown and stored with `/`
+  platform.rs              Platform: the operating systems RuDo tells apart
   readme.rs                test only: README sections, tables and code spans for guard tests
   config/
     mod.rs                 Config, config file lookup, parsing with located error reports
@@ -339,7 +341,8 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   enter the workspace through `App::rescan`.
 - `move_to_bin` and `restore` keep the index of the bin, `.trash/.rudo-bin.json`
   (`serde_json`, a list of `TrashedEntry` with original path, location in the bin and
-  deletion time), written atomically. The folder is the truth: `storage::bin::scan_bin` lists
+  deletion time), written atomically. Its paths are stored with `/` on every platform
+  (`paths::portable`) and read with `/` or `\` (`paths::parse_portable`). The folder is the truth: `storage::bin::scan_bin` lists
   what is there, attaches what the index knows and shows unknown entries (notes Obsidian
   deleted) without an original path, and a missing or corrupt index only loses that
   information. `Workspace` holds the scanned bin (`Workspace::bin_entries`), scanned with the
@@ -393,8 +396,15 @@ golden files byte-exact on Windows checkouts.
 
 - No pictographic symbols in the interface. Box-drawing characters and simple geometric
   shapes (`▸`, `▾`, `•`) are fine; emoji and emoji-like dingbats are not.
-- Logging goes to a file only (`$XDG_STATE_HOME/rudo/rudo.log`); writing to stdout or stderr
-  would corrupt the terminal interface.
+- Logging goes to a file only (`$XDG_STATE_HOME/rudo/rudo.log`, `%LOCALAPPDATA%\rudo\rudo.log`
+  on Windows); writing to stdout or stderr would corrupt the terminal interface.
+- Platform differences are explicit: every function whose result differs between Linux,
+  macOS and Windows takes a `platform::Platform` (and the environment values it needs) as a
+  parameter, so that every variant is unit tested on every machine (`BaseDir::resolve`,
+  `choose_editor`). Only thin wrappers in the shell call `Platform::current()` or read the
+  environment (`BaseDir::app_dir`, the editor hand-over in `runtime::run`). Paths relative
+  to the workspace root are displayed with `paths::portable`, so they show `/` everywhere;
+  absolute paths of the operating system keep its own separator.
 - Program output of command line subcommands (`rudo config default`) goes to stdout and is
   not logging.
 - Dependencies are added with `cargo add`, with `default-features = false` where possible,

@@ -20,6 +20,7 @@ use tracing::warn;
 
 use crate::config::IndentStyle;
 use crate::markdown::document::TodoDocument;
+use crate::paths::portable;
 use crate::storage::bin::{BinEntry, BinPath, TrashedEntry, scan_bin};
 use crate::storage::entries::EntryName;
 use crate::storage::fingerprint::Fingerprint;
@@ -404,7 +405,7 @@ impl ListPath {
 
 impl Display for ListPath {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        self.0.display().fmt(formatter)
+        portable(&self.0).fmt(formatter)
     }
 }
 
@@ -993,7 +994,7 @@ mod tests {
             .iter()
             .flat_map(|entry| match entry {
                 Entry::Folder(folder) => {
-                    let mut lines = vec![format!("{}/", folder.path().display())];
+                    let mut lines = vec![format!("{}/", portable(folder.path()))];
                     lines.extend(outline(folder.entries()));
                     lines
                 }
@@ -1643,8 +1644,8 @@ mod tests {
         let mut workspace = scan(&root);
         let path = Path::new(parent).join(name);
         let inserted_line = match kind {
-            EntryKind::Folder => format!("{}/", path.display()),
-            EntryKind::List => format!("{}.md", path.display()),
+            EntryKind::Folder => format!("{}/", portable(&path)),
+            EntryKind::List => format!("{}.md", portable(&path)),
         };
         let mut expected: Vec<String> = TREE_BEFORE_INSERT.map(String::from).to_vec();
         expected.insert(expected_row, inserted_line);

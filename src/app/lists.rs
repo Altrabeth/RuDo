@@ -16,6 +16,7 @@ use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
 use crate::config::keymap::action::Action;
+use crate::paths::portable;
 use crate::storage::bin::BinEntry;
 use crate::storage::workspace::{Entry, Folder, List, ListPath, Workspace, moved_path};
 use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem, prune};
@@ -575,14 +576,14 @@ pub(super) fn check_move_target(
     folder: &Path,
 ) -> Result<(), String> {
     if !workspace.contains_folder(folder) {
-        return Err(format!("there is no folder {}", folder.display()));
+        return Err(format!("there is no folder {}", portable(folder)));
     }
     let moved_into_itself = entries.iter().find_map(|entry| match entry {
         EntryKey::Folder(path) if folder.starts_with(path) => Some(path),
         EntryKey::Folder(_) | EntryKey::List(_) | EntryKey::Bin(_) => None,
     });
     match moved_into_itself {
-        Some(path) => Err(format!("cannot move folder {} into itself", path.display())),
+        Some(path) => Err(format!("cannot move folder {} into itself", portable(path))),
         None => Ok(()),
     }
 }

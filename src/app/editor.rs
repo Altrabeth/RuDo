@@ -1,8 +1,9 @@
 //! Opening a list in an external editor: the `open-in-editor` action, which editor to run and
 //! the command line that opens the list at the selected task.
 //!
-//! Everything here is pure. The runtime reads `$VISUAL` and `$EDITOR`, hands the terminal to
-//! the [`EditorCommand`] and reloads the list with [`App::reload_list`] when the editor exits.
+//! Everything here is pure. The runtime reads `$VISUAL`, `$EDITOR` and the current platform,
+//! hands the terminal to the [`EditorCommand`] and reloads the list with [`App::reload_list`]
+//! when the editor exits.
 
 use std::ffi::OsString;
 use std::io;
@@ -14,13 +15,12 @@ use crate::app::effect::{Effect, error_report};
 use crate::app::lists::EntryKey;
 use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
+use crate::platform::Platform;
 use crate::storage::workspace::List;
 
-/// The editor used when neither the configuration nor the environment names one.
-const FALLBACK_EDITOR: &str = "vi";
-
 /// Returns the editor command line to run: `configured` from the configuration, else the
-/// values of `$VISUAL` and `$EDITOR` in that order, else `vi`.
+/// values of `$VISUAL` and `$EDITOR` in that order, else `vi`, or `notepad` if `platform` is
+/// Windows.
 ///
 /// Blank values count as unset, so that an exported but empty `$VISUAL` does not hide
 /// `$EDITOR`.
@@ -29,12 +29,14 @@ const FALLBACK_EDITOR: &str = "vi";
 ///
 /// ```
 /// use rudo::app::editor::choose_editor;
+/// use rudo::platform::Platform;
 ///
-/// assert_eq!(choose_editor(None, Some(""), Some("nano")), "nano");
-/// assert_eq!(choose_editor(None, None, None), "vi");
+/// assert_eq!(choose_editor(Platform::Linux, None, Some(""), Some("nano")), "nano");
+/// assert_eq!(choose_editor(Platform::Windows, None, None, None), "notepad");
 /// ```
 #[must_use]
 pub fn choose_editor<'command>(
+    platform: Platform,
     configured: Option<&'command str>,
     visual: Option<&'command str>,
     editor: Option<&'command str>,
@@ -43,7 +45,16 @@ pub fn choose_editor<'command>(
         .into_iter()
         .flatten()
         .find(|command| !command.trim().is_empty())
-        .unwrap_or(FALLBACK_EDITOR)
+        .unwrap_or_else(|| fallback_editor(platform))
+}
+
+/// Returns the editor used on `platform` when neither the configuration nor the environment
+/// names one.
+const fn fallback_editor(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Linux | Platform::MacOs | Platform::OtherUnix => "vi",
+        Platform::Windows => "notepad",
+    }
 }
 
 /// How an editor is told the line to open a file at.
@@ -234,6 +245,7 @@ mod tests {
     use std::fs;
 
     use rstest::rstest;
+    use strum::IntoEnumIterator;
     use tempfile::TempDir;
 
     use super::*;
@@ -244,15 +256,32 @@ mod tests {
     #[case::configured(Some("hx"), Some("nvim"), Some("nano"), "hx")]
     #[case::visual(None, Some("nvim"), Some("nano"), "nvim")]
     #[case::editor(None, None, Some("nano"), "nano")]
-    #[case::fallback(None, None, None, "vi")]
     #[case::blank_values_are_unset(Some(" "), Some(""), Some("nano"), "nano")]
-    fn editor_is_chosen_in_order(
+    fn editor_is_chosen_in_order_on_every_platform(
         #[case] configured: Option<&str>,
         #[case] visual: Option<&str>,
         #[case] editor: Option<&str>,
         #[case] expected: &str,
     ) {
-        let system_under_test = choose_editor(configured, visual, editor);
+        let system_under_test: Vec<&str> = Platform::iter()
+            .map(|platform| choose_editor(platform, configured, visual, editor))
+            .collect();
+
+        assert!(system_under_test.iter().all(|chosen| *chosen == expected));
+    }
+
+    #[rstest]
+    #[case::linux(Platform::Linux, "vi")]
+    #[case::macos(Platform::MacOs, "vi")]
+    #[case::other_unix(Platform::OtherUnix, "vi")]
+    #[case::windows(Platform::Windows, "notepad")]
+    fn without_a_choice_the_fallback_of_the_platform_is_used(
+        #[case] platform: Platform,
+        #[case] expected: &str,
+    ) {
+        let blank = Some(" ");
+
+        let system_under_test = choose_editor(platform, blank, blank, None);
 
         assert_eq!(system_under_test, expected);
     }
@@ -276,6 +305,7 @@ mod tests {
         &["-u", "NONE", "+2", "/todo/plan.md"]
     )]
     #[case::program_name_only_by_basename("vimlike", Some(2), "vimlike", &["/todo/plan.md"])]
+    #[case::notepad("notepad", Some(7), "notepad", &["/todo/plan.md"])]
     fn command_opens_the_file_at_the_line(
         #[case] command_line: &str,
         #[case] line: Option<usize>,

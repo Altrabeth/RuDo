@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 use jiff::tz::TimeZone;
 
+use crate::paths::portable;
 use crate::storage::bin::BinEntry;
 use crate::storage::workspace::Entry;
 
@@ -20,7 +21,7 @@ pub struct Cli {
     #[arg(short, long, value_name = "DIR", global = true)]
     root: Option<PathBuf>,
 
-    /// Configuration file (default: ~/.config/rudo/config.yaml)
+    /// Configuration file (default: see `rudo config path`)
     #[arg(short, long, value_name = "FILE", global = true)]
     config: Option<PathBuf>,
 
@@ -118,15 +119,15 @@ pub fn bin_entry_line(entry: &BinEntry, time_zone: &TimeZone) -> String {
         Entry::Folder(_) => "/",
         Entry::List(_) => "",
     };
-    let location = entry.location().display();
+    let location = portable(entry.location());
     match entry.original() {
         None => format!("{time}  {location}{folder_mark} (original path unknown)"),
         Some(original) if original == entry.location() => {
-            format!("{time}  {}{folder_mark}", original.display())
+            format!("{time}  {}{folder_mark}", portable(original))
         }
         Some(original) => format!(
             "{time}  {}{folder_mark} (in the bin as {location}{folder_mark})",
-            original.display()
+            portable(original)
         ),
     }
 }

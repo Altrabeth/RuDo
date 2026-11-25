@@ -33,7 +33,7 @@ tasks:
   indent: tab
 
 # Command used by `open-in-editor`, for example `nvim` or `code --wait`.
-# `null` uses $VISUAL, then $EDITOR, then `vi`.
+# `null` uses $VISUAL, then $EDITOR, then `vi` (`notepad` on Windows).
 editor: null
 
 # Style of each interface element ("slot"): optional `fg` and `bg` colours and a list of

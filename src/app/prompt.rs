@@ -17,6 +17,7 @@ use crate::app::task_recurrence::{RECURRENCE_HINT, parse_recurrence_text, recurr
 use crate::config::keymap::key::KeyChord;
 use crate::domain::recurrence::Recurrence;
 use crate::markdown::document::TaskId;
+use crate::paths::portable;
 use crate::storage::entries::EntryName;
 use crate::storage::workspace::{EntryKind, ListPath};
 use crate::ui::popup::Prompt;
@@ -208,7 +209,7 @@ fn location_hint(parent: &Path) -> Cow<'static, str> {
     if parent.as_os_str().is_empty() {
         Cow::Borrowed("in the workspace folder")
     } else {
-        Cow::Owned(format!("in {}", parent.display()))
+        Cow::Owned(format!("in {}", portable(parent)))
     }
 }
 

@@ -12,6 +12,7 @@ use jiff::ZonedDateTime;
 
 use crate::app::editor::{EditorCommand, EditorError, choose_editor};
 use crate::app::{App, Effect, execute};
+use crate::platform::Platform;
 use crate::runtime::event::{Event, InputThread, next_batch};
 use crate::runtime::terminal::TerminalGuard;
 use crate::storage::watch::WorkspaceWatcher;
@@ -147,7 +148,12 @@ fn edit(
 ) -> Result<InputThread, RuntimeError> {
     let visual = environment_variable("VISUAL");
     let editor = environment_variable("EDITOR");
-    let command_line = choose_editor(app.config().editor(), visual.as_deref(), editor.as_deref());
+    let command_line = choose_editor(
+        Platform::current(),
+        app.config().editor(),
+        visual.as_deref(),
+        editor.as_deref(),
+    );
     let file = app.workspace().absolute_path(list);
     let command = match EditorCommand::new(command_line, &file, line) {
         Ok(command) => command,

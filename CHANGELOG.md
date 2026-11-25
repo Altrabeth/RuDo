@@ -7,6 +7,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Windows.** The configuration is read from `%APPDATA%\rudo\config.yaml`, the log goes to
+  `%LOCALAPPDATA%\rudo\rudo.log` and the default workspace is `%USERPROFILE%\Documents\RuDo`;
+  `XDG_*` variables are honoured there too. `notepad` is the last editor fallback.
+
+### Changed
+
+- Paths inside the workspace are shown and stored in the index of the bin with `/` on every
+  platform; the index is read with `/` or `\`.
+
 ## [1.0.0] - Unreleased
 
 The first release, not tagged yet. The [README](README.md) specifies the behaviour in detail.

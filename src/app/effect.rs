@@ -15,6 +15,7 @@ use crate::app::history::{Direction, EntryOperation, HistoryEntry, Relocation};
 use crate::app::lists::{EntryChange, EntryKey, counted};
 use crate::app::state::{App, Focus};
 use crate::app::status::{Severity, StatusMessage};
+use crate::paths::portable;
 use crate::storage::bin::{
     EmptiedBin, TrashedEntry, delete_from_bin, empty_bin, move_to_bin, restore,
 };
@@ -689,7 +690,7 @@ fn restored_report(requested: usize, skipped: &[TrashedEntry], failures: &[Entry
     if !taken.is_empty() {
         let paths: Vec<String> = taken
             .iter()
-            .map(|(entry, _)| entry.original().display().to_string())
+            .map(|(entry, _)| portable(entry.original()).to_string())
             .collect();
         let verb = if taken.len() == 1 { "is" } else { "are" };
         let count = counted(taken.len(), "path", "paths");

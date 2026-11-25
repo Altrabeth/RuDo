@@ -53,7 +53,8 @@ the same tasks from the terminal and from Obsidian at the same time.
   immediately; RuDo never silently overwrites them.
 - **Open in your editor** at the selected task with `e`.
 - **Responsive layout.** Narrow terminals show only the focused pane.
-- **Configurable** colours and keybindings in `~/.config/rudo/config.yaml`.
+- **Configurable** colours and keybindings in `~/.config/rudo/config.yaml`
+  (`%APPDATA%\rudo\config.yaml` on Windows).
 
 ## Installation
 
@@ -82,7 +83,8 @@ rudo --root ~/Obsidian/Vault/Todo
 5. Press `?` at any time to see every available key.
 
 Without `--root`, RuDo uses `workspace.root` from the configuration file, and falls back to
-`~/.local/share/rudo` (more precisely `$XDG_DATA_HOME/rudo`), which is created on first start.
+`~/.local/share/rudo` (more precisely `$XDG_DATA_HOME/rudo`; `%USERPROFILE%\Documents\RuDo` on
+Windows), which is created on first start.
 A folder given with `--root` or `workspace.root` must exist.
 
 ## How your files are organised
@@ -255,8 +257,8 @@ another program took the original path in the meantime, the undo fails with a me
 the entry stays in the bin; `u` tries again once the path is free.
 
 `e` opens the selected list in the editor from `editor`, `$VISUAL` or `$EDITOR` (in that
-order, else `vi`); in the tasks pane at the line of the selected task. RuDo reloads the list
-when the editor exits.
+order, else `vi`, or `notepad` on Windows); in the tasks pane at the line of the selected
+task. RuDo reloads the list when the editor exits.
 
 ### Moving around (lists pane, tasks pane and help screen)
 
@@ -417,7 +419,8 @@ Vim users who expect `esc` to keep the typed text can bind `esc` to `submit` ins
 ## Configuration
 
 RuDo reads `$XDG_CONFIG_HOME/rudo/config.yaml`, which is `~/.config/rudo/config.yaml` unless
-`XDG_CONFIG_HOME` is set (`config.yml` is accepted too). `--config <file>` selects another
+`XDG_CONFIG_HOME` is set, and `%APPDATA%\rudo\config.yaml` on Windows (`config.yml` is
+accepted too). `--config <file>` selects another
 file, which must exist. A missing default file is not an error; every setting has a default,
 and a configuration file only needs the settings you want to change.
 
@@ -454,7 +457,8 @@ tasks:
   # Indentation for subtasks in files that have none yet: `tab` or 1 to 8 spaces.
   indent: 2
 
-# Command used by `open-in-editor` (default: null for $VISUAL, then $EDITOR, then `vi`).
+# Command used by `open-in-editor` (default: null for $VISUAL, then $EDITOR, then `vi`,
+# or `notepad` on Windows).
 # Arguments are allowed (`code --wait`). vi, vim, nvim, nano, emacs, kak, hx and micro open
 # the list at the selected task; RuDo reloads the list when the editor exits.
 editor: nvim
@@ -552,7 +556,7 @@ Commands:
 
 Options:
   -r, --root <DIR>       Workspace folder (overrides `workspace.root`)
-  -c, --config <FILE>    Configuration file (default: ~/.config/rudo/config.yaml)
+  -c, --config <FILE>    Configuration file (default: see `rudo config path`)
   -h, --help             Print help
   -V, --version          Print version
 ```
@@ -569,7 +573,8 @@ if it differs, the path inside the bin; `unknown` for entries another program pu
 ## Troubleshooting
 
 RuDo never writes log output to the terminal, because that would corrupt the interface. Logs
-go to `$XDG_STATE_HOME/rudo/rudo.log` (default `~/.local/state/rudo/rudo.log`). The default
+go to `$XDG_STATE_HOME/rudo/rudo.log` (default `~/.local/state/rudo/rudo.log`, on Windows
+`%LOCALAPPDATA%\rudo\rudo.log`). The default
 level is `info`; set another with `RUDO_LOG`, which accepts
 [`tracing` filter directives](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html):
 
@@ -584,6 +589,26 @@ with its line number.
 On Linux, very large workspaces can exceed the inotify watch limit. RuDo then keeps working
 without live reload and shows `live reload disabled: ...`; raise `fs.inotify.max_user_watches`
 to fix it.
+
+## Platforms
+
+RuDo runs on Linux, macOS and Windows. The behaviour is the same everywhere except for these
+locations and the last editor fallback:
+
+| What               | Linux and macOS                | Windows                        |
+| ------------------ | ------------------------------ | ------------------------------ |
+| configuration file | `~/.config/rudo/config.yaml`   | `%APPDATA%\rudo\config.yaml`   |
+| default workspace  | `~/.local/share/rudo`          | `%USERPROFILE%\Documents\RuDo` |
+| log file           | `~/.local/state/rudo/rudo.log` | `%LOCALAPPDATA%\rudo\rudo.log` |
+| editor fallback    | `vi`                           | `notepad`                      |
+
+On every platform, `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` replace these
+folders (with a `rudo` subfolder) when they hold an absolute path. If `%APPDATA%` or
+`%LOCALAPPDATA%` is unset, RuDo uses `%USERPROFILE%\AppData\Roaming` or
+`%USERPROFILE%\AppData\Local`. Paths inside the workspace are always shown with `/`, and the
+index of the bin stores them with `/` too, so a workspace synced between Windows and Linux
+reads the same; RuDo reads both `/` and `\`. New files are written with LF line endings on
+every platform, as Obsidian does; existing files keep theirs.
 
 ## Development
 

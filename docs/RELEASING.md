@@ -72,6 +72,13 @@ published: fix the cause, delete the tag locally and on GitHub, and tag again. I
 `publish-homebrew-formula` fails, the release exists; fix the token and re-run the failed job.
 The same holds for `custom-publish-docker`.
 
+If `host` fails with an error of GitHub itself, such as `HTTP 500` while creating the release
+or `ArtifactNotFoundError` for an artifact the run has just uploaded, the tag and the built
+archives are fine. Check [githubstatus.com](https://www.githubstatus.com), delete the draft
+release a failed attempt may have left (**Releases**, or
+`gh api -X DELETE repos/Altrabeth/RuDo/releases/<id>`), and once GitHub works again re-run
+only the failed jobs with `gh run rerun <run id> --failed`.
+
 ## What runs automatically
 
 `release.yml` runs `dist plan` on every pull request, which checks the configuration without

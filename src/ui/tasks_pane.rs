@@ -3,13 +3,14 @@
 //! Every row shows the tree guides of its ancestors, a fold marker, the checkbox and the
 //! description, styled by the status of the task with its tags highlighted. [`TaskRow`] builds the content of a row
 //! from its task alone, so every part a task shows is added in one place. Metadata such as the
-//! priority is aligned to the right edge of the row.
+//! priority and the due date is aligned to the right edge of the row.
 //!
 //! While a new task is typed in [`Mode::InlineEdit`], a placeholder row with the text input
 //! is shown where the task will be inserted; the document itself is only changed on submit.
 
 use std::borrow::Cow;
 
+use jiff::civil::Date;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
@@ -21,6 +22,7 @@ use crate::app::{App, Focus, Mode};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::{Slot, Theme};
+use crate::domain::date::{DueClass, RelativeDue};
 use crate::domain::priority::Priority;
 use crate::domain::tags;
 use crate::markdown::document::{InsertPosition, TaskId};
@@ -202,7 +204,10 @@ fn render_rows(
                 if Some(row.item().key()) == selected {
                     frame.buffer_mut().set_style(row_area, selection);
                 }
-                frame.render_widget(TaskRow::new(row, theme).into_line(width), text_area);
+                frame.render_widget(
+                    TaskRow::new(row, theme, app.today()).into_line(width),
+                    text_area,
+                );
             }
             PaneRow::NewTask { depth, input } => {
                 render_new_task(
@@ -265,14 +270,15 @@ pub struct TaskRow<'a> {
     lead: Vec<Span<'a>>,
     /// The description without inline fields; cut if the row is too narrow.
     description: Description<'a>,
-    /// Right-aligned metadata such as the priority.
+    /// Right-aligned metadata such as the priority and the due date.
     metadata: TrailingMetadata<'a>,
 }
 
 impl<'a> TaskRow<'a> {
-    /// Builds the row of the task in `row`, styled with `theme`.
+    /// Builds the row of the task in `row`, styled with `theme`, with dates relative to
+    /// `today`.
     #[must_use]
-    pub fn new(row: &OutlineRow<'_, TaskItem<'a>>, theme: &Theme) -> Self {
+    pub fn new(row: &OutlineRow<'_, TaskItem<'a>>, theme: &Theme, today: Date) -> Self {
         let task = row.item().task();
         let marker = match row.fold() {
             Fold::Leaf => LEAF_MARKER,
@@ -282,6 +288,7 @@ impl<'a> TaskRow<'a> {
         let depth = row.item().depth();
         let metadata = TrailingMetadata {
             priority: priority_part(task, theme),
+            due: due_part(task, theme, today),
         };
         Self::from_parts(
             depth,
@@ -345,13 +352,9 @@ impl<'a> TaskRow<'a> {
         let guides = self
             .depth
             .min(width.saturating_sub(MIN_TEXT_WIDTH) / guide_width);
-        let lead_width: usize = guides * guide_width
-            + self
-                .lead
-                .iter()
-                .map(|span| display_width(&span.content))
-                .sum::<usize>();
-        let metadata_width = self.metadata.width();
+        let lead_width = guides * guide_width + spans_width(&self.lead);
+        let metadata = self.metadata.into_spans();
+        let metadata_width = spans_width(&metadata);
         let shows_metadata = metadata_width > 0 && lead_width + metadata_width <= width;
         let text_width = if shows_metadata {
             width - metadata_width
@@ -364,9 +367,9 @@ impl<'a> TaskRow<'a> {
         self.description
             .push_spans(text_width.saturating_sub(lead_width), &mut spans);
         if shows_metadata {
-            let used_width: usize = spans.iter().map(|span| display_width(&span.content)).sum();
+            let used_width = spans_width(&spans);
             spans.push(Span::raw(" ".repeat(text_width - used_width)));
-            self.metadata.push_spans(&mut spans);
+            spans.extend(metadata);
         }
         Line::from(spans)
     }
@@ -377,39 +380,35 @@ impl<'a> TaskRow<'a> {
 ///
 /// Every part is shown in full or, if the row is too narrow, not at all; a task without the
 /// metadata of a part has `None` there.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 struct TrailingMetadata<'a> {
     /// The priority marker, such as `!!`.
     priority: Option<MetadataPart<'a>>,
+    /// The due date relative to today, such as `in 3d`.
+    due: Option<MetadataPart<'a>>,
 }
 
 impl<'a> TrailingMetadata<'a> {
-    /// Returns the parts that are present, in their order.
-    fn parts(self) -> impl Iterator<Item = MetadataPart<'a>> {
-        [self.priority].into_iter().flatten()
-    }
-
-    /// Returns the cells the metadata takes, including the gap before each part, or zero if
-    /// there is none.
-    fn width(self) -> usize {
-        self.parts()
-            .map(|part| display_width(METADATA_GAP) + display_width(part.text))
-            .sum()
-    }
-
-    /// Appends every part, each preceded by a gap, to `spans`.
-    fn push_spans(self, spans: &mut Vec<Span<'a>>) {
-        for part in self.parts() {
-            spans.push(Span::raw(METADATA_GAP));
-            spans.push(Span::styled(part.text, part.style));
-        }
+    /// Returns the parts that are present in their order, each preceded by a gap; no spans
+    /// at all if there is none.
+    fn into_spans(self) -> Vec<Span<'a>> {
+        [self.priority, self.due]
+            .into_iter()
+            .flatten()
+            .flat_map(|part| [Span::raw(METADATA_GAP), Span::styled(part.text, part.style)])
+            .collect()
     }
 }
 
+/// Returns the cells `spans` take.
+fn spans_width(spans: &[Span<'_>]) -> usize {
+    spans.iter().map(|span| display_width(&span.content)).sum()
+}
+
 /// One part of the [`TrailingMetadata`] of a row.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct MetadataPart<'a> {
-    text: &'a str,
+    text: Cow<'a, str>,
     style: Style,
 }
 
@@ -423,9 +422,50 @@ fn priority_part<'a>(task: &'a TaskLine, theme: &Theme) -> Option<MetadataPart<'
         Err(_) => (value, Slot::Text),
     };
     Some(MetadataPart {
-        text,
+        text: Cow::Borrowed(text),
         style: theme.style(slot),
     })
+}
+
+/// Returns the due date part of the trailing metadata of `task`: its due date relative to
+/// `today`, styled by how urgent it is.
+///
+/// A done or cancelled task is never overdue, so its past due date is shown as stored. A
+/// stored value that is not a date is shown as is.
+fn due_part<'a>(task: &'a TaskLine, theme: &Theme, today: Date) -> Option<MetadataPart<'a>> {
+    let stored = task.field(&FieldKey::Due)?.value();
+    let as_stored = MetadataPart {
+        text: Cow::Borrowed(stored),
+        style: theme.style(Slot::Due),
+    };
+    let Ok(due) = stored.parse::<Date>() else {
+        return Some(as_stored);
+    };
+    Some(match DueClass::classify(due, today) {
+        DueClass::Overdue(_) if is_closed(task.status()) => as_stored,
+        class => MetadataPart {
+            text: Cow::Owned(RelativeDue::new(due, today).to_string()),
+            style: theme.style(due_slot(class)),
+        },
+    })
+}
+
+/// Returns the slot that styles a due date of `class`.
+fn due_slot(class: DueClass) -> Slot {
+    match class {
+        DueClass::Overdue(_) => Slot::DueOverdue,
+        DueClass::Today => Slot::DueToday,
+        DueClass::Tomorrow | DueClass::Soon(_) => Slot::DueSoon,
+        DueClass::Later => Slot::Due,
+    }
+}
+
+/// Returns whether a task with `status` needs no more work.
+fn is_closed(status: TaskStatus) -> bool {
+    match status {
+        TaskStatus::Done | TaskStatus::Cancelled => true,
+        TaskStatus::Todo | TaskStatus::InProgress | TaskStatus::Other(_) => false,
+    }
 }
 
 /// Returns the marker of `priority` and the slot that styles it.
@@ -489,6 +529,7 @@ fn checkbox(status: TaskStatus) -> Cow<'static, str> {
 
 #[cfg(test)]
 mod tests {
+    use jiff::civil::date;
     use ratatui::style::{Color, Modifier};
     use rstest::rstest;
     use strum::IntoEnumIterator;
@@ -499,6 +540,8 @@ mod tests {
     use crate::ui::outline::{Outcome, OutlineCommand};
 
     const HEIGHT: usize = 10;
+    /// A Tuesday.
+    const TODAY: Date = date(2026, 11, 24);
 
     fn keymap(yaml: &str) -> Keymap {
         let overrides: KeyBindings = if yaml.is_empty() {
@@ -520,7 +563,7 @@ mod tests {
             assert_eq!(outline.apply(&items, command, HEIGHT), Outcome::Changed);
         }
         let rows = outline.visible_rows(&items);
-        TaskRow::new(&rows[row], &Theme::default())
+        TaskRow::new(&rows[row], &Theme::default(), TODAY)
             .into_line(width)
             .to_string()
     }
@@ -530,7 +573,7 @@ mod tests {
     #[case::expanded("- [ ] a\n\t- [ ] b\n", &[], 0, "▾ [ ] a")]
     #[case::collapsed("- [ ] a\n\t- [ ] b\n", &[OutlineCommand::Collapse], 0, "▸ [ ] a")]
     #[case::subtask("- [ ] a\n\t- [x] b\n", &[], 1, "│   [x] b")]
-    #[case::inline_fields_hidden("- [ ] a [due:: 2026-03-20] #tag\n", &[], 0, "  [ ] a #tag")]
+    #[case::inline_fields_hidden("- [ ] a [completion:: 2026-03-20] #tag\n", &[], 0, "  [ ] a #tag")]
     fn row_shows_guides_marker_checkbox_and_description(
         #[case] document: &str,
         #[case] commands: &[OutlineCommand],
@@ -600,11 +643,68 @@ mod tests {
         let document = TodoDocument::parse("- [ ] a [priority:: high]\n");
         let theme = Theme::default();
         let expected = Some(MetadataPart {
-            text: "!!",
+            text: Cow::Borrowed("!!"),
             style: theme.style(Slot::PriorityHigh),
         });
 
         let system_under_test = priority_part(document.tasks().next().unwrap().task(), &theme);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::overdue("- [ ] a [due:: 2026-11-22]\n", "  [ ] a         2d overdue")]
+    #[case::today("- [/] a [due:: 2026-11-24]\n", "  [/] a              today")]
+    #[case::later("- [ ] a [due:: 2026-12-24]\n", "  [ ] a             Dec 24")]
+    #[case::done_is_not_overdue("- [x] a [due:: 2026-11-22]\n", "  [x] a         2026-11-22")]
+    #[case::cancelled_is_not_overdue("- [-] a [due:: 2026-11-22]\n", "  [-] a         2026-11-22")]
+    #[case::done_due_later("- [x] a [due:: 2026-11-25]\n", "  [x] a           tomorrow")]
+    #[case::unparseable("- [ ] a [due:: someday]\n", "  [ ] a            someday")]
+    fn row_shows_the_due_date_at_the_right_end(#[case] document: &str, #[case] expected: &str) {
+        let system_under_test = row_text(document, &[], 0, 26);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::description_fits(26, "  [ ] abcdef    2d overdue")]
+    #[case::description_cut(19, "  [ ] a… 2d overdue")]
+    #[case::description_gone(17, "  [ ]  2d overdue")]
+    #[case::metadata_dropped(16, "  [ ] abcdef")]
+    fn narrow_rows_cut_the_description_before_dropping_the_metadata(
+        #[case] width: usize,
+        #[case] expected: &str,
+    ) {
+        let document = "- [ ] abcdef [due:: 2026-11-22]\n";
+
+        let system_under_test = row_text(document, &[], 0, width);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::overdue(DueClass::Overdue(1), Slot::DueOverdue)]
+    #[case::today(DueClass::Today, Slot::DueToday)]
+    #[case::tomorrow(DueClass::Tomorrow, Slot::DueSoon)]
+    #[case::soon(DueClass::Soon(7), Slot::DueSoon)]
+    #[case::later(DueClass::Later, Slot::Due)]
+    fn due_class_picks_its_theme_slot(#[case] class: DueClass, #[case] expected: Slot) {
+        let system_under_test = due_slot(class);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::todo(TaskStatus::Todo, false)]
+    #[case::in_progress(TaskStatus::InProgress, false)]
+    #[case::other(TaskStatus::Other('?'), false)]
+    #[case::done(TaskStatus::Done, true)]
+    #[case::cancelled(TaskStatus::Cancelled, true)]
+    fn only_done_and_cancelled_tasks_are_closed(
+        #[case] status: TaskStatus,
+        #[case] expected: bool,
+    ) {
+        let system_under_test = is_closed(status);
 
         assert_eq!(system_under_test, expected);
     }
@@ -617,7 +717,7 @@ mod tests {
         let mut outline = Outline::new();
         outline.refresh(&items, HEIGHT);
         let rows = outline.visible_rows(&items);
-        let line = TaskRow::new(&rows[0], &Theme::default()).into_line(width);
+        let line = TaskRow::new(&rows[0], &Theme::default(), TODAY).into_line(width);
         line.spans[4..]
             .iter()
             .filter(|span| !span.content.is_empty())

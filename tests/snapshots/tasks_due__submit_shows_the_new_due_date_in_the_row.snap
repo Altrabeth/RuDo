@@ -1,0 +1,11 @@
+---
+source: tests/tasks_due.rs
+assertion_line: 159
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Rent  0/1 ───────────────────────────────────────────╮"
+"│ • Rent           0/1 ││   [ ] Pay rent                              tomorrow │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

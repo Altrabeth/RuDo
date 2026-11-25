@@ -4,7 +4,7 @@ assertion_line: 200
 expression: system_under_test
 ---
 "╭ Lists ───────────────╮╭ Groceries  1/7 ──────────────────────────────────────╮"
-"│ • Groceries      1/7 ││ ▾ [ ] Buy milk #shopping                             │"
+"│ • Groceries      1/7 ││ ▾ [ ] Buy milk #shopping                       in 6d │"
 "│   Notes          0/0 ││ │   [x] Check lactose-free                           │"
 "│   Work           0/2 ││ │ ▾ [ ] Oat milk                                     │"
 "│                      ││ │ │   [/] Compare brands                             │"

@@ -7,11 +7,15 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
+use jiff::civil::Date;
+
 use crate::app::effect::Effect;
 use crate::app::state::{App, Mode};
+use crate::app::task_due::{DUE_DATE_HINT, due_preview, parse_due_text};
 use crate::config::keymap::key::KeyChord;
+use crate::markdown::document::TaskId;
 use crate::storage::entries::EntryName;
-use crate::storage::workspace::EntryKind;
+use crate::storage::workspace::{EntryKind, ListPath};
 use crate::ui::popup::Prompt;
 use crate::ui::text_input::{TextChange, TextInput};
 
@@ -38,6 +42,13 @@ pub enum PromptKind {
         /// The entry to rename.
         path: PathBuf,
     },
+    /// The due date of the task `task` in the list at `list`, as a due date expression.
+    DueDate {
+        /// The list that holds the task.
+        list: ListPath,
+        /// The task whose due date is set or cleared.
+        task: TaskId,
+    },
 }
 
 impl PromptKind {
@@ -54,37 +65,72 @@ impl PromptKind {
                 kind: EntryKind::Folder,
                 ..
             } => "Rename folder",
+            Self::DueDate { .. } => "Due date",
         }
     }
 
-    /// Returns the hint below the input: the folder of the new or renamed entry.
+    /// Returns the hint below the input: the folder of the new or renamed entry, or the
+    /// accepted due date expressions.
     fn hint(&self) -> Cow<'static, str> {
         match self {
             Self::NewList { parent } | Self::NewFolder { parent } => location_hint(parent),
             Self::Rename { path, .. } => location_hint(path.parent().unwrap_or(Path::new(""))),
+            Self::DueDate { .. } => Cow::Borrowed(DUE_DATE_HINT),
         }
     }
 
-    /// Parses `text` and returns the effect that performs what the prompt asks for.
-    fn submit(&self, text: &str) -> Result<Effect, Cow<'static, str>> {
-        let name = EntryName::try_from(text).map_err(|error| error.to_string())?;
+    /// Returns the preview of `text` relative to `today`, or why it cannot be submitted.
+    ///
+    /// Recomputed on every edit; prompts whose text is checked only on submit have no preview.
+    fn preview(
+        &self,
+        text: &str,
+        today: Date,
+    ) -> Result<Option<Cow<'static, str>>, Cow<'static, str>> {
+        match self {
+            Self::NewList { .. } | Self::NewFolder { .. } | Self::Rename { .. } => Ok(None),
+            Self::DueDate { .. } => due_preview(text, today).map(Some),
+        }
+    }
+
+    /// Parses `text` relative to `today` and returns what the prompt asks for.
+    fn submit(&self, text: &str, today: Date) -> Result<Submission, Cow<'static, str>> {
+        let name = || EntryName::try_from(text).map_err(|error| error.to_string());
         Ok(match self {
-            Self::NewList { parent } => Effect::CreateEntry {
+            Self::NewList { parent } => Submission::Effect(Effect::CreateEntry {
                 kind: EntryKind::List,
                 parent: parent.clone(),
-                name,
-            },
-            Self::NewFolder { parent } => Effect::CreateEntry {
+                name: name()?,
+            }),
+            Self::NewFolder { parent } => Submission::Effect(Effect::CreateEntry {
                 kind: EntryKind::Folder,
                 parent: parent.clone(),
-                name,
-            },
-            Self::Rename { path, .. } => Effect::RenameEntry {
+                name: name()?,
+            }),
+            Self::Rename { path, .. } => Submission::Effect(Effect::RenameEntry {
                 path: path.clone(),
-                name,
+                name: name()?,
+            }),
+            Self::DueDate { list, task } => Submission::SetDue {
+                list: list.clone(),
+                task: *task,
+                due: parse_due_text(text, today)?,
             },
         })
     }
+}
+
+/// What submitting a valid text asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Submission {
+    /// An effect to perform.
+    Effect(Effect),
+    /// Setting the due date of `task` in the list at `list`, or clearing it if `due` is `None`.
+    SetDue {
+        list: ListPath,
+        task: TaskId,
+        due: Option<Date>,
+    },
 }
 
 /// Describes the folder `parent` of a new or renamed entry.
@@ -104,10 +150,12 @@ pub struct PromptOverlay {
 }
 
 impl PromptOverlay {
-    /// Opens a prompt for `kind` that edits `input`.
-    fn open(kind: PromptKind, input: TextInput) -> Self {
+    /// Opens a prompt for `kind` that edits `input`, with its preview relative to `today`.
+    fn open(kind: PromptKind, input: TextInput, today: Date) -> Self {
         let prompt = Prompt::new(kind.title(), input).with_hint(kind.hint());
-        Self { kind, prompt }
+        let mut overlay = Self { kind, prompt };
+        overlay.refresh(today);
+        overlay
     }
 
     /// Returns the popup with the typed text and the error, as the view draws it.
@@ -116,25 +164,36 @@ impl PromptOverlay {
         &self.prompt
     }
 
-    /// Edits the text with a key press that no action is bound to; a change hides the error.
-    pub(super) fn press(&mut self, chord: KeyChord) {
+    /// Edits the text with a key press that no action is bound to; a change recomputes the
+    /// preview relative to `today` and replaces the error.
+    pub(super) fn press(&mut self, chord: KeyChord, today: Date) {
         match self.prompt.input_mut().press(chord) {
-            TextChange::Changed => self.prompt.set_error(None),
+            TextChange::Changed => self.refresh(today),
             TextChange::Unchanged => {}
         }
     }
 
-    /// Inserts pasted text and hides the error.
-    pub(super) fn paste(&mut self, text: &str) {
+    /// Inserts pasted text and recomputes the preview relative to `today`.
+    pub(super) fn paste(&mut self, text: &str, today: Date) {
         self.prompt.input_mut().insert_str(text);
-        self.prompt.set_error(None);
+        self.refresh(today);
     }
 
-    /// Returns the effect the typed text asks for, or shows why the text is invalid and
-    /// returns `None`.
-    fn submit(&mut self) -> Option<Effect> {
-        match self.kind.submit(self.prompt.input().value()) {
-            Ok(effect) => Some(effect),
+    /// Shows the preview of the current text relative to `today`, or why it is invalid.
+    fn refresh(&mut self, today: Date) {
+        let (preview, error) = match self.kind.preview(self.prompt.input().value(), today) {
+            Ok(preview) => (preview, None),
+            Err(error) => (None, Some(error)),
+        };
+        self.prompt.set_preview(preview);
+        self.prompt.set_error(error);
+    }
+
+    /// Returns what the typed text asks for, or shows why the text is invalid and returns
+    /// `None`.
+    fn submit(&mut self, today: Date) -> Option<Submission> {
+        match self.kind.submit(self.prompt.input().value(), today) {
+            Ok(submission) => Some(submission),
             Err(error) => {
                 self.prompt.set_error(Some(error));
                 None
@@ -148,20 +207,23 @@ impl App {
     /// rename, and discards a pending key sequence.
     pub(super) fn open_prompt(&mut self, kind: PromptKind, input: TextInput) {
         self.resolver.reset();
-        self.mode = Mode::Prompt(PromptOverlay::open(kind, input));
+        self.mode = Mode::Prompt(PromptOverlay::open(kind, input, self.today));
     }
 
-    /// Closes the open prompt and returns the effect of its text; an invalid text keeps the
+    /// Closes the open prompt and returns the effects of its text; an invalid text keeps the
     /// prompt open and shows why.
     pub(super) fn submit_prompt(&mut self) -> Vec<Effect> {
         let Mode::Prompt(prompt) = &mut self.mode else {
             return Vec::new();
         };
-        let Some(effect) = prompt.submit() else {
+        let Some(submission) = prompt.submit(self.today) else {
             return Vec::new();
         };
         self.close_prompt();
-        vec![effect]
+        match submission {
+            Submission::Effect(effect) => vec![effect],
+            Submission::SetDue { list, task, due } => self.set_due(&list, task, due),
+        }
     }
 
     /// Closes the open prompt without effect and discards a pending key sequence.
@@ -178,6 +240,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use jiff::civil::date;
     use rstest::rstest;
     use tempfile::TempDir;
 
@@ -185,6 +248,8 @@ mod tests {
     use crate::app::state::tests::app_in;
     use crate::config::keymap::action::{Action, Context};
     use crate::config::keymap::resolver::Resolution;
+
+    const TODAY: Date = date(2026, 11, 24);
 
     fn new_list(parent: &str) -> PromptKind {
         PromptKind::NewList {
@@ -237,7 +302,7 @@ mod tests {
         let expected = Prompt::new(expected_title.to_owned(), TextInput::new())
             .with_hint(expected_hint.to_owned());
 
-        let system_under_test = PromptOverlay::open(kind, TextInput::new());
+        let system_under_test = PromptOverlay::open(kind, TextInput::new(), TODAY);
 
         assert_eq!(system_under_test.prompt(), &expected);
     }
@@ -252,9 +317,9 @@ mod tests {
             name: EntryName::try_from("Groceries").unwrap(),
         };
 
-        let system_under_test = kind.submit(" Groceries.md ");
+        let system_under_test = kind.submit(" Groceries.md ", TODAY);
 
-        assert_eq!(system_under_test, Ok(expected));
+        assert_eq!(system_under_test, Ok(Submission::Effect(expected)));
     }
 
     #[test]
@@ -265,9 +330,9 @@ mod tests {
             name: EntryName::try_from("Tasks").unwrap(),
         };
 
-        let system_under_test = kind.submit("Tasks");
+        let system_under_test = kind.submit("Tasks", TODAY);
 
-        assert_eq!(system_under_test, Ok(expected));
+        assert_eq!(system_under_test, Ok(Submission::Effect(expected)));
     }
 
     #[test]
@@ -275,7 +340,7 @@ mod tests {
         let kind = new_list("");
         let expected = "names must not contain ':'";
 
-        let system_under_test = kind.submit("a:b");
+        let system_under_test = kind.submit("a:b", TODAY);
 
         assert_eq!(system_under_test, Err(Cow::Owned(expected.to_owned())));
     }
@@ -302,7 +367,7 @@ mod tests {
         let Mode::Prompt(prompt) = &mut app.mode else {
             unreachable!("the prompt was just opened");
         };
-        prompt.paste("Work");
+        prompt.paste("Work", TODAY);
         start_key_sequence(&mut app);
         let _effects = app.update(action);
 
@@ -333,7 +398,7 @@ mod tests {
         let Mode::Prompt(prompt) = &mut app.mode else {
             unreachable!("an invalid name keeps the prompt open");
         };
-        prompt.press("backspace".parse().unwrap());
+        prompt.press("backspace".parse().unwrap(), TODAY);
 
         let system_under_test = prompt_of(&app).prompt().error();
 

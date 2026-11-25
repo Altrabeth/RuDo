@@ -1,0 +1,17 @@
+---
+source: tests/tasks_due.rs
+assertion_line: 205
+expression: system_under_test
+---
+"╭ Due 1 lists  2 tasks ╮"
+"│   [ ] Pa… 2d overdue │"
+"│   [ ] Call mum today │"
+"│   [ ] Wate… tomorrow │"
+"│   [ ] Buy milk in 3d │"
+"│   [ ] Plan tr… Apr 2 │"
+"│   [x] Fi… 2026-03-01 │"
+"│   [ ] Read book      │"
+"│   [ ] Fix b… someday │"
+"│                      │"
+"╰──────────────────────╯"
+" o new task      ? help "

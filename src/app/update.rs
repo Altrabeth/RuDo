@@ -45,7 +45,7 @@ impl App {
                 );
             }
             Mode::Help(help) => help.paste(text, &self.keymap, self.screen_size),
-            Mode::Prompt(prompt) => prompt.paste(text),
+            Mode::Prompt(prompt) => prompt.paste(text, self.today),
             Mode::InlineEdit(edit) => edit.paste(text),
         }
         Vec::new()
@@ -109,6 +109,7 @@ impl App {
             Action::NewTaskAbove => self.add_task(InsertPosition::Above),
             Action::NewSubtask => self.add_subtask(),
             Action::OpenInEditor => return self.open_in_editor(),
+            Action::SetDueDate => self.open_due_date_prompt(),
             Action::ClearFilter
             | Action::Undo
             | Action::Redo
@@ -117,7 +118,6 @@ impl App {
             | Action::Yank
             | Action::PasteBelow
             | Action::PasteAbove
-            | Action::SetDueDate
             | Action::SetRecurrence
             | Action::SortByPriority
             | Action::SortByDueDate
@@ -177,7 +177,7 @@ impl App {
     fn type_key(&mut self, chord: KeyChord) {
         match &mut self.mode {
             Mode::Help(help) => help.press(chord, &self.keymap, self.screen_size),
-            Mode::Prompt(prompt) => prompt.press(chord),
+            Mode::Prompt(prompt) => prompt.press(chord, self.today),
             Mode::InlineEdit(edit) => edit.press(chord),
             Mode::Normal | Mode::Confirm(_) => {}
         }

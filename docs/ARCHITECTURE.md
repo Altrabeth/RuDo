@@ -85,6 +85,7 @@ src/
     tasks.rs               tasks pane state: task tree navigation per list
     task_priority.rs       raising and lowering the priority of the selected task
     task_reorder.rs        moving, indenting and outdenting the selected task
+    task_due.rs            setting the due date of the selected task in a prompt
     status.rs              StatusMessage, Severity and when messages expire
     update.rs              App::update(Action) -> Vec<Effect>
     effect.rs              Effect and its executor

@@ -1,0 +1,5 @@
+# Keys of a user who prefers chords with ctrl for changes.
+keybindings:
+  toggle-done: ctrl-x
+  new-task-below: n
+  help: f1

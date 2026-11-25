@@ -1,0 +1,3 @@
+- [ ] Plan summer trip
+	- [ ] Book flights
+- [ ] Call mum

@@ -411,6 +411,7 @@ all recipes.
 | `just run <args>`    | run RuDo from source, e.g. `just run --root /tmp/todo`         |
 | `just demo`          | run RuDo on a fresh copy of the sample workspace in `demo/`    |
 | `just test`          | run all tests including doctests                               |
+| `just smoke`         | run the binary in a pseudo-terminal through the quick start    |
 | `just snap`          | review changed snapshots of the rendered interface             |
 | `just lint`          | clippy with warnings denied                                    |
 | `just cov`           | test coverage (`just cov --open` for the HTML report)          |

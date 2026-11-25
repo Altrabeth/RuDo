@@ -66,6 +66,10 @@ lint:
 test *args:
     cargo test --all-features "$@"
 
+# Drive the real binary in a pseudo-terminal through the quick start of the README
+smoke: build
+    python3 scripts/smoke.py target/debug/rudo
+
 # Review changed snapshots of the rendered interface
 snap:
     cargo insta review

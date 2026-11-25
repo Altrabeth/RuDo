@@ -1,0 +1,28 @@
+---
+source: tests/scenarios.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Groceries  2/6 ──────────────────────────────────────╮"
+"│ • ╭ Help ────────────────────────────────────────────────────────────────╮!! │"
+"│   │Everywhere (lists and tasks pane)                                     │   │"
+"│   │  f1         open the help screen                                     │   │"
+"│   │Help screen, dialogs and text input                                   │   │"
+"│   │  ?, q, esc  close the help screen                                    │ay │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │                                                                      │   │"
+"│   │/help screen                                                          │   │"
+"╰───╰──────────────────────────────────────────────────────────────────────╯───╯"
+" enter accept  esc cancel                                                       "

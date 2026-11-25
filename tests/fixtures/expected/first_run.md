@@ -1,0 +1,3 @@
+- [ ] Buy milk [due:: 2026-03-15] [priority:: high]
+	- [x] Check lactose-free [completion:: 2026-03-14]
+- [ ] Water plants [repeat:: every week]

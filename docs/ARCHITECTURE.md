@@ -277,8 +277,8 @@ run in-process.
 | `App::update`                      | build a state, apply actions, assert on the resulting state and effects |
 | widgets and layout                 | `TestApp::render(width, height)` into a `TestBackend`; `insta` text snapshots (`just snap`), colours asserted on single cells |
 | storage                            | the real file system under `tempfile::TempDir`                        |
-| user scenarios                     | `tests/` drive a `TestApp` with key strings (`"o"`, `"Buy milk"`, `"enter"`) against a `TempDir` workspace and assert on the files |
-| terminal and event loop            | kept too thin to need tests (humble object)                           |
+| user scenarios                     | `tests/` drive a `TestApp` with key strings (`"o"`, `"Buy milk"`, `"enter"`) against a `TempDir` workspace and assert on the files; the README journeys in `tests/scenarios.rs` compare them with golden files in `tests/fixtures/` |
+| terminal and event loop            | kept too thin to need unit tests (humble object); `just smoke` drives the real binary in a pseudo-terminal, and [`QA.md`](QA.md) is the manual checklist before a release |
 
 Every test has the three phases required by AGENTS.md: setup, `system_under_test`, assertions.
 Time is never read inside the core: functions that need today's date take it as a parameter,

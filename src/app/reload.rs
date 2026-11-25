@@ -192,10 +192,16 @@ impl App {
     /// `list` after its document was replaced; the first visible task if that task is hidden.
     fn restore_selection(&mut self, list: &ListPath, selected_line: Option<usize>) {
         let viewport_height = self.viewport_height(Focus::Tasks);
-        let Some(outline) = self.tasks.reset(list) else {
+        if !self.tasks.reset(list) {
             return;
-        };
-        let items = list_items(&self.workspace, list, self.completed_tasks);
+        }
+        let items = list_items(
+            &self.workspace,
+            list,
+            self.completed_tasks,
+            self.tasks.filter(list),
+        );
+        let outline = self.tasks.outline_mut(list);
         let task = self
             .workspace
             .list(list)

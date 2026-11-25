@@ -174,6 +174,14 @@ other; the keys typed so far are shown in the bottom bar.
 | `H`             | `toggle-completed` | show or hide completed tasks                        |
 | `e`             | `open-in-editor`   | open the list in your editor at the selected task   |
 
+`/` opens a search prompt in the bottom bar and filters the focused pane while you type,
+with vim's smart case: a query without capital letters ignores case. The tasks pane shows
+matching tasks with their parent tasks dimmed, ignoring folds; the lists pane shows matching
+list names with their folders. `enter` keeps the filter (the pane title shows `/query`),
+`esc` in the prompt or in the pane removes it. Every list has its own filter. Tasks you add
+or edit while filtering stay visible; moving tasks with `J`, `K`, `>` and `<` asks you to
+clear the filter first.
+
 ### Moving around (lists pane, tasks pane and help screen)
 
 | Keys                 | Action           | Description                    |

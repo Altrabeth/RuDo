@@ -137,7 +137,7 @@ impl App {
         match &self.mode {
             Mode::Normal => self.focus.context(),
             Mode::Help(help) => help.context(),
-            Mode::Prompt(_) | Mode::InlineEdit(_) => Context::Input,
+            Mode::Prompt(_) | Mode::InlineEdit(_) | Mode::Search(_) => Context::Input,
             Mode::Confirm(_) => Context::Dialog,
         }
     }
@@ -158,7 +158,11 @@ impl App {
             .refresh(&self.workspace, self.viewport_height(Focus::Lists));
         self.refresh_tasks();
         match &mut self.mode {
-            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
+            Mode::Normal
+            | Mode::Prompt(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Search(_) => {}
             Mode::Help(help) => help.refresh(screen_size),
         }
     }
@@ -244,6 +248,9 @@ pub enum Mode {
     /// A row of the tasks pane edits the text of a task, such as a new one, and takes the
     /// keys.
     InlineEdit(InlineEdit),
+    /// The search prompt in the bottom bar filters the pane live while the query is typed,
+    /// and takes the keys.
+    Search(Focus),
 }
 
 #[cfg(test)]

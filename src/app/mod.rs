@@ -15,6 +15,7 @@ pub mod lists;
 pub mod prompt;
 mod register;
 mod reload;
+pub mod search;
 pub mod state;
 pub mod status;
 mod task_delete;

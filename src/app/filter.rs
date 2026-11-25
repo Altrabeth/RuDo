@@ -4,6 +4,9 @@
 //! As in vim with `ignorecase` and `smartcase`, a query matches regardless of case unless it
 //! contains an upper-case letter.
 
+use std::iter;
+use std::ops::Range;
+
 /// Whether letters must match in case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 enum CaseSensitivity {
@@ -61,27 +64,68 @@ impl SmartCaseQuery {
     /// Tells whether `haystack` contains the query.
     #[must_use]
     pub fn matches(&self, haystack: &str) -> bool {
+        self.is_empty() || self.find(haystack).is_some()
+    }
+
+    /// Returns the byte ranges of the non-overlapping occurrences of the query in `haystack`,
+    /// from left to right, for highlighting them; none for an empty query.
+    ///
+    /// A range always covers whole characters, also where only part of the lower-case form of
+    /// a character matches.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rudo::app::filter::SmartCaseQuery;
+    ///
+    /// let query = SmartCaseQuery::new("ab");
+    /// let ranges: Vec<_> = query.match_ranges("AB cab").collect();
+    /// assert_eq!(ranges, [0..2, 4..6]);
+    /// ```
+    pub fn match_ranges<'a>(&'a self, haystack: &'a str) -> impl Iterator<Item = Range<usize>> {
+        let mut position = 0;
+        iter::from_fn(move || {
+            if self.is_empty() {
+                return None;
+            }
+            let found = self.find(&haystack[position..])?;
+            let range = position + found.start..position + found.end;
+            position = range.end;
+            Some(range)
+        })
+    }
+
+    /// Returns the byte range of the first occurrence of the non-empty query in `haystack`.
+    fn find(&self, haystack: &str) -> Option<Range<usize>> {
         match self.case_sensitivity {
-            CaseSensitivity::Sensitive => haystack.contains(&self.needle),
-            CaseSensitivity::Insensitive => contains_ignoring_case(haystack, &self.needle),
+            CaseSensitivity::Sensitive => haystack
+                .find(&self.needle)
+                .map(|start| start..start + self.needle.len()),
+            CaseSensitivity::Insensitive => haystack.char_indices().find_map(|(start, _)| {
+                matched_length(&haystack[start..], &self.needle).map(|length| start..start + length)
+            }),
         }
     }
 }
 
-/// Tells whether `haystack` contains `lowercase_needle` when compared in lower case, without
-/// allocating a lower-case copy of `haystack`.
-fn contains_ignoring_case(haystack: &str, lowercase_needle: &str) -> bool {
-    lowercase_needle.is_empty()
-        || haystack
-            .char_indices()
-            .any(|(start, _)| starts_with_ignoring_case(&haystack[start..], lowercase_needle))
-}
-
-fn starts_with_ignoring_case(text: &str, lowercase_needle: &str) -> bool {
-    let mut lowercase_text = text.chars().flat_map(char::to_lowercase);
-    lowercase_needle
-        .chars()
-        .all(|needle_character| lowercase_text.next() == Some(needle_character))
+/// Returns how many bytes at the start of `text` match `lowercase_needle` when compared in
+/// lower case, or `None` if `text` does not start with it; compares without allocating a
+/// lower-case copy of `text`.
+fn matched_length(text: &str, lowercase_needle: &str) -> Option<usize> {
+    let mut needle = lowercase_needle.chars().peekable();
+    for (offset, character) in text.char_indices() {
+        if needle.peek().is_none() {
+            return Some(offset);
+        }
+        for lowercase in character.to_lowercase() {
+            match needle.next() {
+                Some(expected) if expected == lowercase => {}
+                Some(_) => return None,
+                None => break,
+            }
+        }
+    }
+    needle.peek().is_none().then_some(text.len())
 }
 
 #[cfg(test)]
@@ -108,6 +152,30 @@ mod tests {
         let query = SmartCaseQuery::new(query);
 
         let system_under_test = query.matches(text);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::empty_query_highlights_nothing("", "move down", &[])]
+    #[case::missing("up", "move down", &[])]
+    #[case::every_occurrence("o", "move down", &[(1, 2), (6, 7)])]
+    #[case::ignoring_case("down", "Down DOWN", &[(0, 4), (5, 9)])]
+    #[case::respecting_case("Do", "do Do", &[(3, 5)])]
+    #[case::not_overlapping("aa", "aaaa a", &[(0, 2), (2, 4)])]
+    #[case::multi_byte("ärger", "kein ÄRGER", &[(5, 11)])]
+    #[case::partial_lowercase_form_covers_the_character("i", "\u{130}x", &[(0, 2)])]
+    fn match_ranges_cover_every_occurrence(
+        #[case] query: &str,
+        #[case] text: &str,
+        #[case] expected: &[(usize, usize)],
+    ) {
+        let query = SmartCaseQuery::new(query);
+
+        let system_under_test: Vec<(usize, usize)> = query
+            .match_ranges(text)
+            .map(|range| (range.start, range.end))
+            .collect();
 
         assert_eq!(system_under_test, expected);
     }

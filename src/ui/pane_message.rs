@@ -13,6 +13,9 @@ use crate::config::keymap::key::CompactKeySequence;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::Slot;
 
+/// Shown instead of the rows of a pane whose search filter matches nothing.
+pub(crate) const NO_MATCHES: &str = "No matches";
+
 /// Renders `message` in the style of `slot`, wrapped into `area`.
 pub(crate) fn render_message(app: &App, frame: &mut Frame, area: Rect, message: &str, slot: Slot) {
     let paragraph = Paragraph::new(message)

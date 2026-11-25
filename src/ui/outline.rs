@@ -44,6 +44,26 @@ pub enum Fold {
     Collapsed,
 }
 
+/// Whether the folds of an [`Outline`] hide rows; see [`Outline::set_folding`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]
+pub enum Folding {
+    /// Folded items hide their descendants.
+    Applied,
+    /// The folds are put aside, for example while a search filter shows every match; folds
+    /// made meanwhile are dropped when the folds are applied again.
+    Suspended,
+}
+
+/// Why an item is shown while a search filter is active; see [`keep_matches`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, EnumIter)]
+pub enum FilterRole {
+    /// The item matches the filter, or no filter is active.
+    #[default]
+    Match,
+    /// The item does not match but is shown as the ancestor of a match.
+    Context,
+}
+
 /// A navigation or folding operation on an [`Outline`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]
 pub enum OutlineCommand {
@@ -221,6 +241,8 @@ pub struct Outline<K> {
     selected_row: usize,
     offset: usize,
     collapsed: HashSet<K>,
+    /// The folds put aside while [`Folding::Suspended`].
+    suspended: Option<HashSet<K>>,
 }
 
 impl<K> Default for Outline<K> {
@@ -230,6 +252,7 @@ impl<K> Default for Outline<K> {
             selected_row: 0,
             offset: 0,
             collapsed: HashSet::new(),
+            suspended: None,
         }
     }
 }
@@ -331,6 +354,51 @@ impl<K: Clone + Eq + Hash> Outline<K> {
         changed_if(revealed || moved)
     }
 
+    /// Applies or suspends the folds; suspending them shows every item until they are applied
+    /// again, which brings back the folds from before and drops those made meanwhile.
+    ///
+    /// Takes effect at the next operation, such as [`Outline::refresh`].
+    pub fn set_folding(&mut self, folding: Folding) {
+        match folding {
+            Folding::Suspended => {
+                if self.suspended.is_none() {
+                    self.suspended = Some(std::mem::take(&mut self.collapsed));
+                }
+            }
+            Folding::Applied => {
+                if let Some(folds) = self.suspended.take() {
+                    self.collapsed = folds;
+                }
+            }
+        }
+    }
+
+    /// Selects the item of `shown` nearest to the selected item in `all`, after a filter
+    /// changed which items of `all` are `shown`; `shown` must be a subsequence of `all`.
+    ///
+    /// The selection stays on its item if it is shown, unfolding its ancestors. Otherwise it
+    /// moves to the shown item closest in document order, the following one on a tie.
+    /// Without a selection, or if the selected item is not in `all`, this is a refresh.
+    pub fn select_nearest<I: OutlineItem<Key = K>>(
+        &mut self,
+        all: &[I],
+        shown: &[I],
+        viewport_height: usize,
+    ) {
+        match self
+            .selected
+            .as_ref()
+            .and_then(|selected| nearest(all, shown, selected))
+            .cloned()
+        {
+            // Whether the selection moved does not matter to a filter.
+            Some(key) => {
+                let _: Outcome = self.select(shown, &key, viewport_height);
+            }
+            None => self.refresh(shown, viewport_height),
+        }
+    }
+
     /// Replaces the selected and the folded keys for which `rename` returns a new key, after
     /// items changed their keys, so that they stay selected and folded.
     ///
@@ -340,11 +408,12 @@ impl<K: Clone + Eq + Hash> Outline<K> {
         if let Some(renamed) = self.selected.as_ref().and_then(&mut rename) {
             self.selected = Some(renamed);
         }
-        self.collapsed = self
-            .collapsed
-            .drain()
-            .map(|key| rename(&key).unwrap_or(key))
-            .collect();
+        for folds in std::iter::once(&mut self.collapsed).chain(self.suspended.as_mut()) {
+            *folds = folds
+                .drain()
+                .map(|key| rename(&key).unwrap_or(key))
+                .collect();
+        }
     }
 
     fn refreshed_rows<'a, I: OutlineItem<Key = K>>(
@@ -361,6 +430,7 @@ impl<K: Clone + Eq + Hash> Outline<K> {
             None => {
                 *self = Self {
                     collapsed: std::mem::take(&mut self.collapsed),
+                    suspended: self.suspended.take(),
                     ..Self::default()
                 }
             }
@@ -550,6 +620,102 @@ pub fn prune<I: OutlineItem>(
     })
 }
 
+/// Keeps the items for which `is_match` holds together with their ancestors, which are
+/// shown as [`FilterRole::Context`], and leaves out every other item.
+///
+/// Unlike [`prune`], a match below an item that does not match is kept, so this is how a
+/// search filter reduces the items. Combine it with [`prune`] by pruning first: a match below
+/// an item that `prune` leaves out stays hidden. Runs in linear time.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::ui::outline::{FilterRole, OutlineItem, keep_matches};
+///
+/// struct Entry {
+///     name: &'static str,
+///     depth: usize,
+/// }
+///
+/// impl OutlineItem for Entry {
+///     type Key = &'static str;
+///
+///     fn key(&self) -> &Self::Key {
+///         &self.name
+///     }
+///
+///     fn depth(&self) -> usize {
+///         self.depth
+///     }
+/// }
+///
+/// let items = [
+///     Entry { name: "groceries", depth: 0 },
+///     Entry { name: "milk", depth: 1 },
+///     Entry { name: "work", depth: 0 },
+/// ];
+/// let shown: Vec<(&str, FilterRole)> = keep_matches(items, |entry| entry.name == "milk")
+///     .map(|(entry, role)| (entry.name, role))
+///     .collect();
+/// assert_eq!(shown, [("groceries", FilterRole::Context), ("milk", FilterRole::Match)]);
+/// ```
+pub fn keep_matches<I: OutlineItem>(
+    items: impl IntoIterator<Item = I>,
+    mut is_match: impl FnMut(&I) -> bool,
+) -> impl Iterator<Item = (I, FilterRole)> {
+    let items: Vec<I> = items.into_iter().collect();
+    let mut roles: Vec<Option<FilterRole>> = vec![None; items.len()];
+    let mut ancestors: Vec<usize> = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        while ancestors
+            .last()
+            .is_some_and(|&ancestor| items[ancestor].depth() >= item.depth())
+        {
+            ancestors.pop();
+        }
+        if is_match(item) {
+            roles[index] = Some(FilterRole::Match);
+            // An ancestor with a role has its own ancestors marked already, so every item is
+            // marked at most once.
+            for &ancestor in ancestors.iter().rev() {
+                if roles[ancestor].is_some() {
+                    break;
+                }
+                roles[ancestor] = Some(FilterRole::Context);
+            }
+        }
+        ancestors.push(index);
+    }
+    items
+        .into_iter()
+        .zip(roles)
+        .filter_map(|(item, role)| role.map(|role| (item, role)))
+}
+
+/// Returns the key of the item of `shown` nearest to the item with `key` in `all`, the
+/// following one on a tie, or `None` if `key` is not in `all` or nothing is shown.
+fn nearest<'a, I: OutlineItem>(all: &[I], shown: &'a [I], key: &I::Key) -> Option<&'a I::Key> {
+    let target = all.iter().position(|item| item.key() == key)?;
+    let mut shown_items = shown.iter().peekable();
+    let mut before: Option<(usize, &'a I)> = None;
+    for (index, item) in all.iter().enumerate() {
+        let Some(&next) = shown_items.peek() else {
+            break;
+        };
+        if next.key() != item.key() {
+            continue;
+        }
+        shown_items.next();
+        if index >= target {
+            let closer_before =
+                before.filter(|&(before_index, _)| target - before_index < index - target);
+            return Some(closer_before.map_or(next, |(_, item)| item).key());
+        }
+        before = Some((index, next));
+    }
+    before.map(|(_, item)| item.key())
+}
+
 /// Computes the rows of `items` that no folded ancestor hides; items left out by a filter
 /// are removed beforehand with [`prune`].
 fn visible_rows<'a, I: OutlineItem>(
@@ -681,6 +847,7 @@ mod tests {
             selected_row: 0,
             offset: 0,
             collapsed: collapsed.chars().collect(),
+            suspended: None,
         };
         outline.refresh(items, height);
         outline
@@ -713,6 +880,134 @@ mod tests {
         let system_under_test: String = prune(items, |node| !hidden.contains(node.key))
             .map(|node| node.key)
             .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    /// Writes the kept items of `kept` as their keys, context items in upper case.
+    fn roles(kept: impl Iterator<Item = (Node, FilterRole)>) -> String {
+        kept.map(|(node, role)| match role {
+            FilterRole::Match => node.key,
+            FilterRole::Context => node.key.to_ascii_uppercase(),
+        })
+        .collect()
+    }
+
+    #[rstest]
+    #[case::nothing("", "")]
+    #[case::root("a", "a")]
+    #[case::leaf_with_its_ancestors("c", "ABc")]
+    #[case::child_of_a_parent_that_does_not_match("f", "Ef")]
+    #[case::match_inside_a_match("ac", "aBc")]
+    #[case::siblings_share_their_ancestors("cd", "ABcd")]
+    #[case::everything("abcdefg", "abcdefg")]
+    fn keep_matches_keeps_ancestors_as_context(#[case] matching: &str, #[case] expected: &str) {
+        let items = tree();
+
+        let system_under_test = roles(keep_matches(items, |node| matching.contains(node.key)));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn keep_matches_after_prune_hides_matches_below_pruned_items() {
+        let items = tree();
+        let expected = "Ef";
+
+        let system_under_test = roles(keep_matches(prune(items, |node| node.key != 'b'), |node| {
+            "cf".contains(node.key)
+        }));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::shown_item_stays_selected('c', "abcg", 'c')]
+    #[case::following_on_a_tie('c', "bd", 'd')]
+    #[case::closer_preceding('d', "bg", 'b')]
+    #[case::closer_following('b', "ae", 'a')]
+    #[case::only_preceding('g', "ab", 'b')]
+    #[case::only_following('a', "fg", 'f')]
+    fn select_nearest_moves_to_the_closest_shown_item(
+        #[case] selected: char,
+        #[case] shown: &str,
+        #[case] expected: char,
+    ) {
+        let all = tree();
+        let shown: Vec<Node> = tree()
+            .into_iter()
+            .filter(|node| shown.contains(node.key))
+            .collect();
+        let mut outline = outline(selected, "", &all, HEIGHT);
+
+        let system_under_test = {
+            outline.select_nearest(&all, &shown, HEIGHT);
+            outline.selected().copied()
+        };
+
+        assert_eq!(system_under_test, Some(expected));
+    }
+
+    #[test]
+    fn select_nearest_without_shown_items_clears_the_selection() {
+        let all = tree();
+        let mut outline = outline('c', "", &all, HEIGHT);
+
+        let system_under_test = {
+            outline.select_nearest(&all, &[], HEIGHT);
+            outline.selected().copied()
+        };
+
+        assert_eq!(system_under_test, None);
+    }
+
+    #[test]
+    fn suspended_folds_show_every_row() {
+        let items = tree();
+        let mut outline = outline('a', "a", &items, HEIGHT);
+        let expected = "abcdefg";
+
+        let system_under_test = {
+            outline.set_folding(Folding::Suspended);
+            outline.refresh(&items, HEIGHT);
+            Observed::of(&outline, &items, Outcome::Unchanged).visible
+        };
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn applied_folds_come_back_and_drop_those_made_meanwhile() {
+        let items = tree();
+        let mut outline = outline('a', "b", &items, HEIGHT);
+        outline.set_folding(Folding::Suspended);
+        outline.set_folding(Folding::Suspended);
+        let _: Outcome = outline.apply(&items, OutlineCommand::FoldAll, HEIGHT);
+        let expected = "abdefg";
+
+        let system_under_test = {
+            outline.set_folding(Folding::Applied);
+            outline.set_folding(Folding::Applied);
+            outline.refresh(&items, HEIGHT);
+            Observed::of(&outline, &items, Outcome::Unchanged).visible
+        };
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn renaming_keys_renames_suspended_folds() {
+        let renamed = nodes("x:0 b:1 c:2 d:1 e:0 f:1 g:0");
+        let mut outline = outline('g', "a", &tree(), HEIGHT);
+        outline.set_folding(Folding::Suspended);
+        outline.rename_keys(|&key| (key == 'a').then_some('x'));
+        let expected = "xefg";
+
+        let system_under_test = {
+            outline.set_folding(Folding::Applied);
+            outline.refresh(&renamed, HEIGHT);
+            Observed::of(&outline, &renamed, Outcome::Unchanged).visible
+        };
 
         assert_eq!(system_under_test, expected);
     }

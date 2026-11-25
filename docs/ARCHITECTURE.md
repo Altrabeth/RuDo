@@ -79,6 +79,7 @@ src/
     state.rs               App, Focus, Mode
     editor.rs              open-in-editor: choosing the editor, its command line with the line
     reload.rs              external changes: App::on_fs_changed, reload_list, rescan
+    search.rs              pane search (Mode::Search): PaneFilter per pane and per list
     lists.rs               lists pane state: workspace tree navigation, active list
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
@@ -110,6 +111,7 @@ src/
     popup.rs               input popup and confirmation dialog
     help.rs                help content model
     help_overlay.rs        help overlay: rows, scrollbar, filter line
+    highlight.rs           search match highlighting inside styled row text
   runtime/
     terminal.rs            terminal setup and restore, panic safety
     event.rs               merging terminal, tick and file system events

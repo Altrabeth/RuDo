@@ -13,6 +13,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use crate::app::help::{HelpFilter, HelpOverlay};
+use crate::app::search;
 use crate::app::{App, Mode};
 use crate::config::theme::{Slot, Theme};
 use crate::ui::help::{HelpRow, HelpSection, rows};
@@ -27,7 +28,7 @@ const ENTRY_INDENT: usize = 2;
 const COLUMN_GAP: usize = 2;
 const TITLE: &str = " Help ";
 /// Precedes the filter text, like the key that opens the filter.
-const FILTER_PROMPT: &str = "/";
+const FILTER_PROMPT: &str = search::PROMPT;
 const FILTER_PLACEHOLDER: &str = "type to filter";
 /// Shown when the filter matches nothing.
 const NO_MATCHES: &str = "no matching keys";
@@ -37,7 +38,11 @@ const SCROLLBAR_TRACK: &str = "\u{2502}";
 /// Draws the help screen over the rest of the interface if `app` is in [`Mode::Help`].
 pub fn render(app: &App, frame: &mut Frame) {
     match app.mode() {
-        Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
+        Mode::Normal
+        | Mode::Prompt(_)
+        | Mode::Confirm(_)
+        | Mode::InlineEdit(_)
+        | Mode::Search(_) => {}
         Mode::Help(help) => render_help(help, app.theme(), frame),
     }
 }

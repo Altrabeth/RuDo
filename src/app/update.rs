@@ -52,6 +52,7 @@ impl App {
             Mode::Help(help) => help.paste(text, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.paste(text, self.today),
             Mode::InlineEdit(edit) => edit.paste(text),
+            &mut Mode::Search(pane) => self.paste_search(pane, text),
         }
         Vec::new()
     }
@@ -127,7 +128,7 @@ impl App {
             Action::Yank => self.yank_task(),
             Action::PasteBelow => return self.paste(InsertPosition::Below),
             Action::PasteAbove => return self.paste(InsertPosition::Above),
-            Action::ClearFilter => {}
+            Action::ClearFilter => self.clear_filter(),
         }
         Vec::new()
     }
@@ -145,15 +146,17 @@ impl App {
                 Focus::Lists => self.update_lists(action),
                 Focus::Tasks => self.update_tasks(action),
             },
-            Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
+            Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) | Mode::Search(_) => {}
         }
     }
 
-    /// Opens the filter of whatever takes the keys; so far only the help screen has one.
+    /// Opens the filter of whatever takes the keys: the help screen if it is open, otherwise
+    /// the focused pane.
     fn search(&mut self) {
         match &mut self.mode {
             Mode::Help(help) => help.open_filter(self.screen_size),
-            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
+            Mode::Normal => self.open_search(),
+            Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) | Mode::Search(_) => {}
         }
     }
 
@@ -163,6 +166,7 @@ impl App {
             Mode::Help(help) => help.submit_filter(self.screen_size),
             Mode::Prompt(_) => return self.submit_prompt(),
             Mode::InlineEdit(_) => return self.submit_inline_edit(),
+            Mode::Search(_) => self.submit_search(),
             Mode::Normal | Mode::Confirm(_) => {}
         }
         Vec::new()
@@ -174,6 +178,7 @@ impl App {
             Mode::Help(help) => help.cancel_filter(&self.keymap, self.screen_size),
             Mode::Prompt(_) => self.close_prompt(),
             Mode::InlineEdit(_) => self.cancel_inline_edit(),
+            &mut Mode::Search(pane) => self.cancel_search(pane),
             Mode::Normal | Mode::Confirm(_) => {}
         }
     }
@@ -184,6 +189,7 @@ impl App {
             Mode::Help(help) => help.press(chord, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.press(chord, self.today),
             Mode::InlineEdit(edit) => edit.press(chord),
+            &mut Mode::Search(pane) => self.type_search(pane, chord),
             Mode::Normal | Mode::Confirm(_) => {}
         }
     }

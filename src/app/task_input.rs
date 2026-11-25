@@ -205,7 +205,11 @@ impl App {
                 self.resolver.reset();
                 Some(edit)
             }
-            mode @ (Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::Confirm(_)) => {
+            mode @ (Mode::Normal
+            | Mode::Help(_)
+            | Mode::Prompt(_)
+            | Mode::Confirm(_)
+            | Mode::Search(_)) => {
                 self.mode = mode;
                 None
             }

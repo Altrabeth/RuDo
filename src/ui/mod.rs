@@ -8,6 +8,7 @@
 
 pub mod help;
 pub mod help_overlay;
+pub(crate) mod highlight;
 pub mod layout;
 pub mod lists_pane;
 pub mod outline;
@@ -16,8 +17,6 @@ pub mod popup;
 pub mod status_bar;
 pub mod tasks_pane;
 pub mod text_input;
-
-use std::borrow::Cow;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -72,14 +71,14 @@ fn render_popup(app: &App, frame: &mut Frame) {
             let dialog = ConfirmDialog::new(confirm.message(), app.keymap(), app.theme());
             frame.render_widget(dialog, area);
         }
-        Mode::Normal | Mode::Help(_) | Mode::InlineEdit(_) => {}
+        Mode::Normal | Mode::Help(_) | Mode::InlineEdit(_) | Mode::Search(_) => {}
     }
 }
 
 /// Draws the border of `pane` around `area` and its contents inside.
 fn render_pane(app: &App, frame: &mut Frame, pane: Focus, area: Rect, hint: PaneSwitchHint) {
     let title = match pane {
-        Focus::Lists => Cow::Borrowed(lists_pane::TITLE),
+        Focus::Lists => lists_pane::title(app),
         Focus::Tasks => tasks_pane::title(app),
     };
     let border = PaneBorder {

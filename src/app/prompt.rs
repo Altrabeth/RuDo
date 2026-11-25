@@ -262,7 +262,11 @@ impl App {
                 self.resolver.reset();
                 self.mode = Mode::Normal;
             }
-            Mode::Normal | Mode::Help(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
+            Mode::Normal
+            | Mode::Help(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Search(_) => {}
         }
     }
 }

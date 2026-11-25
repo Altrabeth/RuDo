@@ -209,7 +209,11 @@ impl App {
     pub(super) fn close_help(&mut self) {
         match self.mode {
             Mode::Help(_) => self.mode = Mode::Normal,
-            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {}
+            Mode::Normal
+            | Mode::Prompt(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Search(_) => {}
         }
     }
 }
@@ -242,7 +246,11 @@ mod tests {
     fn help_of(app: &App) -> &HelpOverlay {
         match app.mode() {
             Mode::Help(help) => help,
-            Mode::Normal | Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) => {
+            Mode::Normal
+            | Mode::Prompt(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Search(_) => {
                 panic!("the help screen is not open")
             }
         }

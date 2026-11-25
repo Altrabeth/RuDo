@@ -18,6 +18,8 @@ use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::app::filter::SmartCaseQuery;
+use crate::app::search::PaneFilter;
 use crate::app::task_input::InlineEditKind;
 use crate::app::task_visibility::CompletedTasks;
 use crate::app::tasks::{TaskItem, visible_task_items};
@@ -30,8 +32,9 @@ use crate::domain::priority::Priority;
 use crate::domain::tags;
 use crate::markdown::document::{InsertPosition, TaskId};
 use crate::markdown::task_line::{FieldKey, TaskLine, TaskStatus};
-use crate::ui::outline::{Fold, Outline, OutlineItem, OutlineRow};
-use crate::ui::pane_message::{key_sentence, render_message};
+use crate::ui::highlight::Highlight;
+use crate::ui::outline::{FilterRole, Fold, Outline, OutlineItem, OutlineRow};
+use crate::ui::pane_message::{NO_MATCHES, key_sentence, render_message};
 use crate::ui::text_input::{TextInput, TextInputView, display_width, fitted};
 
 /// Title of the tasks pane while no list is open; otherwise the title is the list's name and
@@ -49,7 +52,7 @@ const COLLAPSED_MARKER: &str = "▸ ";
 /// Keeps the checkboxes of tasks without subtasks aligned with the others.
 const LEAF_MARKER: &str = "  ";
 /// Separates the parts of the title: list name, counter and [`COMPLETED_HIDDEN`].
-const TITLE_SEPARATOR: &str = "  ";
+pub(crate) const TITLE_SEPARATOR: &str = "  ";
 /// Ends the title while completed tasks are hidden.
 const COMPLETED_HIDDEN: &str = "completed hidden";
 /// Columns that tree guides never take from a row: the fold marker, the checkbox and the
@@ -60,7 +63,8 @@ const METADATA_GAP: &str = " ";
 
 /// Returns the title of the tasks pane of `app`: the name of the active list with its
 /// `done/total` counter of all tasks, followed by `completed hidden` while completed tasks
-/// are hidden, or [`TITLE`] while no list is open.
+/// are hidden and by the search filter while one is active, or [`TITLE`] while no list is
+/// open.
 #[must_use]
 pub fn title(app: &App) -> Cow<'_, str> {
     let Some(list) = app.active_list() else {
@@ -79,6 +83,10 @@ pub fn title(app: &App) -> Cow<'_, str> {
                     title.push_str(TITLE_SEPARATOR);
                     title.push_str(COMPLETED_HIDDEN);
                 }
+            }
+            if let Some(filter) = app.task_filter().filter(|filter| filter.is_active()) {
+                title.push_str(TITLE_SEPARATOR);
+                title.push_str(&filter.to_string());
             }
             Cow::Owned(title)
         }
@@ -116,7 +124,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             return;
         }
     };
-    let items = visible_task_items(loaded.document(), app.completed_tasks());
+    let items = visible_task_items(loaded.document(), app.completed_tasks(), app.task_filter());
     let inline_edit = inline_edit(app);
     let new_task = inline_edit.and_then(|(kind, input)| match kind {
         InlineEditKind::New(position) => Some((position, input)),
@@ -126,14 +134,13 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         InlineEditKind::Existing(id) => Some((id, input)),
         InlineEditKind::New(_) => None,
     });
+    let query = app.task_filter().and_then(PaneFilter::query);
     if items.is_empty() && new_task.is_none() {
-        render_message(
-            app,
-            frame,
-            text_area,
-            &no_tasks_hint(app.keymap()),
-            Slot::Text,
-        );
+        let message = match query {
+            Some(_) => Cow::Borrowed(NO_MATCHES),
+            None => Cow::Owned(no_tasks_hint(app.keymap())),
+        };
+        render_message(app, frame, text_area, &message, Slot::Text);
         return;
     }
     let fallback = Outline::new();
@@ -158,7 +165,20 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         rows.insert(row, placeholder);
     }
     let first_row = offset.min(rows.len());
-    render_rows(app, frame, area, outline.selected(), &rows[first_row..]);
+    let shown = ShownRows {
+        selected: outline.selected(),
+        query,
+        rows: &rows[first_row..],
+    };
+    render_rows(app, frame, area, &shown);
+}
+
+/// The rows of the tasks pane from the scroll offset on, with the selected task and the
+/// search query whose matches are highlighted.
+struct ShownRows<'a, 'document> {
+    selected: Option<&'a TaskId>,
+    query: Option<&'a SmartCaseQuery>,
+    rows: &'a [PaneRow<'a, 'document>],
 }
 
 /// A row of the tasks pane: a task, a task whose text is edited, or the placeholder of a new
@@ -180,7 +200,7 @@ enum PaneRow<'a, 'document> {
 fn inline_edit(app: &App) -> Option<(InlineEditKind, &TextInput)> {
     match app.mode() {
         Mode::InlineEdit(edit) => Some((edit.kind(), edit.input())),
-        Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::Confirm(_) => None,
+        Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::Confirm(_) | Mode::Search(_) => None,
     }
 }
 
@@ -219,14 +239,14 @@ fn offset_showing(offset: usize, row: usize, height: usize) -> usize {
     offset.min(row).max((row + 1).saturating_sub(height))
 }
 
-/// Renders `rows` from the top of `area`, highlighting the `selected` task.
-fn render_rows(
-    app: &App,
-    frame: &mut Frame,
-    area: Rect,
-    selected: Option<&TaskId>,
-    rows: &[PaneRow<'_, '_>],
-) {
+/// Renders the `shown` rows from the top of `area`, highlighting the selected task and the
+/// matches of the search query.
+fn render_rows(app: &App, frame: &mut Frame, area: Rect, shown: &ShownRows<'_, '_>) {
+    let ShownRows {
+        selected,
+        query,
+        rows,
+    } = *shown;
     let theme = app.theme();
     let selection = theme.style(match app.focus() {
         Focus::Tasks => Slot::Selection,
@@ -244,7 +264,9 @@ fn render_rows(
             PaneRow::Task(row) => {
                 highlight_selected(row);
                 frame.render_widget(
-                    TaskRow::new(row, theme, app.today()).into_line(width),
+                    TaskRow::new(row, theme, app.today())
+                        .highlight(query, theme)
+                        .into_line(width),
                     text_area,
                 );
             }
@@ -340,14 +362,39 @@ impl<'a> TaskRow<'a> {
             priority: priority_part(task, theme),
             due: due_part(task, theme, today),
         };
-        Self::from_parts(
+        let task_row = Self::from_parts(
             depth,
             marker,
             task.status(),
             task.description(),
             metadata,
             theme,
-        )
+        );
+        match row.item().role() {
+            FilterRole::Match => task_row,
+            FilterRole::Context => task_row.into_context(theme),
+        }
+    }
+
+    /// Highlights the matches of `query` in the description; without a query nothing is
+    /// highlighted.
+    #[must_use]
+    pub fn highlight(mut self, query: Option<&SmartCaseQuery>, theme: &Theme) -> Self {
+        self.description.highlight = Highlight::new(query, self.description.text, theme);
+        self
+    }
+
+    /// Dims the checkbox and the description of a task that is only shown because one of its
+    /// subtasks matches the search filter.
+    fn into_context(mut self, theme: &Theme) -> Self {
+        let style = theme.style(Slot::FilterContext);
+        // Every span of the lead but the fold marker, which keeps the style of the guides.
+        for span in self.lead.iter_mut().skip(1) {
+            span.style = style;
+        }
+        self.description.style = style;
+        self.description.tag_style = style;
+        self
     }
 
     /// Builds the row of a new task `depth` levels deep without a description; the text input
@@ -394,6 +441,7 @@ impl<'a> TaskRow<'a> {
                 text: description,
                 style: status_style,
                 tag_style: theme.style(Slot::Tag),
+                highlight: Highlight::default(),
             },
             metadata,
         }
@@ -542,29 +590,35 @@ fn priority_marker(priority: Priority) -> (&'static str, Slot) {
     }
 }
 
-/// The description of a task, styled by its status with its tags highlighted.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// The description of a task, styled by its status with its tags and search matches
+/// highlighted.
+#[derive(Debug, Clone, PartialEq)]
 struct Description<'a> {
     text: &'a str,
     style: Style,
     tag_style: Style,
+    highlight: Highlight,
 }
 
 impl<'a> Description<'a> {
     /// Appends the description cut to `width` cells to `spans`.
     ///
     /// The text is cut first and the tags of the whole text are styled where they remain
-    /// visible, so a tag that is cut keeps its style up to the ellipsis.
+    /// visible, so a tag that is cut keeps its style up to the ellipsis. Search matches keep
+    /// the style of the part they are in, patched with the highlight.
     fn push_spans(self, width: usize, spans: &mut Vec<Span<'a>>) {
         let (shown, ellipsis) = fitted(self.text, width);
         let mut position = 0;
         for tag in tags::spans(self.text).take_while(|tag| tag.start < shown.len()) {
             let end = tag.end.min(shown.len());
-            spans.push(Span::styled(&shown[position..tag.start], self.style));
-            spans.push(Span::styled(&shown[tag.start..end], self.tag_style));
+            self.highlight
+                .push_spans(spans, &shown[position..tag.start], position, self.style);
+            self.highlight
+                .push_spans(spans, &shown[tag.start..end], tag.start, self.tag_style);
             position = end;
         }
-        spans.push(Span::styled(&shown[position..], self.style));
+        self.highlight
+            .push_spans(spans, &shown[position..], position, self.style);
         spans.push(Span::styled(ellipsis, self.style));
     }
 }

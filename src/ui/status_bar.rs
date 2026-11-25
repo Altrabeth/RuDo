@@ -1,7 +1,8 @@
 //! The bottom bar: key hints, pending keys and messages.
 //!
-//! The left part shows the most important keys of the focused pane, or the
-//! [`StatusMessage`] while one is visible. The right part always shows the key of the help
+//! The left part shows the most important keys of the focused pane, the [`StatusMessage`]
+//! while one is visible, or the search prompt, vim style, while a query is typed. The right
+//! part always shows the key of the help
 //! screen and, like vim's `showcmd`, the keys typed so far of an unfinished key sequence.
 
 use ratatui::Frame;
@@ -9,11 +10,13 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 
+use crate::app::search::PROMPT;
 use crate::app::{App, Severity, StatusMessage};
 use crate::config::keymap::action::{Action, Context};
 use crate::config::keymap::key::{KeyChord, KeySequence};
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::{Slot, Theme};
+use crate::ui::text_input::{TextInput, TextInputView};
 
 /// The spans of one key hint: a blank, the key, a blank, the label and a blank, so that
 /// consecutive hints are two blanks apart.
@@ -37,6 +40,12 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX);
     let [left_area, right_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(right_width)]).areas(area);
+    frame.render_widget(Block::new().style(theme.style(Slot::StatusBar)), area);
+    frame.render_widget(right, right_area);
+    if let Some(input) = app.search_input() {
+        render_search_prompt(input, theme, frame, left_area);
+        return;
+    }
     let left = match app.status_message() {
         Some(message) => message_line(message, theme),
         None => hints_line(
@@ -46,9 +55,23 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             theme,
         ),
     };
-    frame.render_widget(Block::new().style(theme.style(Slot::StatusBar)), area);
     frame.render_widget(left, left_area);
-    frame.render_widget(right, right_area);
+}
+
+/// Renders the search prompt into `area`: a blank, the [`PROMPT`] and the typed query with
+/// the cursor.
+fn render_search_prompt(input: &TextInput, theme: &Theme, frame: &mut Frame, area: Rect) {
+    let prompt = Line::from_iter([
+        Span::raw(" "),
+        Span::styled(PROMPT, theme.style(Slot::KeyHint)),
+    ]);
+    let prompt_width = u16::try_from(prompt.width()).unwrap_or(u16::MAX);
+    let [prompt_area, input_area] =
+        Layout::horizontal([Constraint::Length(prompt_width), Constraint::Fill(1)]).areas(area);
+    frame.render_widget(prompt, prompt_area);
+    TextInputView::new(input, "")
+        .style(theme.style(Slot::StatusBar))
+        .render_with_cursor(frame, input_area);
 }
 
 /// Returns the actions whose keys the bottom bar shows in `context`, most important first.

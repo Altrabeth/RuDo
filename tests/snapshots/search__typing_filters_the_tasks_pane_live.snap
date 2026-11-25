@@ -1,0 +1,16 @@
+---
+source: tests/search.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Groceries  1/8  /milk ───────────────────────────────╮"
+"│ • Groceries      1/8 ││ ▾ [ ] Buy milk                                       │"
+"│                      ││ │   [ ] Oat milk                                     │"
+"│                      ││ ▾ [ ] Clean fridge                                   │"
+"│                      ││ │   [ ] Throw away old Milk                          │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" /milk                                                                          "

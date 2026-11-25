@@ -8,11 +8,12 @@ use std::path::{Path, PathBuf};
 
 use crate::app::confirm::ConfirmKind;
 use crate::app::prompt::PromptKind;
+use crate::app::search::{PaneFilter, SearchItem};
 use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
 use crate::config::keymap::action::Action;
 use crate::storage::workspace::{Entry, List, ListPath, Workspace, moved_path};
-use crate::ui::outline::{Outcome, Outline, OutlineCommand, OutlineItem};
+use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem};
 use crate::ui::text_input::TextInput;
 
 /// Identifies a row of the workspace tree across rescans.
@@ -76,12 +77,14 @@ impl EntryChange<'_> {
     }
 }
 
-/// A folder or list of the workspace tree with its key and nesting depth.
+/// A folder or list of the workspace tree with its key, nesting depth and why the filter of
+/// the lists pane shows it.
 #[derive(Debug)]
 pub struct TreeItem<'workspace> {
     entry: &'workspace Entry,
     key: EntryKey,
     depth: usize,
+    role: FilterRole,
 }
 
 impl<'workspace> TreeItem<'workspace> {
@@ -89,6 +92,27 @@ impl<'workspace> TreeItem<'workspace> {
     #[must_use]
     pub fn entry(&self) -> &'workspace Entry {
         self.entry
+    }
+
+    /// Returns whether the entry matches the filter of the lists pane or only contains a
+    /// match.
+    #[must_use]
+    pub fn role(&self) -> FilterRole {
+        self.role
+    }
+}
+
+impl SearchItem for TreeItem<'_> {
+    /// Lists match by name; folders are only shown because they contain a match.
+    fn search_text(&self) -> Option<&str> {
+        match self.entry {
+            Entry::Folder(_) => None,
+            Entry::List(list) => Some(list.name()),
+        }
+    }
+
+    fn with_role(self, role: FilterRole) -> Self {
+        Self { role, ..self }
     }
 }
 
@@ -123,6 +147,7 @@ fn push_items<'workspace>(
             entry,
             key: EntryKey::from(entry),
             depth,
+            role: FilterRole::Match,
         });
         match entry {
             Entry::Folder(folder) => push_items(items, folder.entries(), depth + 1),
@@ -131,12 +156,13 @@ fn push_items<'workspace>(
     }
 }
 
-/// The lists pane: the selection and folding of the workspace tree and the active list, whose
-/// tasks the tasks pane shows.
+/// The lists pane: the selection and folding of the workspace tree, its search filter and the
+/// active list, whose tasks the tasks pane shows.
 #[derive(Debug, Clone)]
 pub struct ListsPane {
     outline: Outline<EntryKey>,
     active: Option<ListPath>,
+    filter: PaneFilter<EntryKey>,
 }
 
 impl ListsPane {
@@ -155,6 +181,7 @@ impl ListsPane {
             return Self {
                 outline,
                 active: None,
+                filter: PaneFilter::default(),
             };
         };
         match outline.select(&items, key, viewport_height) {
@@ -164,6 +191,7 @@ impl ListsPane {
         Self {
             active: Some(path.clone()),
             outline,
+            filter: PaneFilter::default(),
         }
     }
 
@@ -179,11 +207,35 @@ impl ListsPane {
         self.active.as_ref()
     }
 
+    /// Returns the search filter of the pane.
+    #[must_use]
+    pub fn filter(&self) -> &PaneFilter<EntryKey> {
+        &self.filter
+    }
+
+    /// Returns the folders and lists of `workspace` that the pane shows with its filter, in
+    /// display order.
+    #[must_use]
+    pub fn items<'workspace>(&self, workspace: &'workspace Workspace) -> Vec<TreeItem<'workspace>> {
+        self.filter.apply(tree_items(workspace))
+    }
+
+    pub(super) fn filter_mut(&mut self) -> &mut PaneFilter<EntryKey> {
+        &mut self.filter
+    }
+
+    /// Filters the tree of `workspace` again after the filter changed, in a viewport
+    /// `viewport_height` rows high.
+    pub(super) fn refilter(&mut self, workspace: &Workspace, viewport_height: usize) {
+        self.filter
+            .refilter(&mut self.outline, || tree_items(workspace), viewport_height);
+    }
+
     /// Keeps the selection inside a viewport `viewport_height` rows high, for example after
     /// the terminal was resized.
     pub(super) fn refresh(&mut self, workspace: &Workspace, viewport_height: usize) {
-        self.outline
-            .refresh(&tree_items(workspace), viewport_height);
+        let items = self.items(workspace);
+        self.outline.refresh(&items, viewport_height);
     }
 
     /// Returns the folder that receives a new entry, relative to the workspace root: the
@@ -202,7 +254,7 @@ impl ListsPane {
         workspace: &'workspace Workspace,
     ) -> Option<&'workspace Entry> {
         let selected = self.outline.selected()?;
-        tree_items(workspace)
+        self.items(workspace)
             .into_iter()
             .find(|item| item.key == *selected)
             .map(|item| item.entry)
@@ -223,12 +275,13 @@ impl ListsPane {
     }
 
     /// Selects the entry with `key` in the tree of `workspace`, unfolding the folders that
-    /// contain it, in a viewport `viewport_height` rows high.
+    /// contain it and revealing it while a filter is active, in a viewport `viewport_height`
+    /// rows high.
     pub(super) fn select(&mut self, workspace: &Workspace, key: &EntryKey, viewport_height: usize) {
+        self.filter.reveal(key.clone());
+        let items = self.items(workspace);
         // An entry that is already selected stays selected, so either outcome is fine.
-        let _: Outcome = self
-            .outline
-            .select(&tree_items(workspace), key, viewport_height);
+        let _: Outcome = self.outline.select(&items, key, viewport_height);
     }
 
     /// Performs `action` on the tree of `workspace`, shown in a viewport `viewport_height` rows
@@ -247,9 +300,8 @@ impl ListsPane {
         } else {
             return false;
         };
-        let outcome = self
-            .outline
-            .apply(&tree_items(workspace), command, viewport_height);
+        let items = self.items(workspace);
+        let outcome = self.outline.apply(&items, command, viewport_height);
         command == OutlineCommand::Expand
             && outcome == Outcome::Unchanged
             && self.open_selected_list()

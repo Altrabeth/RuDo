@@ -4,18 +4,23 @@
 //! counters are computed from the documents for the rendered rows only, so they follow every
 //! edit without a cache.
 
+use std::borrow::Cow;
+
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
-use crate::app::lists::{TreeItem, tree_items};
+use crate::app::lists::TreeItem;
 use crate::app::{App, Focus};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
 use crate::config::theme::Slot;
 use crate::storage::workspace::{Entry, List};
-use crate::ui::outline::{Fold, OutlineItem, OutlineRow};
-use crate::ui::pane_message::{key_sentence, render_message};
+use crate::ui::highlight::Highlight;
+use crate::ui::outline::{FilterRole, Fold, OutlineItem, OutlineRow};
+use crate::ui::pane_message::{NO_MATCHES, key_sentence, render_message};
+use crate::ui::tasks_pane::TITLE_SEPARATOR;
 
 /// Title of the lists pane.
 pub const TITLE: &str = "Lists";
@@ -35,14 +40,31 @@ const LIST_MARKER: &str = "  ";
 /// Shown instead of the counter of a list that could not be loaded.
 const UNREADABLE: &str = "unreadable";
 
+/// Returns the title of the lists pane of `app`: [`TITLE`], followed by the search filter
+/// while one is active, such as `Lists  /milk`.
+#[must_use]
+pub fn title(app: &App) -> Cow<'_, str> {
+    let filter = app.lists().filter();
+    if filter.is_active() {
+        Cow::Owned(format!("{TITLE}{TITLE_SEPARATOR}{filter}"))
+    } else {
+        Cow::Borrowed(TITLE)
+    }
+}
+
 /// Renders the contents of the lists pane of `app` into `area`, the inside of its border.
 ///
 /// The rows start at the scroll offset of the outline, which the app keeps valid for the
 /// height of `area` because it derives the viewport from the same layout.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
-    let items = tree_items(app.workspace());
+    let items = app.lists().items(app.workspace());
     if items.is_empty() {
-        render_empty_hint(app, frame, area.inner(Margin::new(PADDING, 0)));
+        let text_area = area.inner(Margin::new(PADDING, 0));
+        if app.lists().filter().is_active() {
+            render_message(app, frame, text_area, NO_MATCHES, Slot::Text);
+        } else {
+            render_empty_hint(app, frame, text_area);
+        }
         return;
     }
     let outline = app.lists().outline();
@@ -82,8 +104,11 @@ fn render_row(app: &App, frame: &mut Frame, area: Rect, row: &OutlineRow<'_, Tre
                 Fold::Collapsed => COLLAPSED_MARKER,
                 Fold::Expanded | Fold::Leaf => EXPANDED_MARKER,
             };
-            let label =
-                Line::from_iter([marker, folder.name()]).style(app.theme().style(Slot::Folder));
+            let slot = match row.item().role() {
+                FilterRole::Match => Slot::Folder,
+                FilterRole::Context => Slot::FilterContext,
+            };
+            let label = Line::from_iter([marker, folder.name()]).style(app.theme().style(slot));
             frame.render_widget(label, label_area);
         }
         Entry::List(list) => render_list(app, frame, label_area, list),
@@ -117,7 +142,10 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List) {
     } else {
         LIST_MARKER
     };
-    let label = Line::from_iter([marker, list.name()]).style(theme.style(Slot::List));
+    let highlight = Highlight::new(app.lists().filter().query(), list.name(), theme);
+    let mut spans = vec![Span::raw(marker)];
+    highlight.push_spans(&mut spans, list.name(), 0, Style::new());
+    let label = Line::from(spans).style(theme.style(Slot::List));
     frame.render_widget(label, label_area);
     frame.render_widget(counter, counter_area);
 }

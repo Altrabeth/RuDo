@@ -65,11 +65,12 @@ pub enum PromptKind {
         /// The task whose recurrence rule is set or cleared.
         task: TaskId,
     },
-    /// The folder that receives the entry of the bin at `location`, relative to the bin, whose
-    /// original path is unknown; relative to the workspace root and empty for the root itself.
+    /// The folder that receives those entries of the bin at `locations` whose original path
+    /// is unknown; relative to the workspace root and empty for the root itself.
     RestoreInto {
-        /// The entry to restore.
-        location: PathBuf,
+        /// The entries to restore, relative to the bin; those with a known original path go
+        /// back to it.
+        locations: Vec<PathBuf>,
     },
 }
 
@@ -158,8 +159,8 @@ impl PromptKind {
                 task: *task,
                 recurrence: parse_recurrence_text(text)?,
             },
-            Self::RestoreInto { location } => Submission::RestoreInto {
-                location: location.clone(),
+            Self::RestoreInto { locations } => Submission::RestoreInto {
+                locations: locations.clone(),
                 folder: folder_path(text),
             },
         })
@@ -184,8 +185,11 @@ enum Submission {
         task: TaskId,
         recurrence: Option<Recurrence>,
     },
-    /// Restoring the entry of the bin at `location` into `folder`.
-    RestoreInto { location: PathBuf, folder: PathBuf },
+    /// Restoring the entries of the bin at `locations`, those of unknown origin into `folder`.
+    RestoreInto {
+        locations: Vec<PathBuf>,
+        folder: PathBuf,
+    },
 }
 
 /// Explains the text of the prompt for the target folder of a move.
@@ -309,7 +313,7 @@ impl App {
                 task,
                 recurrence,
             } => self.set_recurrence(&list, task, recurrence),
-            Submission::RestoreInto { location, folder } => self.restore_into(&location, &folder),
+            Submission::RestoreInto { locations, folder } => self.restore_into(&locations, &folder),
         }
     }
 

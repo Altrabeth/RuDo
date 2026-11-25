@@ -3,6 +3,7 @@
 //! The runtime and the tests share [`execute`], so the tests exercise the same file system
 //! code as a running RuDo.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter, Write};
 use std::iter;
@@ -11,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::app::bin::emptied_message;
 use crate::app::history::{Direction, EntryOperation, HistoryEntry, Relocation};
-use crate::app::lists::{EntryChange, EntryKey};
+use crate::app::lists::{EntryChange, EntryKey, counted};
 use crate::app::state::{App, Focus};
 use crate::app::status::{Severity, StatusMessage};
 use crate::storage::bin::{
@@ -90,9 +91,9 @@ pub enum Effect {
     /// Move these lists and folders from the bin to the paths they name, as one new step of
     /// the undo history, as the bin view asks for it.
     RestoreEntries(Vec<TrashedEntry>),
-    /// Delete the list or folder at this path, relative to the bin, permanently; this cannot
-    /// be undone.
-    DeleteFromBin(PathBuf),
+    /// Delete the lists and folders at these paths, relative to the bin, permanently; this
+    /// cannot be undone.
+    DeleteFromBin(Vec<PathBuf>),
     /// Delete everything in the bin permanently; this cannot be undone.
     EmptyBin,
 }
@@ -119,7 +120,7 @@ pub fn execute(app: &mut App, effect: Effect) {
             operation,
         } => step_entries(app, direction, operation),
         Effect::RestoreEntries(entries) => restore_from_bin(app, entries),
-        Effect::DeleteFromBin(location) => delete_permanently(app, &location),
+        Effect::DeleteFromBin(locations) => delete_permanently(app, &locations),
         Effect::EmptyBin => {
             let workspace = app.workspace();
             let emptied = empty_bin(workspace.root(), workspace.bin());
@@ -213,11 +214,11 @@ fn move_entries(app: &mut App, entries: &[EntryKey], folder: &Path) {
 }
 
 /// Moves the lists and folders `entries` from the bin to the paths they name, records their
-/// move back into the bin as one undo step and reports the result.
+/// move back into the bin as one undo step and reports the result in one message.
 fn restore_from_bin(app: &mut App, entries: Vec<TrashedEntry>) {
-    let Performed {
-        reversal, failures, ..
-    } = restore_entries(app, entries, None);
+    let requested = entries.len();
+    let (restored, skipped, failures) = restore_each(app, entries, None);
+    let reversal = operation(restored, EntryOperation::Trash);
     if let Some(reversal) = &reversal
         && failures.is_empty()
     {
@@ -225,21 +226,17 @@ fn restore_from_bin(app: &mut App, entries: Vec<TrashedEntry>) {
         app.show_message(StatusMessage::info(format!("restored {summary}")));
     }
     app.record_entries(reversal);
-    app.restore_failed(&failures);
+    app.restore_failed(requested, &skipped, &failures);
 }
 
-/// Deletes the list or folder at `location`, relative to the bin, permanently.
-fn delete_permanently(app: &mut App, location: &Path) {
-    let workspace = app.workspace();
-    match delete_from_bin(workspace.root(), workspace.bin(), location) {
-        Ok(()) => app.deleted_from_bin(location),
-        Err(error) => {
-            app.entry_failed(&error);
-            // Part of a folder may be gone, so the bin is read again.
-            app.workspace.rescan_bin();
-            app.bin_changed();
-        }
-    }
+/// Deletes the lists and folders at `locations`, relative to the bin, permanently and reports
+/// the result in one message.
+fn delete_permanently(app: &mut App, locations: &[PathBuf]) {
+    let (deleted, _, failures) = attempt(locations.iter().collect(), |location| {
+        let workspace = app.workspace();
+        delete_from_bin(workspace.root(), workspace.bin(), location).map(|()| location.as_path())
+    });
+    app.deleted_from_bin(&deleted, &failures);
 }
 
 /// Undoes or redoes a change of lists and folders by performing `operation`, and stores its
@@ -327,16 +324,7 @@ fn restore_entries(
     entries: Vec<TrashedEntry>,
     active: Option<ListPath>,
 ) -> Performed {
-    let (restored, failed, failures) = attempt(entries, |entry| {
-        let workspace = app.workspace();
-        restore(workspace.root(), workspace.bin(), entry)?;
-        app.workspace.remove_bin_entry(entry.location());
-        Ok(entry.original().to_path_buf())
-    });
-    if !restored.is_empty() {
-        app.entries_restored(&restored, active.as_ref());
-        app.bin_changed();
-    }
+    let (restored, failed, failures) = restore_each(app, entries, active.as_ref());
     Performed {
         reversal: operation(restored, EntryOperation::Trash),
         unperformed: operation(failed, |entries| EntryOperation::Restore {
@@ -345,6 +333,27 @@ fn restore_entries(
         }),
         failures,
     }
+}
+
+/// Moves the lists and folders `entries` from the bin back to the paths they name, adds them to
+/// the workspace and makes `active` the active list again; returns the restored paths, the
+/// entries that stayed in the bin and why.
+fn restore_each(
+    app: &mut App,
+    entries: Vec<TrashedEntry>,
+    active: Option<&ListPath>,
+) -> (Vec<PathBuf>, Vec<TrashedEntry>, Vec<EntryError>) {
+    let (restored, failed, failures) = attempt(entries, |entry| {
+        let workspace = app.workspace();
+        restore(workspace.root(), workspace.bin(), entry)?;
+        app.workspace.remove_bin_entry(entry.location());
+        Ok(entry.original().to_path_buf())
+    });
+    if !restored.is_empty() {
+        app.entries_restored(&restored, active);
+        app.bin_changed();
+    }
+    (restored, failed, failures)
 }
 
 /// Moves each list or folder of `relocations` to its new path and follows it in the workspace.
@@ -469,15 +478,31 @@ impl App {
         self.apply_entry_change(EntryChange::Removed(&original));
     }
 
-    /// Removes the entry of the bin at `location`, just deleted permanently, from the bin and
-    /// from the undo history, which can no longer restore it.
-    fn deleted_from_bin(&mut self, location: &Path) {
-        if let Some(entry) = self.workspace.remove_bin_entry(location) {
-            let name = entry.entry().name();
-            self.show_message(StatusMessage::info(format!("deleted {name} permanently")));
+    /// Removes the entries of the bin at the locations `deleted`, just deleted permanently,
+    /// from the bin and from the undo history, which can no longer restore them, and reports
+    /// them and the `failures` of the others in one message.
+    fn deleted_from_bin(&mut self, deleted: &[&Path], failures: &[EntryError]) {
+        let names: Vec<String> = deleted
+            .iter()
+            .filter_map(|location| self.workspace.remove_bin_entry(location))
+            .map(|entry| entry.entry().name().to_owned())
+            .collect();
+        let gone: HashSet<&Path> = deleted.iter().copied().collect();
+        self.history.forget_trashed(|entry| {
+            entry
+                .location()
+                .ancestors()
+                .any(|location| gone.contains(location))
+        });
+        if !failures.is_empty() {
+            // Part of a folder may be gone, so the bin is read again.
+            self.workspace.rescan_bin();
         }
-        self.history
-            .forget_trashed(|entry| entry.location().starts_with(location));
+        let message = deleted_message(&names, failures);
+        if message.severity() == Severity::Error {
+            tracing::warn!(report = message.text(), "cannot delete from the bin");
+        }
+        self.show_message(message);
         self.bin_changed();
     }
 
@@ -500,27 +525,41 @@ impl App {
         self.bin_changed();
     }
 
-    /// Reports why restoring entries from the bin failed, in one message; a taken original
-    /// path says how to free it.
-    fn restore_failed(&mut self, failures: &[EntryError]) {
-        if failures.is_empty() {
-            return;
-        }
-        let reports: Vec<String> = failures
-            .iter()
-            .map(|error| match error {
-                EntryError::AlreadyExists { .. } => {
-                    format!("{}; rename or move it first", error_report(error))
+    /// Reports why restoring the `skipped` of `requested` entries from the bin failed with
+    /// `failures`, in one message, and keeps the skipped entries of a restore of several
+    /// selected in visual mode.
+    ///
+    /// A single entry with a taken original path says how to free it; several name the taken
+    /// paths: `restored 8 of 10; 2 paths are taken: Home/Groceries.md, Work`.
+    fn restore_failed(
+        &mut self,
+        requested: usize,
+        skipped: &[TrashedEntry],
+        failures: &[EntryError],
+    ) {
+        let report = match failures {
+            [] => return,
+            [error] if requested == 1 => {
+                if is_taken(error) {
+                    format!(
+                        "cannot restore: {}; rename or move it first",
+                        error_report(error)
+                    )
+                } else {
+                    format!("cannot restore: {}", error_report(error))
                 }
-                EntryError::Io { .. }
-                | EntryError::IntoItself { .. }
-                | EntryError::NotEmpty { .. }
-                | EntryError::InvalidName(_) => error_report(error),
-            })
-            .collect();
-        let report = format!("cannot restore: {}", reports.join("; "));
+            }
+            several => restored_report(requested, skipped, several),
+        };
         tracing::warn!(%report, "cannot restore from the bin");
         self.show_message(StatusMessage::error(report));
+        if requested > 1 {
+            let locations: Vec<PathBuf> = skipped
+                .iter()
+                .map(|entry| entry.location().to_path_buf())
+                .collect();
+            self.select_in_bin(&locations);
+        }
     }
 
     /// Adds the folders and lists at `paths`, just restored from the bin, to the workspace by
@@ -625,6 +664,68 @@ fn entries_summary(paths: &[&Path]) -> String {
         several => return format!("{} lists and folders", several.len()),
     };
     name.unwrap_or_default().to_string_lossy().into_owned()
+}
+
+/// Returns whether `error` says that another entry took the path an entry was restored to.
+const fn is_taken(error: &EntryError) -> bool {
+    match error {
+        EntryError::AlreadyExists { .. } => true,
+        EntryError::Io { .. }
+        | EntryError::IntoItself { .. }
+        | EntryError::NotEmpty { .. }
+        | EntryError::InvalidName(_) => false,
+    }
+}
+
+/// Reports a restore of `requested` entries that left the `skipped` entries in the bin because
+/// of `failures`: how many were restored, the original paths that are taken and every other
+/// error, such as `restored 8 of 10; 2 paths are taken: Home/Groceries.md, Work`.
+fn restored_report(requested: usize, skipped: &[TrashedEntry], failures: &[EntryError]) -> String {
+    let (taken, others): (Vec<_>, Vec<_>) = skipped
+        .iter()
+        .zip(failures)
+        .partition(|(_, error)| is_taken(error));
+    let mut report = format!("restored {} of {requested}", requested - failures.len());
+    if !taken.is_empty() {
+        let paths: Vec<String> = taken
+            .iter()
+            .map(|(entry, _)| entry.original().display().to_string())
+            .collect();
+        let verb = if taken.len() == 1 { "is" } else { "are" };
+        let count = counted(taken.len(), "path", "paths");
+        write!(report, "; {count} {verb} taken: {}", paths.join(", "))
+            .expect("writing to a string cannot fail");
+    }
+    if !others.is_empty() {
+        let reports: Vec<String> = others
+            .iter()
+            .map(|(_, error)| error_report(error))
+            .collect();
+        write!(report, "; {} failed: {}", others.len(), reports.join("; "))
+            .expect("writing to a string cannot fail");
+    }
+    report
+}
+
+/// Reports a permanent deletion from the bin: `deleted Work permanently` for the single entry
+/// named in `names`, their number for several, or the `failures` of the others in one error,
+/// such as `deleted 10 of 12 entries permanently; 2 failed: ...`.
+fn deleted_message(names: &[String], failures: &[EntryError]) -> StatusMessage {
+    let requested = names.len() + failures.len();
+    match (names, failures) {
+        ([name], []) => StatusMessage::info(format!("deleted {name} permanently")),
+        (_, []) => StatusMessage::info(format!("deleted {requested} entries permanently")),
+        ([], [error]) => StatusMessage::error(error_report(error)),
+        (_, _) => {
+            let reports: Vec<String> = failures.iter().map(|error| error_report(error)).collect();
+            StatusMessage::error(format!(
+                "deleted {} of {requested} entries permanently; {} failed: {}",
+                names.len(),
+                failures.len(),
+                reports.join("; ")
+            ))
+        }
+    }
 }
 
 /// Returns what `entries` are in the plural: `lists`, `folders`, or `entries` for both.
@@ -777,5 +878,100 @@ mod tests {
         let system_under_test = app.status_message();
 
         assert_eq!(system_under_test, Some(&expected));
+    }
+
+    fn taken(path: &str) -> EntryError {
+        EntryError::AlreadyExists {
+            path: PathBuf::from(path),
+        }
+    }
+
+    fn failed(path: &str) -> EntryError {
+        EntryError::Io {
+            path: PathBuf::from(path),
+            source: io::Error::other("denied"),
+        }
+    }
+
+    /// Moves the lists `names`, created in a new workspace `directory`, into its bin.
+    fn trashed(directory: &TempDir, names: &[&str]) -> Vec<TrashedEntry> {
+        let bin = crate::storage::bin::BinPath::default();
+        names
+            .iter()
+            .map(|name| {
+                fs::write(directory.path().join(name), "").unwrap();
+                move_to_bin(directory.path(), &bin, Path::new(name)).unwrap()
+            })
+            .collect()
+    }
+
+    /// Whether a skipped entry of a restore found its path taken or failed otherwise.
+    #[derive(Debug, Clone, Copy)]
+    enum Skip {
+        Taken,
+        Failed,
+    }
+
+    #[rstest]
+    #[case::one_taken(&[("a.md", Skip::Taken)], 3, "restored 2 of 3; 1 path is taken: a.md")]
+    #[case::taken(
+        &[("a.md", Skip::Taken), ("b.md", Skip::Taken)],
+        2,
+        "restored 0 of 2; 2 paths are taken: a.md, b.md"
+    )]
+    #[case::other_errors(
+        &[("a.md", Skip::Taken), ("x.md", Skip::Failed)],
+        4,
+        "restored 2 of 4; 1 path is taken: a.md; 1 failed: cannot change x.md: denied"
+    )]
+    #[case::only_other_errors(
+        &[("x.md", Skip::Failed)],
+        2,
+        "restored 1 of 2; 1 failed: cannot change x.md: denied"
+    )]
+    fn restored_report_names_the_taken_paths_and_the_other_errors(
+        #[case] skipped: &[(&str, Skip)],
+        #[case] requested: usize,
+        #[case] expected: &str,
+    ) {
+        let directory = TempDir::new().unwrap();
+        let names: Vec<&str> = skipped.iter().map(|&(name, _)| name).collect();
+        let entries = trashed(&directory, &names);
+        let failures: Vec<EntryError> = skipped
+            .iter()
+            .map(|&(name, skip)| match skip {
+                Skip::Taken => taken(name),
+                Skip::Failed => failed(name),
+            })
+            .collect();
+
+        let system_under_test = restored_report(requested, &entries, &failures);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::one(&["Work"], &[], StatusMessage::info("deleted Work permanently"))]
+    #[case::several(&["Work", "a"], &[], StatusMessage::info("deleted 2 entries permanently"))]
+    #[case::one_failed(&[], &["x"], StatusMessage::error("cannot change x: denied"))]
+    #[case::some_failed(
+        &["Work"],
+        &["x", "y"],
+        StatusMessage::error(
+            "deleted 1 of 3 entries permanently; 2 failed: cannot change x: denied; \
+             cannot change y: denied"
+        )
+    )]
+    fn deleted_message_reports_the_deleted_entries_and_every_failure(
+        #[case] names: &[&str],
+        #[case] failures: &[&str],
+        #[case] expected: StatusMessage,
+    ) {
+        let names: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
+        let failures: Vec<EntryError> = failures.iter().map(|path| failed(path)).collect();
+
+        let system_under_test = deleted_message(&names, &failures);
+
+        assert_eq!(system_under_test, expected);
     }
 }

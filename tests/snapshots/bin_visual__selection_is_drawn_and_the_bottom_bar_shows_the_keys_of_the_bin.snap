@@ -1,0 +1,14 @@
+---
+source: tests/bin_visual.rs
+expression: system_under_test
+---
+"╭ Bin ─────────────────╮╭ Old  0/1  in the bin ────────────────────────────────╮"
+"│ ▸ Work    2026-03-12 ││ Read only. Press R to restore it.                    │"
+"│   Home/Gr 2026-03-10 ││                                                      │"
+"│   Old     2026-03-08 ││   [ ] Paint                                          │"
+"│   Note       unknown ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" -- VISUAL -- 3 selected  R restore  d delete  esc cancel                       "

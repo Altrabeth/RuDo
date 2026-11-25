@@ -168,16 +168,21 @@ src/
 - The `Mode` decides what takes the keys: `Normal` (the focused pane), `Help(HelpOverlay)`,
   `Prompt(PromptOverlay)` (input popup), `Confirm(ConfirmOverlay)`, `InlineEdit(InlineEdit)`
   (a row of the tasks pane), `Search(Focus)` (the search prompt in the bottom bar) and
-  `Visual` (a selection of several rows of the focused pane). `Prompt`, `InlineEdit`, `Search`
-  and the open help filter resolve keys in `Context::Input`, `Visual` in `Context::Visual`.
-- The visual selection is an anchor key in the pane's `Outline` plus its cursor; the selected
-  keys are derived from the visible rows whenever they are needed, so folds, filters, hidden
-  completed tasks and hidden entries are respected and a reload that removes the anchor ends
+  `Visual` (a selection of several rows of the focused pane or of the bin view). `Prompt`,
+  `InlineEdit`, `Search` and the open help filter resolve keys in `Context::Input`, `Visual`
+  in `Context::Visual`, or in `Context::BinVisual` while the bin view is open, so that
+  `restore-from-bin` resolves on a selection in the bin but not on one in the panes.
+- The visual selection is an anchor key in the pane's `Outline` (or the `BinView`'s) plus its
+  cursor; the selected keys are derived from the visible rows whenever they are needed, so
+  folds, filters, hidden completed tasks and hidden entries are respected and a reload that
+  removes the anchor ends
   visual mode (`App::end_visual_mode_without_anchor`). Every action on the selection ends visual mode
   before it acts or opens a dialog.
 - `Effect` is one of `Save`, `CreateEntry`, `RenameEntry`, `DeleteEntries`, `MoveEntries`,
   `OpenInEditor`, `ReloadList`, `Rescan`, `StepEntries`, `RestoreEntries`, `DeleteFromBin`
-  and `EmptyBin`. Every deletion of lists and
+  and `EmptyBin`. The bin view restores one entry or a selection as one `RestoreEntries` (one
+  undo step) and deletes it permanently as one `DeleteFromBin`; both report partial failures
+  in one message. Every deletion of lists and
   folders, a single one too, is one `DeleteEntries` (asked for by
   `App::ask_to_delete_entries`, performed by `delete_entries` in `app::effect`, which moves
   the entries into the bin with `storage::bin::move_to_bin`), and every move one `MoveEntries` (`move_entries`, which
@@ -292,9 +297,10 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   description, its short label for the bottom bar, the `Context`s it is valid in and its
   default key sequences, each through an exhaustive `match`, so adding an action fails to
   compile until all four are defined.
-- `Context` is one of `Lists`, `Tasks`, `Visual`, `Bin`, `Help`, `Dialog`, `Input`. Global
-  actions are valid in `Lists` and `Tasks` (`help`, `quit`, `undo` and `redo` also in `Bin`);
-  navigation actions additionally in `Visual`, `Bin` and `Help`, `search` in `Help`. Keys are bound per action, so the selection actions of `Visual`
+- `Context` is one of `Lists`, `Tasks`, `Visual`, `Bin`, `BinVisual`, `Help`, `Dialog`,
+  `Input`. Global actions are valid in `Lists` and `Tasks` (`help`, `quit`, `undo` and `redo`
+  also in `Bin`); navigation actions additionally in `Visual`, `Bin`, `BinVisual` and `Help`,
+  `search` in `Help`. Keys are bound per action, so the selection actions of `Visual`
   (`delete-selection` on `d`) are separate from those of the panes (`delete` on `d d`).
 - The effective `Keymap` is built once at start-up from the defaults and the user's
   overrides and validated per context: no key sequence bound twice, no binding that is a prefix

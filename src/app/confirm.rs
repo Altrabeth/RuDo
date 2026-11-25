@@ -26,8 +26,8 @@ pub enum ConfirmKind {
         /// The selected tasks, in document order.
         tasks: Vec<TaskId>,
     },
-    /// Delete the list or folder at this path, relative to the bin, permanently.
-    DeleteFromBin(PathBuf),
+    /// Delete the lists and folders at these paths, relative to the bin, permanently.
+    DeleteFromBin(Vec<PathBuf>),
     /// Delete everything in the bin permanently.
     EmptyBin,
 }
@@ -69,7 +69,9 @@ impl App {
                 match overlay.kind {
                     ConfirmKind::DeleteEntries(entries) => vec![Effect::DeleteEntries(entries)],
                     ConfirmKind::DeleteTasks { list, tasks } => self.delete_tasks(&list, &tasks),
-                    ConfirmKind::DeleteFromBin(location) => vec![Effect::DeleteFromBin(location)],
+                    ConfirmKind::DeleteFromBin(locations) => {
+                        vec![Effect::DeleteFromBin(locations)]
+                    }
                     ConfirmKind::EmptyBin => vec![Effect::EmptyBin],
                 }
             }
@@ -145,8 +147,8 @@ mod tests {
 
     #[rstest]
     #[case::delete_from_bin(
-        ConfirmKind::DeleteFromBin(PathBuf::from("Work")),
-        Effect::DeleteFromBin(PathBuf::from("Work"))
+        ConfirmKind::DeleteFromBin(vec![PathBuf::from("Work")]),
+        Effect::DeleteFromBin(vec![PathBuf::from("Work")])
     )]
     #[case::empty_bin(ConfirmKind::EmptyBin, Effect::EmptyBin)]
     fn yes_performs_the_permanent_deletion_of_the_bin(

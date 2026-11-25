@@ -43,7 +43,8 @@ The first release, not tagged yet. The [README](README.md) specifies the behavio
 - **Visual mode.** `v` selects several tasks or lists, vim style; `d` deletes the selection
   (asking first for several tasks and for lists, which go to the bin), `y` yanks the selected tasks and `p`/`P`
   paste every yanked block, so tasks can be moved between lists in one go. `m` moves the
-  selected lists and folders, or the selected entry, into another folder.
+  selected lists and folders, or the selected entry, into another folder. In the bin, `R`
+  restores the selected entries in one undoable step and `d` deletes them permanently.
 - **Live reload.** The workspace is watched; lists changed by other programs are reloaded,
   new, renamed and removed entries appear, and a save never overwrites a file that changed
   on disk.

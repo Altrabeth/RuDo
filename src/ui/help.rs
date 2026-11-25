@@ -56,7 +56,7 @@ impl Display for HelpHeading {
             Self::Trees => "Trees (lists pane and tasks pane)",
             Self::ListsPane => "Lists pane",
             Self::TasksPane => "Tasks pane",
-            Self::VisualMode => "Visual mode (lists and tasks pane)",
+            Self::VisualMode => "Visual mode (lists pane, tasks pane and bin)",
             Self::Bin => "Bin (lists pane)",
             Self::HelpAndDialogs => "Help screen, dialogs and text input",
             Self::EditingKeys => "Editing keys in text input",
@@ -651,7 +651,7 @@ mod tests {
             "r",
             "m",
             "H",
-            "Visual mode (lists and tasks pane)",
+            "Visual mode (lists pane, tasks pane and bin)",
             "d",
         ];
 

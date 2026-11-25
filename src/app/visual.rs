@@ -1,12 +1,12 @@
-//! Visual mode ([`Mode::Visual`]): selecting several rows of the focused pane, like vim's
-//! linewise `V`, and deleting, yanking or moving them in one step.
+//! Visual mode ([`Mode::Visual`]): selecting several rows of the focused pane or of the bin
+//! view, like vim's linewise `V`, and deleting, yanking, moving or restoring them in one step.
 //!
-//! The selection lives in the [`Outline`] of the pane as an anchor key, so it follows edits and
-//! reloads like the cursor does. It is resolved against the rows the pane shows whenever it is
-//! needed: folded rows are selected with their parent, rows hidden by a filter or by hidden
-//! completed tasks are not selected, and rows shown only as the context of a search match are
-//! left out as well. Every action on the selection, and every dialog it opens, ends visual
-//! mode.
+//! The selection lives in the [`Outline`] of the pane or of the bin view as an anchor key, so
+//! it follows edits and reloads like the cursor does. It is resolved against the rows the pane
+//! shows whenever it is needed: folded rows are selected with their parent, rows hidden by a
+//! filter or by hidden completed tasks are not selected, and rows shown only as the context of
+//! a search match are left out as well. Every action on the selection, and every dialog it
+//! opens, ends visual mode.
 
 use std::collections::HashSet;
 
@@ -36,6 +36,9 @@ impl App {
     pub fn visual_selection_count(&self) -> Option<usize> {
         match self.mode {
             Mode::Visual => match self.focus {
+                Focus::Lists if self.lists.bin_view().is_some() => self
+                    .selected_bin_locations()
+                    .map(|locations| locations.len()),
                 Focus::Lists => self.selected_entries().map(|entries| entries.len()),
                 Focus::Tasks => self.selected_tasks().map(|(_, tasks)| tasks.len()),
             },
@@ -61,10 +64,11 @@ impl App {
         }
     }
 
-    /// Anchors a selection at the cursor of the focused pane and enters visual mode; a pane
-    /// without rows stays in normal mode.
+    /// Anchors a selection at the cursor of the focused pane, or of the bin view while it is
+    /// open, and enters visual mode; a pane without rows stays in normal mode.
     fn start_visual_mode(&mut self) {
         let anchored = match self.focus {
+            Focus::Lists if self.lists.bin_view().is_some() => self.start_bin_selection(),
             Focus::Lists => {
                 let outline = self.lists.outline_mut();
                 outline.start_selection();
@@ -84,6 +88,7 @@ impl App {
     /// Ends the selection and returns to normal mode.
     pub(super) fn end_visual_mode(&mut self) {
         self.lists.outline_mut().end_selection();
+        self.end_bin_selection();
         if let Some(list) = self.lists.active() {
             self.tasks.outline_mut(list).end_selection();
         }
@@ -107,9 +112,14 @@ impl App {
         }
     }
 
-    /// Deletes the selected tasks, or asks to delete the selected lists and empty folders.
+    /// Deletes the selected tasks, or asks to delete the selected lists and empty folders, or
+    /// the selected entries of the bin permanently.
     pub(super) fn delete_selection(&mut self) -> Vec<Effect> {
         match self.focus {
+            Focus::Lists if self.lists.bin_view().is_some() => {
+                self.ask_to_delete_from_bin();
+                Vec::new()
+            }
             Focus::Lists => {
                 if let Some(entries) = self.take_selected_entries() {
                     self.ask_to_delete_entries(&entries);
@@ -178,7 +188,7 @@ impl App {
     }
 
     /// Returns `selection` if it holds keys, otherwise shows why it is empty or gone.
-    fn nonempty_selection<K>(&mut self, selection: Option<Vec<K>>) -> Option<Vec<K>> {
+    pub(super) fn nonempty_selection<K>(&mut self, selection: Option<Vec<K>>) -> Option<Vec<K>> {
         match selection {
             Some(keys) if !keys.is_empty() => Some(keys),
             Some(_) => {
@@ -229,7 +239,7 @@ impl App {
 /// Returns the keys of the rows of `items` in the visual selection of `outline`, leaving out
 /// those that `role` says are only the context of a search match; `None` without a
 /// selection.
-fn selected_keys<I: OutlineItem>(
+pub(super) fn selected_keys<I: OutlineItem>(
     outline: &Outline<I::Key>,
     items: &[I],
     role: impl Fn(&I) -> FilterRole,

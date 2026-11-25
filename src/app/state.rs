@@ -145,6 +145,7 @@ impl App {
             Mode::Help(help) => help.context(),
             Mode::Prompt(_) | Mode::InlineEdit(_) | Mode::Search(_) => Context::Input,
             Mode::Confirm(_) => Context::Dialog,
+            Mode::Visual if self.lists.bin_view().is_some() => Context::BinVisual,
             Mode::Visual => Context::Visual,
         }
     }

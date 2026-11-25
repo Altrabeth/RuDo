@@ -321,6 +321,7 @@ const fn types_text(context: Context) -> bool {
         | Context::Tasks
         | Context::Visual
         | Context::Bin
+        | Context::BinVisual
         | Context::Help
         | Context::Dialog => false,
     }

@@ -135,6 +135,11 @@ const fn hint_actions(context: Context, focus: Focus) -> &'static [Action] {
             Action::EmptyBin,
             Action::CloseBin,
         ],
+        Context::BinVisual => &[
+            Action::RestoreFromBin,
+            Action::DeleteSelection,
+            Action::Cancel,
+        ],
         Context::Help => &[Action::Search],
         Context::Dialog => &[Action::ConfirmYes, Action::ConfirmNo],
         Context::Input => &[Action::Submit, Action::Cancel],
@@ -148,7 +153,7 @@ const fn pinned_action(context: Context) -> Option<Action> {
     match context {
         Context::Lists | Context::Tasks | Context::Bin => Some(Action::Help),
         Context::Help => Some(Action::CloseHelp),
-        Context::Visual | Context::Dialog | Context::Input => None,
+        Context::Visual | Context::BinVisual | Context::Dialog | Context::Input => None,
     }
 }
 
@@ -331,6 +336,8 @@ mod tests {
     #[case::tasks(Context::Tasks, Some(Action::Help))]
     #[case::help(Context::Help, Some(Action::CloseHelp))]
     #[case::visual(Context::Visual, None)]
+    #[case::bin(Context::Bin, Some(Action::Help))]
+    #[case::bin_visual(Context::BinVisual, None)]
     #[case::dialog(Context::Dialog, None)]
     #[case::input(Context::Input, None)]
     fn pinned_action_says_how_to_open_or_leave_the_help(
@@ -371,6 +378,19 @@ mod tests {
         #[case] expected: &[Action],
     ) {
         let system_under_test = hint_actions(Context::Visual, focus);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn visual_hints_in_the_bin_restore_or_delete_the_selection() {
+        let expected = [
+            Action::RestoreFromBin,
+            Action::DeleteSelection,
+            Action::Cancel,
+        ];
+
+        let system_under_test = hint_actions(Context::BinVisual, Focus::Lists);
 
         assert_eq!(system_under_test, expected);
     }

@@ -226,13 +226,22 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List, style: Sty
 }
 
 /// Renders the entries of the bin of `app` that `view` scrolled to into `area`, the selected
-/// one highlighted; the focus never leaves the lists pane while the bin is open.
+/// one highlighted and those selected in visual mode drawn with [`Slot::VisualSelection`]; the
+/// focus never leaves the lists pane while the bin is open.
 fn render_bin(app: &App, frame: &mut Frame, area: Rect, view: &BinView) {
     let items = bin_items(app.workspace());
     let outline = view.outline();
     let rows = outline.visible_rows(&items);
     let selection = app.theme().style(Slot::Selection);
-    for (row_area, row) in area.rows().zip(rows.iter().skip(outline.offset())) {
+    let visual_rows = outline.selection_rows(&rows).unwrap_or_default();
+    let visual_selection = app.theme().style(Slot::VisualSelection);
+    for (row_area, (index, row)) in area
+        .rows()
+        .zip(rows.iter().enumerate().skip(outline.offset()))
+    {
+        if visual_rows.contains(&index) {
+            frame.buffer_mut().set_style(row_area, visual_selection);
+        }
         if Some(row.item().key()) == outline.selected() {
             frame.buffer_mut().set_style(row_area, selection);
         }

@@ -335,7 +335,7 @@ binding of `toggle-completed` in your configuration only applies in the tasks pa
 folder (`Home/Garden`); empty text moves it to the top level. A folder cannot be moved into
 itself, and an entry with the same name in the target folder is never replaced.
 
-### Visual mode (lists and tasks pane)
+### Visual mode (lists pane, tasks pane and bin)
 
 | Keys  | Action             | Description                                         |
 | ----- | ------------------ | --------------------------------------------------- |
@@ -361,13 +361,16 @@ In the lists pane `d` moves the selected lists and folders to the bin after aski
 moves them into a folder; `u` undoes either in one step. If some files cannot be deleted or
 moved, one message names them all.
 
+In the bin `R` restores the selected entries and `d` deletes them permanently (see
+[Bin](#bin-lists-pane)); `y` and `m` do nothing there.
+
 ### Bin (lists pane)
 
-| Keys                 | Action             | Description                                            |
-| -------------------- | ------------------ | ------------------------------------------------------ |
-| `R`                  | `restore-from-bin` | move the entry back to where it came from              |
-| `E`                  | `empty-bin`        | delete everything in the bin permanently (asks first)  |
-| `h`, `left`, `esc`   | `close-bin`        | return to the lists                                    |
+| Keys                 | Action             | Description                                                |
+| -------------------- | ------------------ | ---------------------------------------------------------- |
+| `R`                  | `restore-from-bin` | move the entry or the selection back to where it came from |
+| `E`                  | `empty-bin`        | delete everything in the bin permanently (asks first)      |
+| `h`, `left`, `esc`   | `close-bin`        | return to the lists                                        |
 
 `enter` or `l` on the `Bin` row at the end of the tree opens the bin: the lists and folders in
 it with their original path and the date they were deleted, the most recently deleted first.
@@ -383,6 +386,16 @@ permanently, also files that are not lists; both ask first, saying what is delet
 These are the only ways RuDo deletes files for good. The moving around keys, `u`, `ctrl-r`,
 `?` and `q` work in the bin as well.
 
+`v` selects several entries of the bin, as in the panes (see
+[Visual mode](#visual-mode-lists-pane-tasks-pane-and-bin)); the bottom bar shows
+`-- VISUAL --` with the keys that apply. `R` then restores every selected entry to its
+original path in one step that `u` undoes. Entries whose original path is taken stay in the
+bin and selected, and one message names them (`restored 8 of 10; 2 paths are taken:
+Home/Groceries.md, Work`); if some selected entries have no known original path, `R` asks
+once for the folder that receives all of them. `d` deletes the selected entries permanently
+after asking (`Delete 12 lists with 340 tasks and 2 folders permanently? This cannot be
+undone.`); if some cannot be deleted, one message names them.
+
 ### Help screen, dialogs and text input
 
 | Keys                 | Action        | Where         | Description                 |
@@ -391,7 +404,7 @@ These are the only ways RuDo deletes files for good. The moving around keys, `u`
 | `y`, `enter`         | `confirm-yes` | dialogs       | confirm                     |
 | `n`, `esc`           | `confirm-no`  | dialogs       | cancel                      |
 | `enter`              | `submit`      | text input    | accept the text             |
-| `esc`, `ctrl-c`      | `cancel`      | text input, visual mode | discard the text, or end the selection |
+| `esc`, `ctrl-c`      | `cancel`      | text input, visual mode (also in the bin) | discard the text, or end the selection |
 
 While typing, these editing keys are fixed: `left`, `right`, `ctrl-left` and `ctrl-right`
 (word), `home` or `ctrl-a`, `end` or `ctrl-e`, `backspace`, `delete`, `ctrl-w` (delete the

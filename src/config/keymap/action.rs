@@ -24,6 +24,8 @@ pub enum Context {
     Visual,
     /// The lists pane shows the content of the bin.
     Bin,
+    /// Several entries of the bin are selected in visual mode.
+    BinVisual,
     /// The help screen is open.
     Help,
     /// A confirmation dialog is open.
@@ -196,6 +198,7 @@ impl Display for Context {
             Self::Tasks => "tasks pane",
             Self::Visual => "visual mode",
             Self::Bin => "bin",
+            Self::BinVisual => "visual mode in the bin",
             Self::Help => "help screen",
             Self::Dialog => "dialogs",
             Self::Input => "text input",
@@ -211,19 +214,28 @@ const NAVIGATION: &[Context] = &[
     Context::Tasks,
     Context::Visual,
     Context::Bin,
+    Context::BinVisual,
     Context::Help,
 ];
 const TREE: &[Context] = &[Context::Lists, Context::Tasks];
 const TREE_AND_BIN: &[Context] = &[Context::Lists, Context::Tasks, Context::Bin];
 const BIN: &[Context] = &[Context::Bin];
+const BIN_AND_VISUAL: &[Context] = &[Context::Bin, Context::BinVisual];
 const LISTS: &[Context] = &[Context::Lists];
 const LISTS_AND_VISUAL: &[Context] = &[Context::Lists, Context::Visual];
 const TASKS: &[Context] = &[Context::Tasks];
-const PANES_AND_VISUAL: &[Context] = &[Context::Lists, Context::Tasks, Context::Visual];
+const VISUAL_TOGGLE: &[Context] = &[
+    Context::Lists,
+    Context::Tasks,
+    Context::Visual,
+    Context::Bin,
+    Context::BinVisual,
+];
 const VISUAL: &[Context] = &[Context::Visual];
+const ALL_VISUAL: &[Context] = &[Context::Visual, Context::BinVisual];
 const HELP: &[Context] = &[Context::Help];
 const DIALOG: &[Context] = &[Context::Dialog];
-const INPUT_AND_VISUAL: &[Context] = &[Context::Input, Context::Visual];
+const INPUT_AND_VISUAL: &[Context] = &[Context::Input, Context::Visual, Context::BinVisual];
 const INPUT: &[Context] = &[Context::Input];
 
 impl Action {
@@ -286,7 +298,7 @@ impl Action {
             Self::VisualMode => "select several rows from here on, or stop selecting",
             Self::DeleteSelection => "delete the selected tasks, lists or folders",
             Self::YankSelection => "copy the selected tasks and their subtasks",
-            Self::RestoreFromBin => "move the entry back to where it came from",
+            Self::RestoreFromBin => "move the entry or the selection back to where it came from",
             Self::EmptyBin => "delete everything in the bin permanently (asks first)",
             Self::CloseBin => "return to the lists",
             Self::CloseHelp => "close the help screen",
@@ -366,7 +378,7 @@ impl Action {
     /// Returns the contexts in which the action can be triggered; never empty.
     ///
     /// Global actions are valid in the lists and tasks pane, navigation actions also in
-    /// visual mode, in the bin and on the help screen.
+    /// visual mode, in the bin, in visual mode in the bin and on the help screen.
     #[must_use]
     pub const fn contexts(self) -> &'static [Context] {
         match self {
@@ -413,9 +425,11 @@ impl Action {
             | Self::SortAlphabetically
             | Self::SortByStatus
             | Self::ToggleCompleted => TASKS,
-            Self::VisualMode => PANES_AND_VISUAL,
-            Self::DeleteSelection | Self::YankSelection => VISUAL,
-            Self::RestoreFromBin | Self::EmptyBin | Self::CloseBin => BIN,
+            Self::VisualMode => VISUAL_TOGGLE,
+            Self::DeleteSelection => ALL_VISUAL,
+            Self::YankSelection => VISUAL,
+            Self::RestoreFromBin => BIN_AND_VISUAL,
+            Self::EmptyBin | Self::CloseBin => BIN,
             Self::CloseHelp => HELP,
             Self::ConfirmYes | Self::ConfirmNo => DIALOG,
             Self::Submit => INPUT,
@@ -593,11 +607,19 @@ mod tests {
     #[case::search(Action::Search, &[Context::Lists, Context::Tasks, Context::Help])]
     #[case::navigation(
         Action::MoveDown,
-        &[Context::Lists, Context::Tasks, Context::Visual, Context::Bin, Context::Help]
+        &[
+            Context::Lists,
+            Context::Tasks,
+            Context::Visual,
+            Context::Bin,
+            Context::BinVisual,
+            Context::Help
+        ]
     )]
     #[case::tree(Action::ToggleFold, &[Context::Lists, Context::Tasks])]
     #[case::delete(Action::Delete, &[Context::Lists, Context::Tasks, Context::Bin])]
-    #[case::bin(Action::RestoreFromBin, &[Context::Bin])]
+    #[case::bin(Action::EmptyBin, &[Context::Bin])]
+    #[case::restore(Action::RestoreFromBin, &[Context::Bin, Context::BinVisual])]
     #[case::lists(Action::NewList, &[Context::Lists])]
     #[case::tasks(Action::NewTaskBelow, &[Context::Tasks])]
     #[case::toggle_completed(Action::ToggleCompleted, &[Context::Tasks])]
@@ -605,10 +627,14 @@ mod tests {
     #[case::help(Action::CloseHelp, &[Context::Help])]
     #[case::dialog(Action::ConfirmYes, &[Context::Dialog])]
     #[case::input(Action::Submit, &[Context::Input])]
-    #[case::visual_mode(Action::VisualMode, &[Context::Lists, Context::Tasks, Context::Visual])]
-    #[case::selection(Action::DeleteSelection, &[Context::Visual])]
+    #[case::visual_mode(
+        Action::VisualMode,
+        &[Context::Lists, Context::Tasks, Context::Visual, Context::Bin, Context::BinVisual]
+    )]
+    #[case::selection(Action::DeleteSelection, &[Context::Visual, Context::BinVisual])]
+    #[case::yank_selection(Action::YankSelection, &[Context::Visual])]
     #[case::move_to_folder(Action::MoveToFolder, &[Context::Lists, Context::Visual])]
-    #[case::cancel(Action::Cancel, &[Context::Input, Context::Visual])]
+    #[case::cancel(Action::Cancel, &[Context::Input, Context::Visual, Context::BinVisual])]
     fn contexts_follow_the_readme_sections(#[case] action: Action, #[case] expected: &[Context]) {
         let system_under_test = action.contexts();
 
@@ -642,6 +668,7 @@ mod tests {
     #[case::tasks(Context::Tasks, "tasks pane")]
     #[case::visual(Context::Visual, "visual mode")]
     #[case::bin(Context::Bin, "bin")]
+    #[case::bin_visual(Context::BinVisual, "visual mode in the bin")]
     #[case::help(Context::Help, "help screen")]
     #[case::dialog(Context::Dialog, "dialogs")]
     #[case::input(Context::Input, "text input")]

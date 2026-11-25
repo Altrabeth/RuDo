@@ -253,6 +253,10 @@ impl ListsPane {
         self.bin.as_ref()
     }
 
+    pub(super) fn bin_view_mut(&mut self) -> Option<&mut BinView> {
+        self.bin.as_mut()
+    }
+
     /// Shows the bin of `workspace` instead of the tree, from its first entry, in a viewport
     /// `viewport_height` rows high.
     pub(super) fn open_bin(&mut self, workspace: &Workspace, viewport_height: usize) {

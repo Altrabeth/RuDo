@@ -58,9 +58,43 @@ the same tasks from the terminal and from Obsidian at the same time.
 
 ## Installation
 
-RuDo is published on [crates.io](https://crates.io/crates/rudo-tui) as `rudo-tui`; the
-command it installs is `rudo`. You need Rust 1.100 or newer, installed for example with
-[rustup](https://rustup.rs):
+Every [GitHub release](https://github.com/Altrabeth/RuDo/releases) has ready-made binaries
+for Linux (x86_64 and aarch64, linked to glibc or fully static with musl), macOS (Intel and
+Apple silicon), Windows (x86_64) and FreeBSD (x86_64), each archive with its SHA-256 checksum.
+The static Linux binaries carry the time zone database, so they also know the local day on
+systems without `/usr/share/zoneinfo`, such as minimal containers. The install scripts pick
+the archive for your system and put `rudo` into `~/.cargo/bin`:
+
+```sh
+# Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Altrabeth/RuDo/releases/latest/download/rudo-tui-installer.sh | sh
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Altrabeth/RuDo/releases/latest/download/rudo-tui-installer.ps1 | iex"
+```
+
+With [Homebrew](https://brew.sh) on macOS and Linux, or with
+[cargo-binstall](https://github.com/cargo-bins/cargo-binstall), which downloads the same
+release archives instead of compiling:
+
+```sh
+brew install altrabeth/tap/rudo-tui
+cargo binstall rudo-tui
+```
+
+The macOS binaries are not notarized, because RuDo has no Apple Developer account. Homebrew
+and the install script are not affected; a `rudo` unpacked from a downloaded archive is
+blocked by Gatekeeper until you remove the quarantine attribute:
+
+```sh
+xattr -d com.apple.quarantine ./rudo
+```
+
+RuDo is also published on [crates.io](https://crates.io/crates/rudo-tui) as `rudo-tui`; the
+command it installs is `rudo`. To build it from source you need Rust 1.100 or newer, installed
+for example with [rustup](https://rustup.rs):
 
 ```sh
 cargo install --locked rudo-tui
@@ -635,6 +669,7 @@ all recipes.
 | `just lint`          | clippy with warnings denied                                    |
 | `just check-targets` | clippy for Windows, macOS and FreeBSD from any system (installs the targets) |
 | `just test`          | run all tests including doctests                               |
+| `just test-musl`     | run all tests for static musl Linux (installs the target)      |
 | `just smoke`         | run the binary in a pseudo-terminal through the quick start (needs `python3`) |
 | `just snap`          | review changed snapshots of the rendered interface             |
 | `just doc`           | build the API documentation with warnings denied               |
@@ -649,12 +684,14 @@ terminal, while a thin shell owns the terminal and the file system. Guard tests 
 keybinding, colour and theme tables of this README with the code, so they fail when one
 changes without the other. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the module
 layout and the testing strategy, [`docs/QA.md`](docs/QA.md) for the manual checklist in real
-terminals before a release, and [`AGENTS.md`](AGENTS.md) for the coding rules every change
+terminals before a release, [`docs/RELEASING.md`](docs/RELEASING.md) for the release
+procedure, and [`AGENTS.md`](AGENTS.md) for the coding rules every change
 must follow.
 
 CI runs `just check`, `just smoke` and the coverage on Linux for every push and pull request.
 The lints and tests on Windows and macOS, and the tests in a FreeBSD virtual machine, run when
-the workflow is started by hand and on pushes to `main`. `.gitattributes` checks every text file out with LF line endings and the
+the workflow is started by hand and on pushes to `main`. Pushing a `v*` tag builds the GitHub
+release with [dist](https://github.com/axodotdev/cargo-dist) (`.github/workflows/release.yml`). `.gitattributes` checks every text file out with LF line endings and the
 fixtures in `tests/fixtures/` byte for byte, so the byte-exact tests mean the same on Windows.
 
 ## License

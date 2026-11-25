@@ -17,6 +17,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `XDG_*` variables are honoured there too. `notepad` is the last editor fallback.
 - **FreeBSD.** RuDo builds and passes its tests on FreeBSD (x86_64), with the folders and the
   `vi` fallback of Linux.
+- **Release binaries.** Every GitHub release has archives for Linux (x86_64 and aarch64, glibc
+  and static musl), macOS (x86_64 and aarch64), Windows (x86_64) and FreeBSD (x86_64) with
+  SHA-256 checksums, install scripts for the shell and PowerShell, and a Homebrew formula
+  (`brew install altrabeth/tap/rudo-tui`); `cargo binstall rudo-tui` downloads them. The static
+  Linux binaries carry the time zone database, so they know the local day without
+  `/usr/share/zoneinfo`. `docs/RELEASING.md` describes the release procedure.
 
 ### Changed
 
@@ -25,7 +31,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.0.0] - Unreleased
 
-The first release, not tagged yet. The [README](README.md) specifies the behaviour in detail.
+The first release, not tagged yet. The [README](https://github.com/Altrabeth/RuDo/blob/main/README.md) specifies the behaviour in detail.
 
 ### Added
 

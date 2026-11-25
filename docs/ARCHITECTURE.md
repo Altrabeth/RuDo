@@ -385,7 +385,9 @@ run in-process.
 
 Every test has the three phases required by AGENTS.md: setup, `system_under_test`, assertions.
 Time is never read inside the core: functions that need today's date take it as a parameter,
-and the shell passes `jiff::ZonedDateTime::now().date()`.
+and the shell passes `jiff::ZonedDateTime::now().date()`. Static musl builds bundle the time
+zone database for systems without `/usr/share/zoneinfo`; `tests/time_zone.rs`, compiled only
+for musl and run by `just test-musl`, checks it.
 
 `just check-targets` lints the code for `x86_64-pc-windows-msvc`, `aarch64-apple-darwin` and
 `x86_64-unknown-freebsd` on any system, since checking needs neither a linker nor an SDK of the

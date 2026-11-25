@@ -1,0 +1,6 @@
+# actionlint 1.7.12 predates the self-repository syntax `uses: $/...` (GitHub, July 2026), with
+# which dist 0.34 calls the custom FreeBSD job. Remove this once actionlint knows the syntax.
+paths:
+  .github/workflows/release.yml:
+    ignore:
+      - 'reusable workflow call "\$/\.github/workflows/[^"]+" at "uses" is not following the format'

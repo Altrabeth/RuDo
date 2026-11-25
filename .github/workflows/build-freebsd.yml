@@ -1,0 +1,58 @@
+name: Build FreeBSD archive
+
+# dist has no FreeBSD target, so release.yml calls this workflow as a custom global artifacts
+# job (`global-artifacts-jobs` in dist-workspace.toml). Its `artifacts-*` upload lands in the
+# GitHub release next to the archives that dist builds, laid out like theirs.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: the dist manifest of the plan job, which this job does not need
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  freebsd:
+    name: build x86_64-unknown-freebsd
+    runs-on: ubuntu-latest
+    env:
+      ARCHIVE: rudo-tui-x86_64-unknown-freebsd
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Build in a FreeBSD virtual machine
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1.6.0
+        with:
+          # notify watches with inotify when built natively on 14.5 or later, which fails on
+          # older systems; built on 14.4 it uses kqueue and runs on every supported release.
+          release: "14.4"
+          copyback: true
+          prepare: |
+            pkg install -y curl
+          # rustup installs the toolchain pinned in rust-toolchain.toml.
+          run: |
+            set -eu
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none
+            . "$HOME/.cargo/env"
+            rustup toolchain install
+            cargo build --locked --profile dist
+
+      - name: Archive and checksum
+        run: |
+          mkdir -p "staging/$ARCHIVE" distrib
+          cp target/dist/rudo README.md LICENSE CHANGELOG.md "staging/$ARCHIVE/"
+          tar -C staging -cJf "distrib/$ARCHIVE.tar.xz" "$ARCHIVE"
+          cd distrib
+          sha256sum "$ARCHIVE.tar.xz" > "$ARCHIVE.tar.xz.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifacts-build-freebsd
+          path: distrib/*

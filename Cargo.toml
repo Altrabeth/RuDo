@@ -19,6 +19,17 @@ name = "rudo"
 name = "rudo"
 path = "src/main.rs"
 
+# `cargo binstall rudo-tui` downloads the archives of the GitHub release that dist builds
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+
+# The Windows archive holds its files without a folder
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+bin-dir = "{ bin }{ binary-ext }"
+
 [dependencies]
 anyhow = "1.0.105"
 clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
@@ -37,6 +48,12 @@ tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "env-filter"] }
 unicode-segmentation = { version = "1.13.3", default-features = false }
 
+# Static musl binaries often run on systems without `/usr/share/zoneinfo`, such as containers;
+# the bundled copy of the time zone database keeps "today" local there. jiff prefers the system
+# copy when there is one.
+[target.'cfg(target_env = "musl")'.dependencies]
+jiff = { version = "1.0.2", default-features = false, features = ["tzdb-bundle-always"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
@@ -53,3 +70,8 @@ allow_attributes_without_reason = "warn"
 insta = { version = "1.49.0", default-features = false }
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 rstest = { version = "0.29.0", default-features = false }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

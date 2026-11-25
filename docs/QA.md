@@ -124,6 +124,25 @@ tail -f ~/.local/state/rudo/rudo.log   # in a second terminal
 - [ ] With `RUDO_LOG=debug` the log file receives log lines while you use RuDo, and nothing
       is written over the interface.
 
+## Static Linux binary
+
+`just test-musl` checks that musl builds carry the time zone database, but not that RuDo
+falls back to it when the system has none. On Linux with
+[bubblewrap](https://github.com/containers/bubblewrap), hide `/usr/share/zoneinfo` from the
+static binary of the release (`rudo-tui-x86_64-unknown-linux-musl.tar.xz`, unpacked to
+`./rudo`) and list a bin entry deleted at 12:30 UTC:
+
+```sh
+mkdir -p /tmp/rudo-tz/.trash && touch /tmp/rudo-tz/.trash/old.md
+echo '[{"original": "old.md", "location": "old.md", "deleted_at": "2026-03-10T12:30:00Z"}]' \
+  > /tmp/rudo-tz/.trash/.rudo-bin.json
+TZ=Pacific/Kiritimati XDG_STATE_HOME=/tmp/rudo-tz-state bwrap --ro-bind / / \
+  --bind /tmp /tmp --tmpfs /usr/share/zoneinfo --dev /dev ./rudo --root /tmp/rudo-tz bin list
+```
+
+- [ ] The static binary prints `2026-03-11 02:30  old.md`, the local time of UTC+14; a binary
+      without the bundled database would fall back to UTC and print `2026-03-10 12:30`.
+
 ## FreeBSD
 
 Run these items on FreeBSD (x86_64) when a release ships a FreeBSD binary; CI runs the tests

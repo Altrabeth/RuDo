@@ -74,6 +74,11 @@ check-target target:
 test *args:
     cargo test --all-features "$@"
 
+# Run all tests for static musl Linux, whose binaries carry the time zone database
+test-musl:
+    rustup target add x86_64-unknown-linux-musl
+    cargo test --all-features --target x86_64-unknown-linux-musl
+
 # Drive the real binary in a pseudo-terminal through the quick start of the README
 smoke: build
     python3 scripts/smoke.py target/debug/rudo

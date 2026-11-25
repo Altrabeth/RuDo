@@ -3,7 +3,8 @@
 The automated tests drive the application core (`tests/scenarios.rs` and the other files in
 `tests/`) and the real binary in a pseudo-terminal (`just smoke`). What they cannot see is how
 RuDo looks and feels in real terminals, next to real programs. Run this checklist before every
-release, tick each item that behaves as described, and note anything that does not.
+release, tick each item that behaves as described, and note anything that does not. Keep the
+filled-in copy of a release in [`docs/qa/`](qa/), named after the date and the version.
 
 ## Preparation
 
@@ -95,7 +96,9 @@ must report the same problem instead of starting.
 - [ ] An unknown action in `keybindings` (`toggle-dne: x`).
 - [ ] A malformed key (`toggle-done: ctrl-`).
 - [ ] A key bound to two actions in the same pane (`toggle-done: o`).
-- [ ] A binding that is a prefix of another one (`move-to-top: g`).
+- [ ] A binding that is the beginning of another one (`move-to-top: d` clashes with `d d` of
+      `delete`). Note that `move-to-top: g` is valid: it replaces `g g`, and no other default
+      binding starts with `g`.
 - [ ] An unknown theme slot or colour (`theme: { selection: { fg: purple } }`).
 - [ ] `--config` pointing to a file that does not exist.
 - [ ] A valid file reports success; `rudo config default` piped into a file passes the check.
@@ -105,7 +108,15 @@ must report the same problem instead of starting.
 
 ## Logs
 
-- [ ] With `RUDO_LOG=debug`, `$XDG_STATE_HOME/rudo/rudo.log` receives log lines and nothing
+The log file is `$XDG_STATE_HOME/rudo/rudo.log`; with `XDG_STATE_HOME` unset (the usual case)
+that is `~/.local/state/rudo/rudo.log`. `env` sets the variable in every shell, including fish:
+
+```sh
+env RUDO_LOG=debug rudo --root /tmp/rudo-qa
+tail -f ~/.local/state/rudo/rudo.log   # in a second terminal
+```
+
+- [ ] With `RUDO_LOG=debug` the log file receives log lines while you use RuDo, and nothing
       is written over the interface.
 
 ## Result

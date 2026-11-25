@@ -456,8 +456,8 @@ level is `info`; set another with `RUDO_LOG`, which accepts
 [`tracing` filter directives](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html):
 
 ```sh
-RUDO_LOG=debug rudo
-tail -f ~/.local/state/rudo/rudo.log
+env RUDO_LOG=debug rudo                 # `env` works in every shell, including fish
+tail -f ~/.local/state/rudo/rudo.log   # in a second terminal
 ```
 
 If RuDo does not start because of the configuration, `rudo config check` shows every problem

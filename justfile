@@ -62,6 +62,14 @@ fmt *args:
 lint:
     cargo clippy --all-targets --all-features -- -D warnings
 
+# Lint for Windows and macOS from any machine; checking needs no linker or SDK of the target
+check-targets: (check-target "x86_64-pc-windows-msvc") (check-target "aarch64-apple-darwin")
+
+# Lint all targets and features for one compilation target, installing it if needed
+check-target target:
+    rustup target add {{ target }}
+    cargo clippy --all-targets --all-features --target {{ target }} -- -D warnings
+
 # Run all tests, including doctests
 test *args:
     cargo test --all-features "$@"

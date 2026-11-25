@@ -599,6 +599,7 @@ all recipes.
 | `just demo`          | run RuDo on a fresh copy of the sample workspace in `demo/`    |
 | `just fmt`           | format all code                                                |
 | `just lint`          | clippy with warnings denied                                    |
+| `just check-targets` | clippy for Windows and macOS from any system (installs the targets) |
 | `just test`          | run all tests including doctests                               |
 | `just smoke`         | run the binary in a pseudo-terminal through the quick start (needs `python3`) |
 | `just snap`          | review changed snapshots of the rendered interface             |
@@ -615,6 +616,11 @@ changes without the other. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) fo
 layout and the testing strategy, [`docs/QA.md`](docs/QA.md) for the manual checklist in real
 terminals before a release, and [`AGENTS.md`](AGENTS.md) for the coding rules every change
 must follow.
+
+CI runs `just check`, `just smoke` and the coverage on Linux for every push and pull request.
+The lints and tests on Windows and macOS run when the workflow is started by hand and on
+pushes to `main`. `.gitattributes` checks every text file out with LF line endings and the
+fixtures in `tests/fixtures/` byte for byte, so the byte-exact tests mean the same on Windows.
 
 ## License
 

@@ -1,0 +1,13 @@
+# Every text file is stored and checked out with LF line endings on every system, even with
+# `core.autocrlf=true` (the default of Git for Windows and the Windows CI runner). Sources,
+# snapshots, the README read by the guard tests and the embedded default configuration
+# therefore have the same bytes on Windows as on Linux and macOS.
+* text=auto eol=lf
+
+# Golden files and inputs of the byte-exact scenario tests: Git never converts them, neither
+# on checkout nor on commit, so that a fixture may also hold CRLF or other exact bytes.
+tests/fixtures/** -text -eol
+
+# insta snapshots and proptest regression seeds are text compared or parsed by the tests.
+*.snap text eol=lf
+proptest-regressions/** text eol=lf

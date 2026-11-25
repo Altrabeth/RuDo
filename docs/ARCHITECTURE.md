@@ -384,6 +384,11 @@ Every test has the three phases required by AGENTS.md: setup, `system_under_test
 Time is never read inside the core: functions that need today's date take it as a parameter,
 and the shell passes `jiff::ZonedDateTime::now().date()`.
 
+`just check-targets` lints the code for `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` on
+any system, since checking needs neither a linker nor an SDK of the target. CI runs the lints
+and the tests on Windows and macOS as well (see the README), and `.gitattributes` keeps the
+golden files byte-exact on Windows checkouts.
+
 ## Conventions
 
 - No pictographic symbols in the interface. Box-drawing characters and simple geometric

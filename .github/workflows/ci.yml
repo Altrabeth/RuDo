@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,6 +29,8 @@ jobs:
 
       - run: just check
 
+      - run: just smoke
+
       - name: Coverage
         # `shell: bash` adds `-o pipefail`, so a failing `just cov` fails the step despite `tee`.
         shell: bash
@@ -38,3 +41,37 @@ jobs:
             just cov --summary-only | tee /dev/stderr
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  platforms:
+    name: lint and test on ${{ matrix.os }}
+    # While the repository is private, macOS minutes count ten times and Windows minutes twice,
+    # so these jobs only run when started by hand and on pushes to main. Once the repository is
+    # public, remove this condition to run them on every push and pull request.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # .gitattributes keeps the byte-exact fixtures and snapshots intact despite the
+      # `core.autocrlf=true` of the Windows runner.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just
+
+      - run: just lint
+
+      # Runs even after failed lints, so that one run reports every failure of the platform.
+      - if: ${{ !cancelled() }}
+        run: just test
+
+      # The smoke test needs a pseudo-terminal, which Windows does not offer to Python.
+      - if: ${{ !cancelled() && runner.os == 'macOS' }}
+        run: just smoke

@@ -7,6 +7,8 @@
 //!
 //! While a new task is typed in [`Mode::InlineEdit`], a placeholder row with the text input
 //! is shown where the task will be inserted; the document itself is only changed on submit.
+//! While an existing task is edited, its row shows the text input in place of its
+//! description.
 
 use std::borrow::Cow;
 
@@ -101,7 +103,15 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         }
     };
     let items = task_items(loaded.document());
-    let new_task = new_task(app);
+    let inline_edit = inline_edit(app);
+    let new_task = inline_edit.and_then(|(kind, input)| match kind {
+        InlineEditKind::New(position) => Some((position, input)),
+        InlineEditKind::Existing(_) => None,
+    });
+    let edited_task = inline_edit.and_then(|(kind, input)| match kind {
+        InlineEditKind::Existing(id) => Some((id, input)),
+        InlineEditKind::New(_) => None,
+    });
     if items.is_empty() && new_task.is_none() {
         render_message(
             app,
@@ -123,7 +133,13 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         Some((row, _)) => offset_showing(outline.offset(), *row, usize::from(area.height)),
         None => outline.offset(),
     };
-    let mut rows: Vec<PaneRow<'_, '_>> = visible_rows.into_iter().map(PaneRow::Task).collect();
+    let mut rows: Vec<PaneRow<'_, '_>> = visible_rows
+        .into_iter()
+        .map(|row| match edited_task {
+            Some((id, input)) if *row.item().key() == id => PaneRow::EditedTask { row, input },
+            Some(_) | None => PaneRow::Task(row),
+        })
+        .collect();
     if let Some((row, placeholder)) = placeholder {
         rows.insert(row, placeholder);
     }
@@ -131,19 +147,25 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     render_rows(app, frame, area, outline.selected(), &rows[first_row..]);
 }
 
-/// A row of the tasks pane: a task, or the placeholder of a new task while its text is typed.
+/// A row of the tasks pane: a task, a task whose text is edited, or the placeholder of a new
+/// task while its text is typed.
 enum PaneRow<'a, 'document> {
     Task(OutlineRow<'a, TaskItem<'document>>),
-    NewTask { depth: usize, input: &'a TextInput },
+    EditedTask {
+        row: OutlineRow<'a, TaskItem<'document>>,
+        input: &'a TextInput,
+    },
+    NewTask {
+        depth: usize,
+        input: &'a TextInput,
+    },
 }
 
-/// Returns where the new task typed in the inline editor of `app` goes and its text, or
-/// `None` if no new task is typed.
-fn new_task(app: &App) -> Option<(InsertPosition, &TextInput)> {
+/// Returns which task the inline editor of `app` is for and its text, or `None` if no inline
+/// editor is open.
+fn inline_edit(app: &App) -> Option<(InlineEditKind, &TextInput)> {
     match app.mode() {
-        Mode::InlineEdit(edit) => match edit.kind() {
-            InlineEditKind::New(position) => Some((position, edit.input())),
-        },
+        Mode::InlineEdit(edit) => Some((edit.kind(), edit.input())),
         Mode::Normal | Mode::Help(_) | Mode::Prompt(_) | Mode::Confirm(_) => None,
     }
 }
@@ -199,18 +221,31 @@ fn render_rows(
     for (row_area, row) in area.rows().zip(rows) {
         let text_area = row_area.inner(Margin::new(PADDING, 0));
         let width = usize::from(text_area.width);
+        let mut highlight_selected = |row: &OutlineRow<'_, TaskItem<'_>>| {
+            if Some(row.item().key()) == selected {
+                frame.buffer_mut().set_style(row_area, selection);
+            }
+        };
         match row {
             PaneRow::Task(row) => {
-                if Some(row.item().key()) == selected {
-                    frame.buffer_mut().set_style(row_area, selection);
-                }
+                highlight_selected(row);
                 frame.render_widget(
                     TaskRow::new(row, theme, app.today()).into_line(width),
                     text_area,
                 );
             }
+            PaneRow::EditedTask { row, input } => {
+                highlight_selected(row);
+                render_input_row(
+                    frame,
+                    text_area,
+                    TaskRow::new(row, theme, app.today()).lead_only(),
+                    input,
+                    theme,
+                );
+            }
             PaneRow::NewTask { depth, input } => {
-                render_new_task(
+                render_input_row(
                     frame,
                     text_area,
                     TaskRow::new_task(*depth, theme),
@@ -222,9 +257,9 @@ fn render_rows(
     }
 }
 
-/// Renders the placeholder `row` of a new task into `area`, followed by the `input` with its
-/// cursor.
-fn render_new_task(
+/// Renders `row`, a task row without description, into `area`, followed by the `input` with
+/// its cursor.
+fn render_input_row(
     frame: &mut Frame,
     area: Rect,
     row: TaskRow<'_>,
@@ -311,6 +346,15 @@ impl<'a> TaskRow<'a> {
             TrailingMetadata::default(),
             theme,
         )
+    }
+
+    /// Returns only the lead of the row (tree guides, fold marker and checkbox), for a task
+    /// whose text is edited in the text input drawn after it. The description and the trailing
+    /// metadata are left out, so that the input gets the rest of the row.
+    fn lead_only(mut self) -> Self {
+        self.description.text = "";
+        self.metadata = TrailingMetadata::default();
+        self
     }
 
     fn from_parts(
@@ -870,6 +914,22 @@ mod tests {
         let expected = "│ │   [ ] ";
 
         let system_under_test = TaskRow::new_task(2, &Theme::default())
+            .into_line(40)
+            .to_string();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn edited_task_row_keeps_only_marker_and_checkbox() {
+        let document = TodoDocument::parse("- [x] a\n\t- [ ] b\n");
+        let items = task_items(&document);
+        let outline = Outline::new();
+        let rows = outline.visible_rows(&items);
+        let expected = "▾ [x] ";
+
+        let system_under_test = TaskRow::new(&rows[0], &Theme::default(), TODAY)
+            .lead_only()
             .into_line(40)
             .to_string();
 

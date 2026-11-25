@@ -81,7 +81,7 @@ src/
     lists.rs               lists pane state: workspace tree navigation, active list
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
-    task_input.rs          inline task editor (Mode::InlineEdit): adding tasks, one edit on submit
+    task_input.rs          inline task editor (Mode::InlineEdit): adding and editing tasks, one edit on submit
     tasks.rs               tasks pane state: task tree navigation per list
     task_priority.rs       raising and lowering the priority of the selected task
     task_reorder.rs        moving, indenting and outdenting the selected task

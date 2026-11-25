@@ -117,9 +117,9 @@ impl App {
             Action::SetDueDate => self.open_due_date_prompt(),
             Action::Undo => return self.step_history(Direction::Undo),
             Action::Redo => return self.step_history(Direction::Redo),
+            Action::Edit => self.edit_task(),
             Action::ClearFilter
             | Action::ToggleCompleted
-            | Action::Edit
             | Action::Yank
             | Action::PasteBelow
             | Action::PasteAbove

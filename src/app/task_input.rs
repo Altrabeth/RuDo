@@ -1,6 +1,6 @@
 //! The state of the inline task editor in [`Mode::InlineEdit`]: which task the typed text is
-//! for, the [`TextInput`] that edits it in a row of the tasks pane, and what submitting it
-//! does.
+//! for, a new or an existing one, the [`TextInput`] that edits it in a row of the tasks pane,
+//! and what submitting it does.
 //!
 //! The document is not touched while the user types. Submitting applies the whole change with
 //! one [`App::edit_list`] call, so it is saved once and undone in one step, and cancelling
@@ -8,6 +8,7 @@
 
 use crate::app::effect::Effect;
 use crate::app::state::{App, Mode};
+use crate::app::status::StatusMessage;
 use crate::config::IndentStyle;
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeyChord;
@@ -23,19 +24,43 @@ pub enum InlineEditKind {
     /// A new task, inserted at the position when the text is submitted; until then the tasks
     /// pane shows a placeholder row there.
     New(InsertPosition),
+    /// An existing task, whose description the text replaces; its status, inline fields and
+    /// subtasks are kept.
+    Existing(TaskId),
+}
+
+/// Shown if the edited task was removed meanwhile, for example by a reload.
+const TASK_GONE: &str = "the edited task no longer exists";
+
+/// What applying the text of the inline editor did to the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Applied {
+    /// The document changed; the task with this id holds the text.
+    Changed(TaskId),
+    /// The document already held the text, or a new task had nowhere to go.
+    Unchanged,
+    /// The edited task is not in the document any more.
+    TaskGone,
 }
 
 impl InlineEditKind {
-    /// Applies `text` to `document` and returns the id of the task it went into, or `None` if
-    /// the document was not changed.
+    /// Applies `text` to `document` and returns what it did.
     fn apply(
         self,
         document: &mut TodoDocument,
         text: &str,
         fallback_indent: IndentStyle,
-    ) -> Option<TaskId> {
+    ) -> Applied {
         match self {
-            Self::New(position) => document.insert_task(position, text, fallback_indent),
+            Self::New(position) => document
+                .insert_task(position, text, fallback_indent)
+                .map_or(Applied::Unchanged, Applied::Changed),
+            // `set_description` reports a missing task as unchanged, so look it up first.
+            Self::Existing(id) if document.depth(id).is_none() => Applied::TaskGone,
+            Self::Existing(id) => match document.set_description(id, text) {
+                EditOutcome::Changed => Applied::Changed(id),
+                EditOutcome::Unchanged => Applied::Unchanged,
+            },
         }
     }
 }
@@ -87,12 +112,43 @@ impl App {
             .task_outline()
             .and_then(Outline::selected)
             .map_or(InsertPosition::End, |&selected| position(selected));
-        self.resolver.reset();
-        self.mode = Mode::InlineEdit(InlineEdit {
+        self.open_inline_edit(InlineEdit {
             list,
             kind: InlineEditKind::New(position),
             input: TextInput::new(),
         });
+    }
+
+    /// Opens the inline editor for the selected task, prefilled with its description without
+    /// inline fields and with the cursor at the end.
+    ///
+    /// Nothing happens without a selected task.
+    pub(super) fn edit_task(&mut self) {
+        let Some(&id) = self.task_outline().and_then(Outline::selected) else {
+            return;
+        };
+        let Some(list) = self.active_list() else {
+            return;
+        };
+        // A list that could not be loaded has no tasks to select; its pane shows the error.
+        let Ok(loaded) = list.content() else {
+            return;
+        };
+        let Some(node) = loaded.document().tasks().find(|node| node.id() == id) else {
+            return;
+        };
+        let edit = InlineEdit {
+            list: list.path().clone(),
+            kind: InlineEditKind::Existing(id),
+            input: TextInput::with_value(node.task().description()),
+        };
+        self.open_inline_edit(edit);
+    }
+
+    /// Enters [`Mode::InlineEdit`] with `edit` and discards a pending key sequence.
+    fn open_inline_edit(&mut self, edit: InlineEdit) {
+        self.resolver.reset();
+        self.mode = Mode::InlineEdit(edit);
     }
 
     /// Unfolds the selected task and opens the inline editor for its new last subtask.
@@ -102,7 +158,8 @@ impl App {
     }
 
     /// Closes the inline editor and applies its text with one [`App::edit_list`] call, then
-    /// selects the task it went into. Empty text changes nothing.
+    /// selects the task it went into. Empty text changes nothing, and an error message is
+    /// shown if the edited task was removed meanwhile.
     pub(super) fn submit_inline_edit(&mut self) -> Vec<Effect> {
         let Some(edit) = self.close_inline_edit() else {
             return Vec::new();
@@ -112,16 +169,18 @@ impl App {
             return Vec::new();
         }
         let fallback_indent = self.config.tasks().indent();
-        let mut edited = None;
+        let mut applied = Applied::Unchanged;
         let effects = self.edit_list(&edit.list, |document| {
-            edited = edit.kind.apply(document, text, fallback_indent);
-            match edited {
-                Some(_) => EditOutcome::Changed,
-                None => EditOutcome::Unchanged,
+            applied = edit.kind.apply(document, text, fallback_indent);
+            match applied {
+                Applied::Changed(_) => EditOutcome::Changed,
+                Applied::Unchanged | Applied::TaskGone => EditOutcome::Unchanged,
             }
         });
-        if let Some(id) = edited {
-            self.select_task(id);
+        match applied {
+            Applied::Changed(id) => self.select_task(id),
+            Applied::Unchanged => {}
+            Applied::TaskGone => self.show_message(StatusMessage::error(TASK_GONE)),
         }
         effects
     }
@@ -151,6 +210,7 @@ impl App {
 mod tests {
     use std::fs;
 
+    use rstest::rstest;
     use tempfile::TempDir;
 
     use super::*;
@@ -242,6 +302,62 @@ mod tests {
 
         assert_eq!(system_under_test, []);
         assert!(matches!(app.mode(), Mode::Normal));
+    }
+
+    #[test]
+    fn edit_task_prefills_the_selected_task() {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_with_list(&directory, "- [ ] a #b [due:: 2026-12-01]\n");
+        let selected = *app.task_outline().unwrap().selected().unwrap();
+        let expected_text = "a #b";
+        app.edit_task();
+
+        let system_under_test = inline_edit_of(&app);
+
+        assert_eq!(system_under_test.kind(), InlineEditKind::Existing(selected));
+        assert_eq!(system_under_test.input().value(), expected_text);
+        assert_eq!(system_under_test.input().cursor(), expected_text.len());
+    }
+
+    #[test]
+    fn edit_task_without_tasks_keeps_the_mode() {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_with_list(&directory, "# Notes\n");
+        app.edit_task();
+
+        let system_under_test = app.mode();
+
+        assert!(matches!(system_under_test, Mode::Normal));
+    }
+
+    #[rstest]
+    #[case::changed("c", true)]
+    #[case::unchanged("a", false)]
+    fn apply_to_an_existing_task_sets_its_description(#[case] text: &str, #[case] changes: bool) {
+        let mut document = TodoDocument::parse("- [ ] a\n");
+        let id = document.tasks().next().unwrap().id();
+        let expected = if changes {
+            Applied::Changed(id)
+        } else {
+            Applied::Unchanged
+        };
+
+        let system_under_test =
+            InlineEditKind::Existing(id).apply(&mut document, text, IndentStyle::Tab);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn apply_to_a_task_that_is_gone_reports_it() {
+        let mut document = TodoDocument::parse("- [ ] a\n");
+        let id = document.tasks().next().unwrap().id();
+        let _removed = document.remove_block(id);
+
+        let system_under_test =
+            InlineEditKind::Existing(id).apply(&mut document, "b", IndentStyle::Tab);
+
+        assert_eq!(system_under_test, Applied::TaskGone);
     }
 
     #[test]

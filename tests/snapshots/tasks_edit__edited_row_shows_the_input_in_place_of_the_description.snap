@@ -1,0 +1,14 @@
+---
+source: tests/tasks_edit.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Groceries  0/2 ──────────────────────────────────────╮"
+"│ • Groceries      0/2 ││   [ ] Buy milk #shop now                             │"
+"│                      ││   [ ] Bake bread                                     │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" enter accept  esc cancel                                                       "

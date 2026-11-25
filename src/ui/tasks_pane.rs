@@ -513,7 +513,7 @@ fn due_part<'a>(task: &'a TaskLine, theme: &Theme, today: Date) -> Option<Metada
         return Some(as_stored);
     };
     Some(match DueClass::classify(due, today) {
-        DueClass::Overdue(_) if is_closed(task.status()) => as_stored,
+        DueClass::Overdue(_) if task.status().is_completed() => as_stored,
         class => MetadataPart {
             text: Cow::Owned(RelativeDue::new(due, today).to_string()),
             style: theme.style(due_slot(class)),
@@ -528,14 +528,6 @@ fn due_slot(class: DueClass) -> Slot {
         DueClass::Today => Slot::DueToday,
         DueClass::Tomorrow | DueClass::Soon(_) => Slot::DueSoon,
         DueClass::Later => Slot::Due,
-    }
-}
-
-/// Returns whether a task with `status` needs no more work.
-fn is_closed(status: TaskStatus) -> bool {
-    match status {
-        TaskStatus::Done | TaskStatus::Cancelled => true,
-        TaskStatus::Todo | TaskStatus::InProgress | TaskStatus::Other(_) => false,
     }
 }
 
@@ -784,21 +776,6 @@ mod tests {
     #[case::later(DueClass::Later, Slot::Due)]
     fn due_class_picks_its_theme_slot(#[case] class: DueClass, #[case] expected: Slot) {
         let system_under_test = due_slot(class);
-
-        assert_eq!(system_under_test, expected);
-    }
-
-    #[rstest]
-    #[case::todo(TaskStatus::Todo, false)]
-    #[case::in_progress(TaskStatus::InProgress, false)]
-    #[case::other(TaskStatus::Other('?'), false)]
-    #[case::done(TaskStatus::Done, true)]
-    #[case::cancelled(TaskStatus::Cancelled, true)]
-    fn only_done_and_cancelled_tasks_are_closed(
-        #[case] status: TaskStatus,
-        #[case] expected: bool,
-    ) {
-        let system_under_test = is_closed(status);
 
         assert_eq!(system_under_test, expected);
     }

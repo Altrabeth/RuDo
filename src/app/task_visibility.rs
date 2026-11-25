@@ -42,16 +42,8 @@ impl CompletedTasks {
     pub const fn shows(self, status: TaskStatus) -> bool {
         match self {
             Self::Shown => true,
-            Self::Hidden => !is_completed(status),
+            Self::Hidden => !status.is_completed(),
         }
-    }
-}
-
-/// Tells whether `status` means that nothing is left to do: done or cancelled.
-const fn is_completed(status: TaskStatus) -> bool {
-    match status {
-        TaskStatus::Done | TaskStatus::Cancelled => true,
-        TaskStatus::Todo | TaskStatus::InProgress | TaskStatus::Other(_) => false,
     }
 }
 

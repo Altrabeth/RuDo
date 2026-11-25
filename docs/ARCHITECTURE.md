@@ -67,6 +67,7 @@ src/
       mod.rs               TodoDocument: lossless file model and task tree, EditOutcome
       insert.rs            inserting, removing, copying and pasting task blocks
       reorder.rs           moving, indenting and outdenting task blocks
+      sort.rs              sorting a task and its siblings by a SortKey
       content.rs           description, status and inline field edits
   storage/
     fingerprint.rs         content fingerprints for detecting external changes
@@ -86,6 +87,7 @@ src/
     task_priority.rs       raising and lowering the priority of the selected task
     task_reorder.rs        moving, indenting and outdenting the selected task
     task_delete.rs         deleting the selected task with its subtasks
+    task_sort.rs           sorting the selected task and its siblings
     task_due.rs            setting the due date of the selected task in a prompt
     task_recurrence.rs     setting the recurrence rule in a prompt, the next occurrence on completion
     task_visibility.rs     showing and hiding completed tasks (CompletedTasks)

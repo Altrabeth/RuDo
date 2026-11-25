@@ -30,7 +30,7 @@ impl App {
 
     /// Applies `restructure` to the selected task of the active list and keeps the task
     /// selected and visible wherever it went.
-    fn restructure_selected_task(
+    pub(super) fn restructure_selected_task(
         &mut self,
         restructure: impl FnOnce(&mut TodoDocument, TaskId) -> EditOutcome,
     ) -> Vec<Effect> {

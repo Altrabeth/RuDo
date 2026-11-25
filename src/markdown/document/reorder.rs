@@ -10,7 +10,7 @@ use crate::config::IndentStyle;
 use crate::markdown::task_line::indentation_width;
 
 use super::insert::replace_indent;
-use super::{EditOutcome, LineKind, TaskId, TodoDocument};
+use super::{DocumentLine, EditOutcome, LineKind, TaskId, TodoDocument};
 
 impl TodoDocument {
     /// Swaps the block of a task with the block of its previous sibling.
@@ -156,17 +156,27 @@ impl TodoDocument {
         EditOutcome::Changed
     }
 
-    /// Rearranges `[first][gap][second]` into `[second][gap][first]`, in place. A missing
-    /// final newline stays at the end of the document.
+    /// Rearranges `[first][gap][second]` into `[second][gap][first]`, in place.
     fn swap_ranges(&mut self, first: &Range<usize>, second: &Range<usize>) {
-        let last = second.end - 1;
+        self.rearrange_lines(first.start..second.end, |span| {
+            span.rotate_left(second.start - first.start);
+            span[second.len()..].rotate_left(first.len());
+        });
+    }
+
+    /// Lets `rearrange` reorder the non-empty `span` of lines in place. A missing final
+    /// newline stays at the end of the document.
+    pub(super) fn rearrange_lines(
+        &mut self,
+        span: Range<usize>,
+        rearrange: impl FnOnce(&mut [DocumentLine]),
+    ) {
+        let last = span.end - 1;
         let ends_unterminated = self.lines[last].ending.is_none();
         if ends_unterminated {
             self.lines[last].ending = Some(self.line_ending);
         }
-        let span = &mut self.lines[first.start..second.end];
-        span.rotate_left(second.start - first.start);
-        span[second.len()..].rotate_left(first.len());
+        rearrange(&mut self.lines[span]);
         if ends_unterminated {
             self.lines[last].ending = None;
         }
@@ -188,7 +198,12 @@ impl TodoDocument {
     /// Replaces the prefix `old_indent` with `new_indent` on every line in `range` that is not
     /// blank, which keeps the indentation of the lines relative to each other even where tabs
     /// and spaces are mixed.
-    fn reindent_lines(&mut self, range: Range<usize>, old_indent: &str, new_indent: &str) {
+    pub(super) fn reindent_lines(
+        &mut self,
+        range: Range<usize>,
+        old_indent: &str,
+        new_indent: &str,
+    ) {
         let old_width = indentation_width(old_indent);
         for line in &mut self.lines[range] {
             match &mut line.kind {

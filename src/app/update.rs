@@ -12,7 +12,7 @@ use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::resolver::Resolution;
 use crate::markdown::document::TaskId;
-use crate::markdown::document::{EditOutcome, InsertPosition, TodoDocument};
+use crate::markdown::document::{EditOutcome, InsertPosition, SortKey, TodoDocument};
 use crate::storage::workspace::{List, ListPath};
 use crate::ui::outline::{Outline, OutlineCommand};
 use crate::ui::text_input::TextInput;
@@ -120,14 +120,11 @@ impl App {
             Action::Edit => self.edit_task(),
             Action::ToggleCompleted => self.toggle_completed(),
             Action::SetRecurrence => self.open_recurrence_prompt(),
-            Action::ClearFilter
-            | Action::Yank
-            | Action::PasteBelow
-            | Action::PasteAbove
-            | Action::SortByPriority
-            | Action::SortByDueDate
-            | Action::SortAlphabetically
-            | Action::SortByStatus => {}
+            Action::SortAlphabetically => return self.sort_tasks(SortKey::Alphabetical),
+            Action::SortByDueDate => return self.sort_tasks(SortKey::DueDate),
+            Action::SortByPriority => return self.sort_tasks(SortKey::Priority),
+            Action::SortByStatus => return self.sort_tasks(SortKey::Status),
+            Action::ClearFilter | Action::Yank | Action::PasteBelow | Action::PasteAbove => {}
         }
         Vec::new()
     }

@@ -23,6 +23,7 @@ pub mod task_input;
 mod task_priority;
 mod task_recurrence;
 mod task_reorder;
+mod task_sort;
 mod task_toggle;
 pub mod task_visibility;
 pub mod tasks;

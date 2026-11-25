@@ -24,8 +24,10 @@ use crate::markdown::task_line::{TaskLine, TaskStatus, indentation_width};
 mod content;
 mod insert;
 mod reorder;
+mod sort;
 
 pub use insert::{InsertPosition, TaskBlock};
+pub use sort::SortKey;
 
 /// The byte order mark, kept when a file starts with it.
 const BYTE_ORDER_MARK: char = '\u{feff}';

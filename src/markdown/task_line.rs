@@ -194,6 +194,15 @@ impl TaskStatus {
             Self::Other(character) => character,
         }
     }
+
+    /// Tells whether nothing is left to do: the task is done or cancelled.
+    #[must_use]
+    pub const fn is_completed(self) -> bool {
+        match self {
+            Self::Done | Self::Cancelled => true,
+            Self::Todo | Self::InProgress | Self::Other(_) => false,
+        }
+    }
 }
 
 impl From<char> for TaskStatus {
@@ -1285,5 +1294,17 @@ mod tests {
 
             prop_assert_eq!(system_under_test.as_ref().map(parts), Some(parts(&task)));
         }
+    }
+
+    #[rstest]
+    #[case::todo(TaskStatus::Todo, false)]
+    #[case::done(TaskStatus::Done, true)]
+    #[case::in_progress(TaskStatus::InProgress, false)]
+    #[case::cancelled(TaskStatus::Cancelled, true)]
+    #[case::other(TaskStatus::Other('?'), false)]
+    fn only_done_and_cancelled_are_completed(#[case] status: TaskStatus, #[case] expected: bool) {
+        let system_under_test = status.is_completed();
+
+        assert_eq!(system_under_test, expected);
     }
 }

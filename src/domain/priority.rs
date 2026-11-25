@@ -101,10 +101,7 @@ pub enum Step {
 /// ```
 #[must_use]
 pub fn step(priority: Option<Priority>, direction: Step) -> Option<Priority> {
-    // Every priority and normal priority are levels, so the position is always found.
-    let Some(index) = LEVELS.iter().position(|&level| level == priority) else {
-        return priority;
-    };
+    let index = level(priority);
     let stepped = match direction {
         Step::Up => index.checked_add(1),
         Step::Down => index.checked_sub(1),
@@ -112,6 +109,26 @@ pub fn step(priority: Option<Priority>, direction: Step) -> Option<Priority> {
     stepped
         .and_then(|stepped| LEVELS.get(stepped))
         .map_or(priority, |&level| level)
+}
+
+/// Returns the level of `priority` for comparing priorities: 0 for lowest up to 5 for highest,
+/// where `None` is normal priority between low and medium.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::domain::priority::{Priority, level};
+///
+/// assert!(level(Some(Priority::Low)) < level(None));
+/// assert!(level(None) < level(Some(Priority::Medium)));
+/// ```
+#[must_use]
+pub fn level(priority: Option<Priority>) -> usize {
+    // Every priority and normal priority are levels, so the position is always found.
+    LEVELS
+        .iter()
+        .position(|&level| level == priority)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -175,6 +192,23 @@ mod tests {
         #[case] expected: Option<Priority>,
     ) {
         let system_under_test = step(priority, direction);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn levels_rise_from_lowest_through_normal_to_highest() {
+        let priorities = [
+            Some(Priority::Lowest),
+            Some(Priority::Low),
+            None,
+            Some(Priority::Medium),
+            Some(Priority::High),
+            Some(Priority::Highest),
+        ];
+        let expected: Vec<usize> = (0..priorities.len()).collect();
+
+        let system_under_test: Vec<usize> = priorities.into_iter().map(level).collect();
 
         assert_eq!(system_under_test, expected);
     }

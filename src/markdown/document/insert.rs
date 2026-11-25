@@ -274,6 +274,16 @@ impl TodoDocument {
 }
 
 impl TaskBlock {
+    /// Returns the number of tasks in the block, counting its task and every subtask.
+    #[must_use]
+    pub fn task_count(&self) -> usize {
+        1 + self
+            .descendants
+            .iter()
+            .filter(|line| matches!(line, DetachedLine::Task { .. }))
+            .count()
+    }
+
     /// Detaches the lines of a block, which start with its task.
     fn detach(mut kinds: impl Iterator<Item = LineKind>) -> Self {
         let Some(LineKind::Task(_, mut root)) = kinds.next() else {
@@ -671,6 +681,22 @@ mod tests {
         assert!(system_under_test.is_some());
         assert_eq!(document.to_string(), TREE);
         assert_eq!(document.copy_block(UNKNOWN), None);
+    }
+
+    #[rstest]
+    #[case::with_subtasks_and_text("a", 4)]
+    #[case::subtask_with_continuation("b", 2)]
+    #[case::single_task("f", 1)]
+    fn task_count_counts_the_task_and_its_subtasks(
+        #[case] description: &str,
+        #[case] expected: usize,
+    ) {
+        let document = TodoDocument::parse(TREE);
+        let block = document.copy_block(id_of(&document, description)).unwrap();
+
+        let system_under_test = block.task_count();
+
+        assert_eq!(system_under_test, expected);
     }
 
     /// A tab-indented block with a continuation line, a misaligned line and a blank line.

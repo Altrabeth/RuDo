@@ -13,6 +13,7 @@ pub mod help;
 mod history;
 pub mod lists;
 pub mod prompt;
+mod register;
 mod reload;
 pub mod state;
 pub mod status;
@@ -26,6 +27,7 @@ mod task_reorder;
 mod task_sort;
 mod task_toggle;
 pub mod task_visibility;
+mod task_yank;
 pub mod tasks;
 mod update;
 

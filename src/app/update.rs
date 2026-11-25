@@ -124,7 +124,10 @@ impl App {
             Action::SortByDueDate => return self.sort_tasks(SortKey::DueDate),
             Action::SortByPriority => return self.sort_tasks(SortKey::Priority),
             Action::SortByStatus => return self.sort_tasks(SortKey::Status),
-            Action::ClearFilter | Action::Yank | Action::PasteBelow | Action::PasteAbove => {}
+            Action::Yank => self.yank_task(),
+            Action::PasteBelow => return self.paste(InsertPosition::Below),
+            Action::PasteAbove => return self.paste(InsertPosition::Above),
+            Action::ClearFilter => {}
         }
         Vec::new()
     }

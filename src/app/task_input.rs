@@ -108,10 +108,7 @@ impl App {
             return;
         };
         let list = list.path().clone();
-        let position = self
-            .task_outline()
-            .and_then(Outline::selected)
-            .map_or(InsertPosition::End, |&selected| position(selected));
+        let position = self.insert_position(position);
         self.open_inline_edit(InlineEdit {
             list,
             kind: InlineEditKind::New(position),

@@ -11,7 +11,7 @@ use crate::app::lists::EntryChange;
 use crate::app::state::{App, Focus};
 use crate::app::task_visibility::CompletedTasks;
 use crate::config::keymap::action::Action;
-use crate::markdown::document::{TaskId, TodoDocument};
+use crate::markdown::document::{InsertPosition, TaskId, TodoDocument};
 use crate::markdown::task_line::TaskLine;
 use crate::storage::workspace::{List, ListPath, Workspace};
 use crate::ui::outline::{Outcome, Outline, OutlineCommand, OutlineItem, prune};
@@ -142,6 +142,14 @@ impl App {
     #[must_use]
     pub fn task_outline(&self) -> Option<&Outline<TaskId>> {
         self.tasks.outline(self.lists.active()?)
+    }
+
+    /// Returns `position` relative to the selected task of the active list, or
+    /// [`InsertPosition::End`] without a selected task.
+    pub(super) fn insert_position(&self, position: fn(TaskId) -> InsertPosition) -> InsertPosition {
+        self.task_outline()
+            .and_then(Outline::selected)
+            .map_or(InsertPosition::End, |&selected| position(selected))
     }
 
     /// Brings the task tree of the active list in line with its document and the height of

@@ -1,4 +1,5 @@
-//! Deleting the selected task with its subtasks, without asking: undo brings it back.
+//! Deleting the selected task with its subtasks, without asking: undo brings it back, and
+//! the register keeps it for pasting.
 
 use crate::app::effect::Effect;
 use crate::app::state::App;
@@ -9,11 +10,14 @@ use crate::config::keymap::keymap::Keymap;
 use crate::markdown::document::{EditOutcome, TaskBlock, TaskId, TodoDocument};
 
 impl App {
-    /// Deletes the selected task of the active list with its block and reports how many tasks
-    /// went with it.
+    /// Deletes the selected task of the active list with its block into the register and
+    /// reports how many tasks went with it.
     pub(super) fn delete_task(&mut self) -> Vec<Effect> {
-        self.remove_selected_task()
-            .map_or_else(Vec::new, |(_removed, effects)| effects)
+        let Some((removed, effects)) = self.remove_selected_task() else {
+            return Vec::new();
+        };
+        self.register.fill(removed);
+        effects
     }
 
     /// Removes the selected task with its block, selects its next visible sibling, else its
@@ -70,11 +74,17 @@ fn successor(
 /// Returns `deleted N tasks (<key> to undo)` with the first key bound to `undo`, without the
 /// hint if it is unbound.
 fn deleted_message(keymap: &Keymap, task_count: usize) -> String {
-    let noun = if task_count == 1 { "task" } else { "tasks" };
+    let tasks = counted_tasks(task_count);
     match keymap.keys(Action::Undo).first() {
-        Some(keys) => format!("deleted {task_count} {noun} ({} to undo)", keys.compact()),
-        None => format!("deleted {task_count} {noun}"),
+        Some(keys) => format!("deleted {tasks} ({} to undo)", keys.compact()),
+        None => format!("deleted {tasks}"),
     }
+}
+
+/// Returns `1 task` or `N tasks`.
+pub(super) fn counted_tasks(task_count: usize) -> String {
+    let noun = if task_count == 1 { "task" } else { "tasks" };
+    format!("{task_count} {noun}")
 }
 
 #[cfg(test)]
@@ -108,6 +118,19 @@ mod tests {
         let expected = expected.map(|description| task_id(&document, description));
 
         let system_under_test = successor(&document, task, completed_tasks);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::none(0, "0 tasks")]
+    #[case::one(1, "1 task")]
+    #[case::several(3, "3 tasks")]
+    fn counted_tasks_uses_the_singular_only_for_one(
+        #[case] task_count: usize,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = counted_tasks(task_count);
 
         assert_eq!(system_under_test, expected);
     }

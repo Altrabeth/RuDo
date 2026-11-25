@@ -8,6 +8,7 @@ use crate::app::help::HelpOverlay;
 use crate::app::history::History;
 use crate::app::lists::ListsPane;
 use crate::app::prompt::PromptOverlay;
+use crate::app::register::Register;
 use crate::app::status::Status;
 use crate::app::task_input::InlineEdit;
 use crate::app::task_visibility::CompletedTasks;
@@ -42,6 +43,7 @@ pub struct App {
     pub(super) today: Date,
     pub(super) status: Status,
     pub(super) history: History,
+    pub(super) register: Register,
     pub(super) should_quit: bool,
     /// Size of the terminal, from which scrolling commands derive the viewport heights.
     pub(super) screen_size: Size,
@@ -78,6 +80,7 @@ impl App {
             today,
             status: Status::default(),
             history: History::default(),
+            register: Register::default(),
             should_quit: false,
             screen_size,
         };

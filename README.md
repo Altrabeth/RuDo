@@ -2,6 +2,8 @@
 
 A keyboard-driven terminal UI for todo lists that live in plain Markdown files.
 
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-ffdd00?logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/altrabeth)
+
 RuDo shows a folder of Markdown files as todo lists in a lazygit-style, multi-pane interface
 with vim keybindings. Every list is an ordinary `.md` file and every task is an ordinary
 Markdown checkbox, so you can point RuDo at a folder inside your Obsidian vault and work on
@@ -108,6 +110,11 @@ To find out more about the following topics, read here:
 - [Development](docs/development.md): building, testing and contributing
 
 [`docs/README.md`](docs/README.md) lists every document, including those for developers.
+
+## Support
+
+RuDo is free and stays free. If it is useful to you, you can support its development by
+[buying me a coffee](https://buymeacoffee.com/altrabeth).
 
 ## License
 

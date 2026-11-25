@@ -77,6 +77,7 @@ src/
       content.rs           description, status and inline field edits
   storage/
     mod.rs                 module tree
+    bin.rs                 BinPath, TrashedEntry; moving lists and folders into the bin and back
     fingerprint.rs         content fingerprints for detecting external changes
     workspace.rs           Workspace: scan, rescan and reload of the tree of folders and lists
     save.rs                atomic saving that refuses to overwrite external changes
@@ -90,7 +91,7 @@ src/
     status.rs              StatusMessage, Severity and when messages expire
     editor.rs              open-in-editor: choosing the editor, its command line with the line
     reload.rs              external changes: App::on_fs_changed, reload_list, rescan, conflicts
-    history.rs             undo and redo stacks of document snapshots
+    history.rs             undo and redo stacks of document snapshots and EntryOperations
     register.rs            the yank register holding detached TaskBlocks
     filter.rs              smart-case matching shared by every filter
     search.rs              pane search (Mode::Search): PaneFilter per pane and per list
@@ -171,9 +172,10 @@ src/
   visual mode (`App::end_visual_mode_without_anchor`). Every action on the selection ends visual mode
   before it acts or opens a dialog.
 - `Effect` is one of `Save`, `CreateEntry`, `RenameEntry`, `DeleteEntries`, `MoveEntries`,
-  `OpenInEditor`, `ReloadList` and `Rescan`. Every deletion of lists and folders, a single one
-  too, is one `DeleteEntries` (asked for by `App::ask_to_delete_entries`, performed by
-  `delete_entries` in `app::effect`), and every move one `MoveEntries` (`move_entries`, which
+  `OpenInEditor`, `ReloadList`, `Rescan` and `StepEntries`. Every deletion of lists and
+  folders, a single one too, is one `DeleteEntries` (asked for by
+  `App::ask_to_delete_entries`, performed by `delete_entries` in `app::effect`, which moves
+  the entries into the bin with `storage::bin::move_to_bin`), and every move one `MoveEntries` (`move_entries`, which
   renames with `storage::entries::move_into` and follows the entry through
   `App::apply_entry_change`); both report all failures in one message. `app::execute` performs all but `OpenInEditor` and reports the
   result to the `App`; failures become a `StatusMessage`, never an abort.
@@ -192,7 +194,8 @@ src/
   now (`PathState::File`, `Directory` or `Missing`), inspected on the watcher thread, so that
   `App::on_fs_changed` can classify purely against the in-memory workspace: a file at a known
   list becomes `Effect::ReloadList` (also for editors that save by renaming a temporary file),
-  any other change of the tree one `Effect::Rescan`; the bin (`.trash/`), non-`.md` files and
+  any other change of the tree one `Effect::Rescan`; the bin (`workspace.bin`, `.trash/` by
+  default, checked with `BinPath::contains` like in the scan), non-`.md` files and
   new directories in folders the tree left out (such as `.git/objects/ab`) are ignored. Hidden
   paths count like any other: the workspace always holds hidden entries (`Entry::is_hidden`,
   any path component starting with `.`), the scan leaves out only hidden folders without lists
@@ -311,15 +314,26 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   `app::history`: one undo stack and one redo stack for all lists, each bounded to 100
   entries, and a new change clears the redo stack. Undo and redo swap the snapshot with the
   document of its list, bypassing `edit_list`, open that list if it is not the active one,
-  select the remembered task and save. A list's history follows it when it is renamed and is
-  forgotten when it is deleted, removed or reloaded from disk.
+  select the remembered task and save. A list's history follows it when it is renamed, is
+  kept while the list is in the bin (it comes back at the same path) and is forgotten when
+  the list is removed or reloaded from disk by another program.
+- Creating, renaming, moving and deleting lists and folders are recorded in the same history
+  as the `history::EntryOperation` that reverts them: `Trash` (undo of a new entry),
+  `Restore` with the `TrashedEntry`s of a deletion and the list that was active, or
+  `Relocate` (undo of a rename or move); a bulk operation is one entry. Undoing or redoing
+  one is `Effect::StepEntries`, because it touches the disk; performing an operation yields
+  its reversal for the opposite stack, and the part that failed (a restore whose path was
+  taken, a file removed by another program) goes back onto its own stack with an error
+  message, so nothing is ever overwritten and the next step tries it again. Restored entries
+  enter the workspace through `App::rescan`.
 - Every loaded list remembers the `Fingerprint` of the content RuDo last loaded or saved.
   Before writing, `storage::save` compares the file on disk with it. If it differs, RuDo does
   not overwrite it: `App::save_conflicted` reloads the file and reports
   `<list> changed on disk; your last change was not applied`. After saving, the fingerprint
   of the new content is remembered, which is also how reloads recognise RuDo's own writes.
-- Operations on files and folders (create, rename, move, delete) are confirmed where
-  destructive and are not part of the undo history; edits to tasks are. Deleting the tasks of
+- Deleting lists and folders asks first and moves them into the bin, the only deletion of
+  files RuDo performs; the permanent deletions of `storage::entries` are left for emptying
+  the bin. Deleting the tasks of
   a visual selection removes their blocks from the bottom of the document up in one
   `edit_list` call, so it is one undo step.
 

@@ -11,7 +11,7 @@ pub mod effect;
 pub mod entry_visibility;
 pub mod filter;
 pub mod help;
-mod history;
+pub mod history;
 pub mod lists;
 pub mod prompt;
 mod register;

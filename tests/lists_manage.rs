@@ -1,4 +1,5 @@
-//! Renaming lists and folders with `r` and deleting them with `d d` from the lists pane.
+//! Renaming lists and folders with `r` and deleting them into the bin with `d d` from the
+//! lists pane.
 
 #[expect(
     dead_code,
@@ -268,8 +269,8 @@ fn empty_workspace_ignores_rename_and_delete(#[case] keys: &str) {
 }
 
 #[rstest]
-#[case::list_with_several_tasks("j", "Delete list \"Groceries\" with 7 tasks?")]
-#[case::list_with_one_task("G", "Delete list \"Inbox\" with 1 task?")]
+#[case::list_with_several_tasks("j", "Move list \"Groceries\" with 7 tasks to the bin?")]
+#[case::list_with_one_task("G", "Move list \"Inbox\" with 1 task to the bin?")]
 fn delete_list_asks_with_its_name_and_task_count(#[case] keys: &str, #[case] expected: &str) {
     let mut test_app = TestApp::new(WORKSPACE);
     test_app.press(keys).press("d d");
@@ -286,7 +287,10 @@ fn delete_list_that_cannot_be_loaded_asks_without_a_task_count() {
 
     let system_under_test = confirm_of(&test_app);
 
-    assert_eq!(system_under_test.message(), "Delete list \"Binary\"?");
+    assert_eq!(
+        system_under_test.message(),
+        "Move list \"Binary\" to the bin?"
+    );
 }
 
 #[test]
@@ -385,7 +389,7 @@ fn delete_empty_folder_asks_and_removes_it() {
 
     let system_under_test = test_app.app();
 
-    assert_eq!(message, "Delete empty folder \"Work\"?");
+    assert_eq!(message, "Move folder \"Work\" to the bin?");
     assert!(!test_app.is_folder("Work"));
     assert_eq!(
         system_under_test.lists().outline().selected(),
@@ -394,32 +398,43 @@ fn delete_empty_folder_asks_and_removes_it() {
 }
 
 #[test]
-fn delete_non_empty_folder_shows_an_error_without_a_dialog() {
+fn delete_non_empty_folder_asks_with_its_lists_and_tasks() {
     let mut test_app = TestApp::new(WORKSPACE);
     test_app.press("g g d d");
-    let expected = StatusMessage::error("folder \"Home\" is not empty");
+    let expected = "Move folder \"Home\" with 2 lists and 9 tasks to the bin?";
 
-    let system_under_test = test_app.app();
+    let system_under_test = confirm_of(&test_app);
 
-    assert!(matches!(system_under_test.mode(), Mode::Normal));
-    assert_eq!(system_under_test.status_message(), Some(&expected));
-    assert!(test_app.is_folder("Home"));
+    assert_eq!(system_under_test.message(), expected);
 }
 
 #[test]
-fn folder_with_only_hidden_files_is_not_deleted() {
-    let mut test_app = TestApp::new(&[("Inbox.md", ""), ("Work/.hidden", "")]);
+fn confirmed_delete_moves_a_non_empty_folder_to_the_bin() {
+    let mut test_app = TestApp::new(WORKSPACE);
     test_app.press("g g d d y");
-    let folder = test_app.app().workspace().root().join("Work");
-    let expected = StatusMessage::error(format!("folder {} is not empty", folder.display()));
-    let expected_key = EntryKey::Folder(PathBuf::from("Work"));
+    let expected_key = list_key(&test_app, "Inbox.md");
 
     let system_under_test = test_app.app();
 
-    assert_eq!(system_under_test.status_message(), Some(&expected));
-    assert!(exists(&test_app, "Work/.hidden"));
+    assert!(!test_app.is_folder("Home"));
+    assert_eq!(
+        test_app.read(".trash/Home/Chores.md"),
+        "- [ ] Vacuum\n- [ ] Dust\n"
+    );
     assert_eq!(
         system_under_test.lists().outline().selected(),
         Some(&expected_key)
     );
+}
+
+#[test]
+fn folder_with_only_hidden_files_moves_to_the_bin_with_them() {
+    let mut test_app = TestApp::new(&[("Inbox.md", ""), ("Work/.hidden", "")]);
+    test_app.press("g g d d y");
+
+    let system_under_test = test_app.app();
+
+    assert_eq!(system_under_test.status_message(), None);
+    assert!(!test_app.is_folder("Work"));
+    assert!(exists(&test_app, ".trash/Work/.hidden"));
 }

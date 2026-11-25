@@ -43,7 +43,10 @@ the same tasks from the terminal and from Obsidian at the same time.
 - **Priorities, tags and recurring tasks.** Completing a recurring task creates its next
   occurrence.
 - **Search and filter** any pane with `/`, with vim-style smart case.
-- **Undo and redo** for every change to a task, across lists.
+- **Undo and redo** for every change to a task, across lists, and for creating, renaming,
+  moving and deleting lists and folders.
+- **A bin for deleted lists.** Deleted lists and folders go to `.trash/` in the workspace,
+  the folder Obsidian uses for deleted notes, so a mistyped `dd` is never lost.
 - **Yank and paste** tasks with their subtasks, also between lists.
 - **Live reload.** Changes made by other programs (Obsidian, your editor, `git pull`) appear
   immediately; RuDo never silently overwrites them.
@@ -91,21 +94,26 @@ first, then lists, each sorted by name ignoring case:
 | directory                       | folder, can be folded with `za`                       |
 | `*.md` file                     | todo list, named after the file without `.md`         |
 | hidden entries (`.obsidian/`, `.drafts.md`) | shown dimmed after `H` in the lists pane  |
+| `.trash/` (the bin, `workspace.bin`) | deleted lists and folders; never shown     |
 | other files                     | ignored                                               |
 | symbolic link                   | a link to a `.md` file is a list; linked directories are not followed |
 
 Folders and lists whose name starts with a dot are hidden until `H` in the lists pane shows
 them; the pane title then says `hidden shown`, and `H` hides them again. Everything inside a
 hidden folder is hidden with it, hidden folders that contain no `.md` file at any depth (such
-as `.git/`) are left out completely, and the bin `.trash/` at the top of the workspace is
-never shown. `workspace.show_hidden: true` shows hidden entries from the start.
+as `.git/`) are left out completely, and the bin (`.trash/` at the top of the workspace, or
+the folder configured as `workspace.bin`) is never shown, not even after `H`. `workspace.show_hidden: true` shows hidden entries from the start.
 
 A list shows `done/total` for all its tasks, subtasks included; the active list, whose tasks
 the tasks pane shows, is marked with `•`. A file that cannot be read or is not UTF-8 stays in
 the tree, marked `unreadable`, and the tasks pane says why. Names of new lists and folders
 must not start with a dot or contain any of `* " \ / < > : | ?`, which Obsidian rejects.
-Deleting a list asks first; only empty folders can be deleted. Lists and folders can be moved
-into another folder with `m`, and several at once in visual mode (`v`).
+Deleting a list or folder asks first and moves it into the bin, keeping its path inside the
+workspace (`Home/Groceries.md` goes to `.trash/Home/Groceries.md`); folders are moved with
+everything inside them. An entry whose name is already in the bin is numbered
+(`Groceries 2.md`), so nothing in the bin is replaced. `u` brings deleted entries back to
+where they were, unless another entry took their place in the meantime. Lists and folders
+can be moved into another folder with `m`, and several at once in visual mode (`v`).
 
 A list file can contain anything. RuDo only touches task lines and keeps all other lines
 exactly as they are:
@@ -192,6 +200,12 @@ written back byte for byte; only lines you edit in RuDo are re-rendered.
    disk while RuDo is about to save it, RuDo keeps the version on disk, reloads it and tells
    you that your last change was not applied. A list reloaded from disk loses its undo
    history.
+4. Lists and folders deleted in RuDo go to `.trash/` in the workspace. If the workspace is the
+   vault itself, that is the folder Obsidian uses for deleted notes when **Deleted files** is
+   set to **Move to Obsidian trash**, and RuDo tolerates the notes Obsidian puts there. The
+   leading dot keeps the bin out of Obsidian's search, so tasks in deleted lists never show up
+   in Tasks or Dataview queries. The bin is a plain folder: empty it by hand, or choose
+   another one with `workspace.bin`.
 
 Renaming or moving a list in RuDo renames or moves the file but does not update
 `[[wikilinks]]` that point to it; rename or move it inside Obsidian if other notes link to the
@@ -215,7 +229,7 @@ other; the keys typed so far are shown in the bottom bar.
 | `2`             | `focus-tasks`      | focus the tasks pane                                |
 | `/`             | `search`           | filter the focused pane (also inside the help)      |
 | `esc`           | `clear-filter`     | remove the active filter                            |
-| `u`             | `undo`             | undo the last change to a task                      |
+| `u`             | `undo`             | undo the last change to a task, list or folder      |
 | `ctrl-r`        | `redo`             | redo the last undone change                         |
 | `e`             | `open-in-editor`   | open the list in your editor at the selected task   |
 
@@ -227,9 +241,13 @@ list names with their folders. `enter` keeps the filter (the pane title shows `/
 or edit while filtering stay visible; moving tasks with `J`, `K`, `>` and `<` asks you to
 clear the filter first.
 
-Undo and redo remember the last 100 changes to tasks in all lists. Undoing a change in
-another list opens that list and selects the changed task. Creating, renaming, moving and
-deleting lists and folders cannot be undone.
+Undo and redo remember the last 100 changes to tasks in all lists and to lists and folders,
+for as long as RuDo runs. Undoing a change in another list opens that list and selects the
+changed task. Creating, renaming, moving and deleting lists and folders are undone like any
+other change, a bulk operation of visual mode in one step: undoing a deletion moves the
+entries back from the bin and selects them, undoing a new list moves it into the bin. If
+another program took the original path in the meantime, the undo fails with a message and
+the entry stays in the bin; `u` tries again once the path is free.
 
 `e` opens the selected list in the editor from `editor`, `$VISUAL` or `$EDITOR` (in that
 order, else `vi`); in the tasks pane at the line of the selected task. RuDo reloads the list
@@ -266,7 +284,7 @@ when the editor exits.
 | `r`     | `rename`     | rename the selected list or folder                        |
 | `m`     | `move-to-folder` | move the list, folder or selection into a folder      |
 | `H`     | `toggle-hidden` | show or hide hidden folders and lists                    |
-| `d d`   | `delete`     | delete the selected list or empty folder (asks first)     |
+| `d d`   | `delete`     | move the selected list or folder to the bin (asks first)  |
 
 ### Tasks pane
 
@@ -317,7 +335,7 @@ itself, and an entry with the same name in the target folder is never replaced.
 | Keys  | Action             | Description                                         |
 | ----- | ------------------ | --------------------------------------------------- |
 | `v`   | `visual-mode`      | select several rows from here on, or stop selecting |
-| `d`   | `delete-selection` | delete the selected tasks, lists or empty folders   |
+| `d`   | `delete-selection` | delete the selected tasks, lists or folders         |
 | `y`   | `yank-selection`   | copy the selected tasks and their subtasks          |
 | `m`   | `move-to-folder`   | move the selected lists and folders into a folder   |
 
@@ -334,9 +352,9 @@ another list and `p` moves tasks between lists. A folded task is selected with i
 subtasks. While a search filter is active only the shown matches are selected, not the tasks
 hidden between them or the parents shown for context.
 
-In the lists pane `d` deletes the selected lists and empty folders after asking, and `m` moves
-them into a folder. A selection that contains a folder with entries is not deleted. If some
-files cannot be deleted or moved, one message names them all.
+In the lists pane `d` moves the selected lists and folders to the bin after asking, and `m`
+moves them into a folder; `u` undoes either in one step. If some files cannot be deleted or
+moved, one message names them all.
 
 ### Help screen, dialogs and text input
 
@@ -385,6 +403,8 @@ workspace:
   # Show hidden folders and lists, such as `.obsidian/`, on start-up (toggle with `H` in the
   # lists pane).
   show_hidden: false
+  # Folder inside the workspace for deleted lists and folders (default: `.trash`).
+  bin: .trash
 
 tasks:
   # Show completed tasks on start-up (toggle with `H` in the tasks pane).

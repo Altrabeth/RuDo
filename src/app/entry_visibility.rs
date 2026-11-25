@@ -75,6 +75,7 @@ mod tests {
 
     use super::*;
     use crate::config::IndentStyle;
+    use crate::storage::bin::BinPath;
     use crate::storage::workspace::Workspace;
 
     #[rstest]
@@ -116,7 +117,8 @@ mod tests {
         fs::create_dir(root.path().join(".notes")).unwrap();
         fs::write(root.path().join(".notes/ideas.md"), "").unwrap();
         fs::write(root.path().join("inbox.md"), "").unwrap();
-        let workspace = Workspace::scan(root.path(), IndentStyle::default()).unwrap();
+        let workspace =
+            Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap();
         let entry = workspace.entry(Path::new(path)).unwrap();
 
         let system_under_test = visibility.shows(entry);

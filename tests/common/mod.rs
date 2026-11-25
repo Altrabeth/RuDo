@@ -57,7 +57,12 @@ impl TestApp {
             fs::write(path, content).unwrap();
         }
         let keymap = Keymap::new(config.keybindings()).unwrap();
-        let workspace = Workspace::scan(workspace_folder.path(), config.tasks().indent()).unwrap();
+        let workspace = Workspace::scan(
+            workspace_folder.path(),
+            config.workspace().bin().clone(),
+            config.tasks().indent(),
+        )
+        .unwrap();
         let mut app = App::new(workspace, config, Theme::default(), keymap, TODAY);
         app.resize(SCREEN_SIZE);
         Self {

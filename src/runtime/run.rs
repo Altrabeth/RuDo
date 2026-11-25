@@ -123,7 +123,8 @@ fn perform(
         | Effect::DeleteEntries(_)
         | Effect::MoveEntries { .. }
         | Effect::ReloadList(_)
-        | Effect::Rescan) => {
+        | Effect::Rescan
+        | Effect::StepEntries { .. }) => {
             execute(app, effect);
             Ok(input)
         }

@@ -175,7 +175,7 @@ fn renamed_list_keeps_its_history() {
         .type_text("Food")
         .press("enter");
 
-    let system_under_test = test_app.press("u");
+    let system_under_test = test_app.press("u u");
 
-    assert_eq!(system_under_test.read("Food.md"), "- [ ] a\n");
+    assert_eq!(system_under_test.read("Groceries.md"), "- [ ] a\n");
 }

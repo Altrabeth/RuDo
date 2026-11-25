@@ -249,15 +249,31 @@ pub fn rename(path: &Path, name: &EntryName) -> Result<PathBuf, EntryError> {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn move_into(path: &Path, directory: &Path) -> Result<PathBuf, EntryError> {
-    let metadata = fs::symlink_metadata(path).map_err(|source| classify(path.into(), source))?;
-    if metadata.is_dir() && directory.starts_with(path) {
-        return Err(EntryError::IntoItself { path: path.into() });
-    }
     let Some(file_name) = path.file_name() else {
         let source = io::Error::from(ErrorKind::InvalidInput);
         return Err(classify(path.into(), source));
     };
-    relocate(path, &metadata, directory.join(file_name))
+    move_to(path, &directory.join(file_name))
+}
+
+/// Moves the list file or folder at `path` to `target`, which may name another directory and
+/// another name, and returns `target`.
+///
+/// This is the rename behind [`rename`] and [`move_into`], with the same guarantees: an
+/// existing entry is never replaced and `[[wikilinks]]` pointing to the entry are not updated.
+/// The folder that receives the entry must exist.
+///
+/// # Errors
+///
+/// Returns [`EntryError::IntoItself`] if `path` is a folder and `target` is inside it,
+/// [`EntryError::AlreadyExists`] if an entry is at `target`, and [`EntryError::Io`] if `path`
+/// cannot be read or moved.
+pub fn move_to(path: &Path, target: &Path) -> Result<PathBuf, EntryError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| classify(path.into(), source))?;
+    if metadata.is_dir() && target.starts_with(path) && target != path {
+        return Err(EntryError::IntoItself { path: path.into() });
+    }
+    relocate(path, &metadata, target.to_path_buf())
 }
 
 /// Renames the entry at `path`, described by `metadata`, to `target` unless another entry is
@@ -298,7 +314,7 @@ pub fn delete_folder(path: &Path) -> Result<(), EntryError> {
 }
 
 /// Turns an I/O error on `path` into the matching [`EntryError`].
-fn classify(path: PathBuf, source: io::Error) -> EntryError {
+pub(crate) fn classify(path: PathBuf, source: io::Error) -> EntryError {
     match source.kind() {
         ErrorKind::AlreadyExists => EntryError::AlreadyExists { path },
         ErrorKind::DirectoryNotEmpty => EntryError::NotEmpty { path },
@@ -700,6 +716,35 @@ mod tests {
         ));
         assert_eq!(fs::read_to_string(&source).unwrap(), "source");
         assert_eq!(fs::read_to_string(&existing).unwrap(), "existing");
+    }
+
+    #[test]
+    fn move_to_moves_and_renames_at_once() {
+        let workspace = TempDir::new().unwrap();
+        fs::create_dir(workspace.path().join("Archive")).unwrap();
+        fs::write(workspace.path().join("groceries.md"), "- [ ] Milk\n").unwrap();
+        let target = workspace.path().join("Archive/Shopping.md");
+
+        let system_under_test = move_to(&workspace.path().join("groceries.md"), &target).unwrap();
+
+        assert_eq!(system_under_test, target);
+        assert_eq!(fs::read_to_string(&target).unwrap(), "- [ ] Milk\n");
+        assert_eq!(entry_names(workspace.path()), vec!["Archive"]);
+    }
+
+    #[test]
+    fn move_to_refuses_a_target_inside_the_moved_folder() {
+        let workspace = TempDir::new().unwrap();
+        let source = workspace.path().join("Home");
+        fs::create_dir(&source).unwrap();
+
+        let system_under_test = move_to(&source, &source.join("Home"));
+
+        assert!(matches!(
+            system_under_test,
+            Err(EntryError::IntoItself { ref path }) if *path == source
+        ));
+        assert!(source.is_dir());
     }
 
     #[test]

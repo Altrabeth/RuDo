@@ -22,6 +22,7 @@ use serde_saphyr::{UserMessageFormatter, render_options};
 use self::theme::ThemeConfig;
 use crate::config::keymap::keymap::KeyBindings;
 use crate::paths::expand_tilde;
+use crate::storage::bin::BinPath;
 
 /// The complete default configuration with comments, as printed by `rudo config default`.
 pub const DEFAULT_CONFIG_YAML: &str = include_str!("../../assets/default-config.yaml");
@@ -185,6 +186,8 @@ where
 pub struct WorkspaceConfig {
     root: Option<PathBuf>,
     show_hidden: bool,
+    #[serde(deserialize_with = "null_as_default")]
+    bin: BinPath,
 }
 
 impl WorkspaceConfig {
@@ -199,6 +202,12 @@ impl WorkspaceConfig {
     #[must_use]
     pub const fn show_hidden(&self) -> bool {
         self.show_hidden
+    }
+
+    /// Returns the folder inside the workspace that receives deleted lists and folders.
+    #[must_use]
+    pub fn bin(&self) -> &BinPath {
+        &self.bin
     }
 }
 
@@ -388,6 +397,7 @@ mod tests {
 
         assert_eq!(system_under_test.workspace().root(), None);
         assert!(!system_under_test.workspace().show_hidden());
+        assert_eq!(system_under_test.workspace().bin(), &BinPath::default());
         assert_eq!(*system_under_test.tasks(), expected_tasks);
         assert_eq!(system_under_test.editor(), None);
     }
@@ -438,13 +448,14 @@ mod tests {
 
     #[test]
     fn reads_every_setting() {
-        let yaml = "workspace:\n  root: /srv/todo\n  show_hidden: true\ntasks:\n  \
+        let yaml = "workspace:\n  root: /srv/todo\n  show_hidden: true\n  bin: Bin\ntasks:\n  \
                     show_completed: false\n  record_completion_date: false\n  indent: 2\n\
                     editor: code --wait\n";
         let expected = Config {
             workspace: WorkspaceConfig {
                 root: Some(PathBuf::from("/srv/todo")),
                 show_hidden: true,
+                bin: BinPath::try_from(PathBuf::from("Bin")).unwrap(),
             },
             tasks: TasksConfig {
                 show_completed: false,
@@ -572,6 +583,25 @@ mod tests {
 
         assert!(
             system_under_test.contains(&expected_location),
+            "{system_under_test}"
+        );
+    }
+
+    #[rstest]
+    #[case::absolute("/srv/trash", "relative to the workspace folder")]
+    #[case::outside("../trash", "inside the workspace folder")]
+    #[case::root(".", "not be the workspace folder itself")]
+    fn invalid_bin_is_reported_with_location(#[case] bin: &str, #[case] expected_hint: &str) {
+        let yaml = format!("workspace:\n  bin: {bin}\n");
+
+        let system_under_test = report(Config::from_yaml(&yaml, source()).unwrap_err());
+
+        assert!(
+            system_under_test.contains(expected_hint),
+            "{system_under_test}"
+        );
+        assert!(
+            system_under_test.contains("config.yaml:2:"),
             "{system_under_test}"
         );
     }

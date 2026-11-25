@@ -9,16 +9,17 @@ use std::iter;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
+use crate::app::history::{Direction, EntryOperation, HistoryEntry, Relocation};
 use crate::app::lists::{EntryChange, EntryKey};
 use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
+use crate::storage::bin::{TrashedEntry, move_to_bin, restore};
 use crate::storage::entries::{
-    EntryError, EntryName, create_folder, create_list, delete_folder, delete_list, move_into,
-    rename,
+    EntryError, EntryName, create_folder, create_list, move_into, move_to, rename,
 };
 use crate::storage::fingerprint::Fingerprint;
 use crate::storage::save::{SaveError, save};
-use crate::storage::workspace::{EntryKind, List, ListPath};
+use crate::storage::workspace::{EntryKind, List, ListPath, has_list_extension};
 
 /// A side effect returned by [`App::update`] and performed by [`execute`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -43,7 +44,8 @@ pub enum Effect {
         /// The new name, without the `.md` extension of list files.
         name: EntryName,
     },
-    /// Delete these list files and empty folders; folders are never deleted recursively.
+    /// Delete these list files and folders by moving them into the bin, as one step of the
+    /// undo history.
     ///
     /// Every deletion of lists and folders is this effect, that of a single entry too, so
     /// [`execute`] deletes them in one place and reports all failures in one message.
@@ -74,6 +76,14 @@ pub enum Effect {
     /// Scan the workspace folder again, because another program created, removed or renamed
     /// a list or folder; see [`App::rescan`].
     Rescan,
+    /// Undo or redo a change of lists and folders by performing `operation`, which the undo
+    /// history held; its reversal goes back into the history.
+    StepEntries {
+        /// Whether the step undoes or redoes the change.
+        direction: Direction,
+        /// The change of lists and folders that the step performs.
+        operation: EntryOperation,
+    },
 }
 
 /// Performs `effect` and reports its result to `app`.
@@ -93,6 +103,10 @@ pub fn execute(app: &mut App, effect: Effect) {
         }
         Effect::ReloadList(list) => app.reload_list(&list),
         Effect::Rescan => app.rescan(),
+        Effect::StepEntries {
+            direction,
+            operation,
+        } => step_entries(app, direction, operation),
     }
 }
 
@@ -118,7 +132,13 @@ fn create_entry(app: &mut App, kind: EntryKind, parent: &Path, name: &EntryName)
         EntryKind::List => create_list(&directory, name),
     };
     match created {
-        Ok(_) => app.entry_created(kind, parent, name),
+        Ok(path) => {
+            app.entry_created(kind, parent, name);
+            if let Some(file_name) = path.file_name() {
+                let created = parent.join(file_name);
+                app.record_entries(Some(EntryOperation::Trash(vec![created])));
+            }
+        }
         Err(error) => app.entry_failed(&error),
     }
 }
@@ -126,53 +146,167 @@ fn create_entry(app: &mut App, kind: EntryKind, parent: &Path, name: &EntryName)
 /// Renames the list file or folder at `path` to `name` on disk.
 fn rename_entry(app: &mut App, path: &Path, name: &EntryName) {
     match rename(&app.workspace().root().join(path), name) {
-        Ok(_) => app.entry_renamed(path, name),
+        Ok(renamed) => {
+            app.entry_renamed(path, name);
+            if let Some(file_name) = renamed.file_name() {
+                let back = Relocation::new(path.with_file_name(file_name), path.to_path_buf());
+                app.record_entries(Some(EntryOperation::Relocate(vec![back])));
+            }
+        }
         Err(error) => app.entry_failed(&error),
     }
 }
 
-/// Deletes the list files and empty folders `entries` on disk, removes the deleted ones from
-/// the workspace and reports the failures in one message.
+/// Moves the list files and folders `entries` into the bin, removes the moved ones from the
+/// workspace, records their restore as one undo step and reports the failures in one message.
 fn delete_entries(app: &mut App, entries: &[EntryKey]) {
-    let failures: Vec<EntryError> = entries
+    let paths = entries
         .iter()
-        .filter_map(|entry| match delete_entry(app.workspace().root(), entry) {
-            Ok(()) => {
-                app.entry_deleted(entry.path());
-                None
-            }
-            Err(error) => Some(error),
-        })
+        .map(|entry| entry.path().to_path_buf())
         .collect();
-    app.entries_failed(EntriesOperation::Deleted, entries, &failures);
-}
-
-/// Deletes the list file or empty folder `entry` of the workspace in `root` on disk.
-fn delete_entry(root: &Path, entry: &EntryKey) -> Result<(), EntryError> {
-    let absolute = root.join(entry.path());
-    match entry {
-        EntryKey::Folder(_) => delete_folder(&absolute),
-        EntryKey::List(_) => delete_list(&absolute),
-    }
+    let performed = trash_entries(app, paths);
+    app.record_entries(performed.reversal);
+    app.entries_failed(EntriesOperation::Deleted, entries, &performed.failures);
 }
 
 /// Moves the list files and folders `entries` into `folder` on disk, follows the moved ones in
-/// the workspace and reports the failures in one message.
+/// the workspace, records their move back as one undo step and reports the failures in one
+/// message.
 fn move_entries(app: &mut App, entries: &[EntryKey], folder: &Path) {
     let directory = app.workspace().root().join(folder);
+    let mut moved_back = Vec::with_capacity(entries.len());
     let failures: Vec<EntryError> = entries
         .iter()
         .filter_map(|entry| {
             match move_into(&app.workspace().root().join(entry.path()), &directory) {
-                Ok(_) => {
+                Ok(moved) => {
                     app.entry_moved(entry.path(), folder);
+                    let file_name = moved.file_name().unwrap_or_default();
+                    let back = Relocation::new(folder.join(file_name), entry.path().to_path_buf());
+                    moved_back.push(back);
                     None
                 }
                 Err(error) => Some(error),
             }
         })
         .collect();
+    app.record_entries(operation(moved_back, EntryOperation::Relocate));
     app.entries_failed(EntriesOperation::Moved, entries, &failures);
+}
+
+/// Undoes or redoes a change of lists and folders by performing `operation`, and stores its
+/// reversal for the opposite step.
+fn step_entries(app: &mut App, direction: Direction, operation: EntryOperation) {
+    let performed = match operation {
+        EntryOperation::Trash(paths) => trash_entries(app, paths),
+        EntryOperation::Restore { entries, active } => restore_entries(app, entries, active),
+        EntryOperation::Relocate(relocations) => relocate_entries(app, relocations),
+    };
+    app.entries_stepped(direction, performed);
+}
+
+/// What performing an [`EntryOperation`] did, entry by entry.
+#[derive(Debug)]
+struct Performed {
+    /// The operation that reverts the entries that changed, `None` if none did.
+    reversal: Option<EntryOperation>,
+    /// The part of the operation that failed, `None` if nothing failed.
+    unperformed: Option<EntryOperation>,
+    /// Why the entries of `unperformed` failed.
+    failures: Vec<EntryError>,
+}
+
+/// Performs `step` on every item and returns what it returned for the items it succeeded on,
+/// the items it failed on and why they failed.
+fn attempt<Item, Done>(
+    items: Vec<Item>,
+    mut step: impl FnMut(&Item) -> Result<Done, EntryError>,
+) -> (Vec<Done>, Vec<Item>, Vec<EntryError>) {
+    let mut done = Vec::with_capacity(items.len());
+    let mut failed = Vec::new();
+    let mut failures = Vec::new();
+    for item in items {
+        match step(&item) {
+            Ok(result) => done.push(result),
+            Err(error) => {
+                failed.push(item);
+                failures.push(error);
+            }
+        }
+    }
+    (done, failed, failures)
+}
+
+/// Returns `items` as an operation built by `operation`, or `None` if there are none.
+fn operation<Item>(
+    items: Vec<Item>,
+    operation: impl FnOnce(Vec<Item>) -> EntryOperation,
+) -> Option<EntryOperation> {
+    (!items.is_empty()).then(|| operation(items))
+}
+
+/// Moves the lists and folders at `paths` into the bin and removes them from the workspace.
+fn trash_entries(app: &mut App, paths: Vec<PathBuf>) -> Performed {
+    let active = app.lists().active().cloned();
+    let (trashed, failed, failures) = attempt(paths, |path| {
+        let workspace = app.workspace();
+        let trashed = move_to_bin(workspace.root(), workspace.bin(), path)?;
+        app.entry_deleted(path);
+        Ok(trashed)
+    });
+    let active = active.filter(|list| {
+        trashed
+            .iter()
+            .any(|entry| list.as_path().starts_with(entry.original()))
+    });
+    Performed {
+        reversal: operation(trashed, |entries| EntryOperation::Restore {
+            entries,
+            active,
+        }),
+        unperformed: operation(failed, EntryOperation::Trash),
+        failures,
+    }
+}
+
+/// Moves the lists and folders `entries` from the bin back to their original paths, adds them
+/// to the workspace and makes `active` the active list again.
+fn restore_entries(
+    app: &mut App,
+    entries: Vec<TrashedEntry>,
+    active: Option<ListPath>,
+) -> Performed {
+    let (restored, failed, failures) = attempt(entries, |entry| {
+        let workspace = app.workspace();
+        restore(workspace.root(), workspace.bin(), entry)?;
+        Ok(entry.original().to_path_buf())
+    });
+    if !restored.is_empty() {
+        app.entries_restored(&restored, active.as_ref());
+    }
+    Performed {
+        reversal: operation(restored, EntryOperation::Trash),
+        unperformed: operation(failed, |entries| EntryOperation::Restore {
+            entries,
+            active,
+        }),
+        failures,
+    }
+}
+
+/// Moves each list or folder of `relocations` to its new path and follows it in the workspace.
+fn relocate_entries(app: &mut App, relocations: Vec<Relocation>) -> Performed {
+    let (reversed, failed, failures) = attempt(relocations, |relocation| {
+        let root = app.workspace().root();
+        move_to(&root.join(relocation.from()), &root.join(relocation.to()))?;
+        app.entry_relocated_to(relocation.from(), relocation.to());
+        Ok(relocation.reversed())
+    });
+    Performed {
+        reversal: operation(reversed, EntryOperation::Relocate),
+        unperformed: operation(failed, EntryOperation::Relocate),
+        failures,
+    }
 }
 
 /// What [`execute`] did to several lists and folders, as the report of failures names it.
@@ -256,13 +390,85 @@ impl App {
         self.lists.select(&self.workspace, key, viewport_height);
     }
 
-    /// Removes the folder or list at `path`, just deleted on disk, from the workspace; the
-    /// selection moves to a neighbour and state that remembers the list forgets it.
+    /// Moves the folder or list at `path`, just moved to `to` on disk, in the workspace and
+    /// selects it; state that remembers its lists follows them.
+    fn entry_relocated_to(&mut self, path: &Path, to: &Path) {
+        let Some(entry) = self.workspace.relocate(path, to) else {
+            tracing::warn!(
+                path = %path.display(),
+                to = %to.display(),
+                "relocated entry or its folder is gone"
+            );
+            return;
+        };
+        let key = EntryKey::from(entry);
+        self.entry_relocated(path, &key);
+    }
+
+    /// Removes the folder or list at `path`, just moved into the bin, from the workspace; the
+    /// selection moves to a neighbour, a list inside it is closed and the undo history of its
+    /// documents is kept for its restore.
     fn entry_deleted(&mut self, path: &Path) {
         if self.workspace.remove(path).is_none() {
             tracing::warn!(path = %path.display(), "deleted entry was not in the workspace");
         }
         self.apply_entry_change(EntryChange::Removed(path));
+    }
+
+    /// Adds the folders and lists at `paths`, just restored from the bin, to the workspace by
+    /// scanning it again, makes `active` the active list again if it is back and selects the
+    /// first of the entries.
+    fn entries_restored(&mut self, paths: &[PathBuf], active: Option<&ListPath>) {
+        self.rescan();
+        let viewport_height = self.viewport_height(Focus::Lists);
+        if let Some(active) = active.filter(|list| self.workspace.list(list).is_some()) {
+            self.lists.open(&self.workspace, active, viewport_height);
+        }
+        let keys: Vec<EntryKey> = paths
+            .iter()
+            .rev()
+            .filter_map(|path| self.workspace.entry(path).map(EntryKey::from))
+            .collect();
+        for key in &keys {
+            self.lists.select(&self.workspace, key, viewport_height);
+        }
+        self.refresh_tasks();
+    }
+
+    /// Records `reversal`, which reverts a change of lists and folders just made, as one step
+    /// of the undo history; `None` if nothing changed.
+    fn record_entries(&mut self, reversal: Option<EntryOperation>) {
+        if let Some(reversal) = reversal {
+            self.history.record(HistoryEntry::Entries(reversal));
+        }
+    }
+
+    /// Stores what an undo or redo in `direction` of a change of lists and folders
+    /// `performed`: the reversal for the opposite step and the part that failed for the next
+    /// step in `direction`; then reports the step or its failures.
+    fn entries_stepped(&mut self, direction: Direction, performed: Performed) {
+        let Performed {
+            reversal,
+            unperformed,
+            failures,
+        } = performed;
+        if let Some(unperformed) = unperformed {
+            self.history
+                .keep(direction, HistoryEntry::Entries(unperformed));
+        }
+        if let Some(reversal) = reversal {
+            let summary = entries_summary(&reversal.workspace_paths());
+            self.history
+                .put_back(direction, HistoryEntry::Entries(reversal));
+            if failures.is_empty() {
+                self.show_message(StatusMessage::info(format!("{direction}: {summary}")));
+                return;
+            }
+        }
+        let reports: Vec<String> = failures.iter().map(|error| error_report(error)).collect();
+        let report = format!("cannot {direction}: {}", reports.join("; "));
+        tracing::warn!(%report, "cannot step through the history of lists and folders");
+        self.show_message(StatusMessage::error(report));
     }
 
     /// Reports the `failures` of an `operation` on the lists and folders `entries` in one
@@ -300,6 +506,17 @@ impl App {
         tracing::warn!(%report, "cannot change entry");
         self.show_message(StatusMessage::error(report));
     }
+}
+
+/// Names the lists and folders at `paths` in a message: the name of a single one, as the lists
+/// pane shows it, or their number.
+fn entries_summary(paths: &[&Path]) -> String {
+    let name = match paths {
+        [path] if has_list_extension(path) => path.file_stem(),
+        [path] => path.file_name(),
+        several => return format!("{} lists and folders", several.len()),
+    };
+    name.unwrap_or_default().to_string_lossy().into_owned()
 }
 
 /// Returns what `entries` are in the plural: `lists`, `folders`, or `entries` for both.

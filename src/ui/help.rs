@@ -629,6 +629,8 @@ mod tests {
     fn rows_list_each_heading_before_its_entries() {
         let sections = filter(&help_sections(&keymap("")), "fold");
         let expected = [
+            "Everywhere (lists and tasks pane)",
+            "u",
             "Trees (lists pane and tasks pane)",
             "h, left",
             "l, right",

@@ -4,7 +4,7 @@
 use std::mem;
 
 use crate::app::effect::Effect;
-use crate::app::history::{Direction, HistoryEntry};
+use crate::app::history::{Direction, DocumentSnapshot, HistoryEntry};
 use crate::app::prompt::PromptKind;
 use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
@@ -226,11 +226,12 @@ impl App {
         let before = document.clone();
         match edit(document) {
             EditOutcome::Changed => {
-                self.history.record(HistoryEntry {
-                    list: list.clone(),
-                    document: before,
-                    selection: self.selected_task_of(list),
-                });
+                self.history
+                    .record(HistoryEntry::Document(DocumentSnapshot {
+                        list: list.clone(),
+                        document: before,
+                        selection: self.selected_task_of(list),
+                    }));
                 vec![Effect::Save(list.clone())]
             }
             EditOutcome::Unchanged => Vec::new(),
@@ -245,27 +246,51 @@ impl App {
             .copied()
     }
 
-    /// Undoes or redoes the newest change in `direction`: swaps the document and selection of
-    /// its list with the remembered ones, opens that list and saves it.
+    /// Undoes or redoes the newest change in `direction`, an edit of a document or a change of
+    /// lists and folders.
     ///
-    /// Undo and redo bypass [`App::edit_list`], which would record them as new changes.
+    /// Undo and redo bypass [`App::edit_list`], which would record them as new changes. A
+    /// change of lists and folders touches the disk, so it becomes [`Effect::StepEntries`].
     fn step_history(&mut self, direction: Direction) -> Vec<Effect> {
-        let Some(mut entry) = self.history.take(direction) else {
-            self.show_message(StatusMessage::info(format!("nothing to {direction}")));
+        match self.history.take(direction) {
+            Some(HistoryEntry::Document(snapshot)) => self.step_document(direction, snapshot),
+            Some(HistoryEntry::Entries(operation)) => {
+                vec![Effect::StepEntries {
+                    direction,
+                    operation,
+                }]
+            }
+            None => {
+                self.show_message(StatusMessage::info(format!("nothing to {direction}")));
+                Vec::new()
+            }
+        }
+    }
+
+    /// Swaps the document and selection of the list of `snapshot` with the remembered ones,
+    /// opens that list and saves it.
+    fn step_document(
+        &mut self,
+        direction: Direction,
+        mut snapshot: DocumentSnapshot,
+    ) -> Vec<Effect> {
+        let Some(Ok(loaded)) = self
+            .workspace
+            .list_mut(&snapshot.list)
+            .map(List::content_mut)
+        else {
+            tracing::warn!(list = %snapshot.list, "list of a history entry is not loaded");
             return Vec::new();
         };
-        let Some(Ok(loaded)) = self.workspace.list_mut(&entry.list).map(List::content_mut) else {
-            tracing::warn!(list = %entry.list, "list of a history entry is not loaded");
-            return Vec::new();
-        };
-        mem::swap(loaded.document_mut(), &mut entry.document);
-        let selection = self.selected_task_of(&entry.list);
-        let restored_selection = mem::replace(&mut entry.selection, selection);
-        self.show_restored(&entry.list, restored_selection);
-        let name = self.workspace.list(&entry.list).map_or("", List::name);
+        mem::swap(loaded.document_mut(), &mut snapshot.document);
+        let selection = self.selected_task_of(&snapshot.list);
+        let restored_selection = mem::replace(&mut snapshot.selection, selection);
+        self.show_restored(&snapshot.list, restored_selection);
+        let name = self.workspace.list(&snapshot.list).map_or("", List::name);
         self.show_message(StatusMessage::info(format!("{direction}: {name}")));
-        let list = entry.list.clone();
-        self.history.put_back(direction, entry);
+        let list = snapshot.list.clone();
+        self.history
+            .put_back(direction, HistoryEntry::Document(snapshot));
         vec![Effect::Save(list)]
     }
 

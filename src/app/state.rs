@@ -280,7 +280,12 @@ pub(super) mod tests {
     pub(in crate::app) fn app_in(root: &Path) -> App {
         let config = Config::default();
         let keymap = Keymap::new(config.keybindings()).unwrap();
-        let workspace = Workspace::scan(root, config.tasks().indent()).unwrap();
+        let workspace = Workspace::scan(
+            root,
+            config.workspace().bin().clone(),
+            config.tasks().indent(),
+        )
+        .unwrap();
         App::new(
             workspace,
             config,

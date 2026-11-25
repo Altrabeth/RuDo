@@ -18,6 +18,10 @@ workspace:
   # Show hidden folders and lists, whose name starts with `.`, on start-up (toggle with `H`
   # in the lists pane).
   show_hidden: false
+  # Folder inside the workspace that receives deleted lists and folders, relative to `root`.
+  # `.trash` is the folder Obsidian uses for deleted notes. The bin is never shown in the
+  # lists pane, also not with `H`; it must not be `root` itself or lie outside it.
+  bin: .trash
 
 tasks:
   # Show completed tasks on start-up (toggle with `H` in the tasks pane).

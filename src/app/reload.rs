@@ -10,9 +10,7 @@ use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
 use crate::app::tasks::list_items;
 use crate::storage::watch::{FsChange, PathState, WatchError};
-use crate::storage::workspace::{
-    Entry, List, ListPath, Reload, Workspace, has_list_extension, is_in_bin,
-};
+use crate::storage::workspace::{Entry, List, ListPath, Reload, Workspace, has_list_extension};
 use crate::ui::outline::Outcome;
 
 /// What a single [`FsChange`] asks for.
@@ -230,7 +228,7 @@ fn reaction<'workspace>(
     change: &FsChange,
 ) -> Option<Reaction<'workspace>> {
     let path = change.path();
-    if is_in_bin(path) {
+    if workspace.bin().contains(path) {
         return None;
     }
     match (change.state(), workspace.entry(path)) {

@@ -82,8 +82,12 @@ fn run(
     tracing::info!(?root, "workspace root resolved");
 
     let (config, theme, keymap) = settings.into_parts();
-    let workspace = Workspace::scan(root.path(), config.tasks().indent())
-        .context("cannot read the workspace folder")?;
+    let workspace = Workspace::scan(
+        root.path(),
+        config.workspace().bin().clone(),
+        config.tasks().indent(),
+    )
+    .context("cannot read the workspace folder")?;
     let mut app = App::new(
         workspace,
         config,

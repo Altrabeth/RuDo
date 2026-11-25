@@ -14,7 +14,7 @@ use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
 use crate::config::keymap::action::Action;
-use crate::storage::workspace::{Entry, List, ListPath, Workspace, moved_path};
+use crate::storage::workspace::{Entry, Folder, List, ListPath, Workspace, moved_path};
 use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem, prune};
 use crate::ui::text_input::TextInput;
 
@@ -395,18 +395,18 @@ impl App {
         self.open_prompt(kind, input);
     }
 
-    /// Asks to confirm deleting the selected list or empty folder.
+    /// Asks to confirm moving the selected list or folder to the bin.
     pub(super) fn delete_selected_entry(&mut self) {
         if let Some(entry) = self.lists.selected_entry(&self.workspace) {
             self.ask_to_delete_entries(&[EntryKey::from(entry)]);
         }
     }
 
-    /// Asks to confirm deleting the lists and empty folders `entries` that are still in the
-    /// workspace, as [`Effect::DeleteEntries`](crate::app::Effect::DeleteEntries).
+    /// Asks to confirm moving the lists and folders `entries` that are still in the workspace
+    /// to the bin, as [`Effect::DeleteEntries`](crate::app::Effect::DeleteEntries).
     ///
-    /// Every deletion of lists and folders starts here. A folder with entries is never deleted
-    /// and refuses the whole deletion with an error naming it.
+    /// Every deletion of lists and folders starts here. The question says what moves, folders
+    /// with everything inside them.
     pub(super) fn ask_to_delete_entries(&mut self, entries: &[EntryKey]) {
         let found: Vec<&Entry> = entries
             .iter()
@@ -486,63 +486,76 @@ pub(super) fn check_move_target(
 /// Shown when `move-to-folder` is used on a selection of tasks.
 const ONLY_ENTRIES_ARE_MOVED: &str = "only lists and folders can be moved into a folder";
 
-/// Asks whether to delete `entries`, or tells why they cannot be deleted: a folder that is not
-/// empty, or no entries at all.
+/// Asks whether to move `entries` to the bin, saying what moves, or tells that there are no
+/// entries at all.
 fn delete_question(entries: &[&Entry]) -> Result<String, String> {
-    let non_empty_folder = entries.iter().find_map(|entry| match entry {
-        Entry::Folder(folder) if !folder.entries().is_empty() => Some(folder),
-        Entry::Folder(_) | Entry::List(_) => None,
-    });
-    if let Some(folder) = non_empty_folder {
-        return Err(format!("folder \"{}\" is not empty", folder.name()));
-    }
     match entries {
         [] => Err("the selected lists are gone".to_owned()),
-        [Entry::List(list)] => Ok(delete_list_question(list)),
-        [Entry::Folder(folder)] => Ok(format!("Delete empty folder \"{}\"?", folder.name())),
-        several => Ok(delete_several_question(several)),
+        [Entry::List(list)] => Ok(match list.content() {
+            Ok(_) => format!(
+                "Move list \"{}\" with {} to the bin?",
+                list.name(),
+                counted_tasks(task_count(list))
+            ),
+            Err(_) => format!("Move list \"{}\" to the bin?", list.name()),
+        }),
+        [Entry::Folder(folder)] => Ok(move_folder_question(folder)),
+        several => Ok(move_several_question(several)),
     }
 }
 
-/// Asks whether to delete several lists and empty folders, counting both and the tasks of the
-/// lists that could be loaded, such as `Delete 12 lists with 340 tasks and 2 empty folders?`.
-fn delete_several_question(entries: &[&Entry]) -> String {
-    let (lists, tasks, folders) =
-        entries
-            .iter()
-            .fold((0, 0, 0), |(lists, tasks, folders), entry| match entry {
-                Entry::List(list) => (lists + 1, tasks + task_count(list), folders),
-                Entry::Folder(_) => (lists, tasks, folders + 1),
-            });
-    let lists = (lists > 0).then(|| {
-        let noun = if lists == 1 { "list" } else { "lists" };
-        format!("{lists} {noun} with {}", counted_tasks(tasks))
-    });
-    let folders = (folders > 0).then(|| {
-        let noun = if folders == 1 { "folder" } else { "folders" };
-        format!("{folders} empty {noun}")
-    });
+/// Asks whether to move `folder` to the bin, with the number of lists inside it, at any
+/// depth, and their tasks, such as `Move folder "Work" with 5 lists and 42 tasks to the bin?`.
+fn move_folder_question(folder: &Folder) -> String {
+    let (lists, tasks) = count_lists_and_tasks(folder.entries());
+    let name = folder.name();
+    if lists == 0 {
+        return format!("Move folder \"{name}\" to the bin?");
+    }
+    format!(
+        "Move folder \"{name}\" with {} and {} to the bin?",
+        counted(lists, "list", "lists"),
+        counted_tasks(tasks)
+    )
+}
+
+/// Returns the number of lists in `entries`, at any depth, and of their tasks.
+fn count_lists_and_tasks(entries: &[Entry]) -> (usize, usize) {
+    entries
+        .iter()
+        .fold((0, 0), |(lists, tasks), entry| match entry {
+            Entry::List(list) => (lists + 1, tasks + task_count(list)),
+            Entry::Folder(folder) => {
+                let (inner_lists, inner_tasks) = count_lists_and_tasks(folder.entries());
+                (lists + inner_lists, tasks + inner_tasks)
+            }
+        })
+}
+
+/// Asks whether to move several lists and folders to the bin, counting both, such as
+/// `Move 12 lists and 2 folders to the bin?`.
+fn move_several_question(entries: &[&Entry]) -> String {
+    let lists = entries
+        .iter()
+        .filter(|entry| matches!(entry, Entry::List(_)))
+        .count();
+    let folders = entries.len() - lists;
+    let lists = (lists > 0).then(|| counted(lists, "list", "lists"));
+    let folders = (folders > 0).then(|| counted(folders, "folder", "folders"));
     let parts: Vec<String> = lists.into_iter().chain(folders).collect();
-    format!("Delete {}?", parts.join(" and "))
+    format!("Move {} to the bin?", parts.join(" and "))
+}
+
+/// Returns `count` with the `singular` noun for one and the `plural` otherwise.
+fn counted(count: usize, singular: &str, plural: &str) -> String {
+    let noun = if count == 1 { singular } else { plural };
+    format!("{count} {noun}")
 }
 
 /// Returns the number of tasks of `list`, `0` if it could not be loaded.
 fn task_count(list: &List) -> usize {
     list.content()
         .map_or(0, |loaded| loaded.document().progress().total())
-}
-
-/// Asks whether to delete `list`, with its number of tasks if it could be loaded.
-fn delete_list_question(list: &List) -> String {
-    let name = list.name();
-    match list.content() {
-        Ok(loaded) => {
-            let tasks = loaded.document().progress().total();
-            let noun = if tasks == 1 { "task" } else { "tasks" };
-            format!("Delete list \"{name}\" with {tasks} {noun}?")
-        }
-        Err(_) => format!("Delete list \"{name}\"?"),
-    }
 }
 
 #[cfg(test)]
@@ -554,9 +567,11 @@ mod tests {
 
     use super::*;
     use crate::config::IndentStyle;
+    use crate::storage::bin::BinPath;
 
     /// A workspace with the empty folders `empty` and `other`, the folder `home` with
-    /// `chores` (two tasks) and the lists `inbox` (one task) and `binary`, which cannot be
+    /// `chores` (two tasks), the folder `outer` with two lists with three tasks in itself and
+    /// its folder `inner`, and the lists `inbox` (one task) and `binary`, which cannot be
     /// loaded.
     fn workspace(root: &TempDir) -> Workspace {
         for folder in ["empty", "other", "home"] {
@@ -565,7 +580,10 @@ mod tests {
         fs::write(root.path().join("home/chores.md"), "- [ ] a\n- [ ] b\n").unwrap();
         fs::write(root.path().join("inbox.md"), "- [ ] c\n").unwrap();
         fs::write(root.path().join("binary.md"), [0xff]).unwrap();
-        Workspace::scan(root.path(), IndentStyle::default()).unwrap()
+        fs::create_dir_all(root.path().join("outer/inner")).unwrap();
+        fs::write(root.path().join("outer/a.md"), "- [ ] a\n").unwrap();
+        fs::write(root.path().join("outer/inner/b.md"), "- [ ] b\n- [x] c\n").unwrap();
+        Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap()
     }
 
     fn entries<'workspace>(
@@ -579,16 +597,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case::one_list("inbox.md", Ok("Delete list \"inbox\" with 1 task?"))]
-    #[case::one_empty_folder("empty", Ok("Delete empty folder \"empty\"?"))]
-    #[case::lists("inbox.md home/chores.md", Ok("Delete 2 lists with 3 tasks?"))]
-    #[case::unreadable_list_counts_no_tasks(
-        "inbox.md binary.md",
-        Ok("Delete 2 lists with 1 task?")
+    #[case::one_list("inbox.md", Ok("Move list \"inbox\" with 1 task to the bin?"))]
+    #[case::unreadable_list("binary.md", Ok("Move list \"binary\" to the bin?"))]
+    #[case::empty_folder("empty", Ok("Move folder \"empty\" to the bin?"))]
+    #[case::folder("home", Ok("Move folder \"home\" with 1 list and 2 tasks to the bin?"))]
+    #[case::nested_folders(
+        "outer",
+        Ok("Move folder \"outer\" with 2 lists and 3 tasks to the bin?")
     )]
-    #[case::folders("empty other", Ok("Delete 2 empty folders?"))]
-    #[case::both("empty inbox.md", Ok("Delete 1 list with 1 task and 1 empty folder?"))]
-    #[case::non_empty_folder("inbox.md home", Err("folder \"home\" is not empty"))]
+    #[case::lists("inbox.md home/chores.md", Ok("Move 2 lists to the bin?"))]
+    #[case::folders("empty other", Ok("Move 2 folders to the bin?"))]
+    #[case::both("empty inbox.md home", Ok("Move 1 list and 2 folders to the bin?"))]
     #[case::nothing("", Err("the selected lists are gone"))]
     fn delete_question_counts_lists_tasks_and_folders(
         #[case] paths: &str,
@@ -635,7 +654,8 @@ mod tests {
         fs::create_dir_all(root.path().join("home/empty")).unwrap();
         fs::write(root.path().join("home/chores.md"), "").unwrap();
         fs::write(root.path().join("inbox.md"), "").unwrap();
-        let workspace = Workspace::scan(root.path(), IndentStyle::default()).unwrap();
+        let workspace =
+            Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap();
         let expected = [("home", 0), ("empty", 1), ("chores", 1), ("inbox", 0)];
 
         let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, HiddenEntries::Hidden)
@@ -662,7 +682,8 @@ mod tests {
         fs::write(root.path().join(".obsidian/daily.md"), "").unwrap();
         fs::write(root.path().join("home/.drafts.md"), "").unwrap();
         fs::write(root.path().join("home/chores.md"), "").unwrap();
-        let workspace = Workspace::scan(root.path(), IndentStyle::default()).unwrap();
+        let workspace =
+            Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap();
 
         let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, hidden_entries)
             .iter()

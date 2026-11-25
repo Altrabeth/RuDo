@@ -20,6 +20,7 @@ use tracing::warn;
 
 use crate::config::IndentStyle;
 use crate::markdown::document::TodoDocument;
+use crate::storage::bin::BinPath;
 use crate::storage::entries::EntryName;
 use crate::storage::fingerprint::Fingerprint;
 
@@ -30,6 +31,7 @@ const LIST_EXTENSION: &str = "md";
 #[derive(Debug)]
 pub struct Workspace {
     root: PathBuf,
+    bin: BinPath,
     default_indent: IndentStyle,
     entries: Vec<Entry>,
 }
@@ -40,10 +42,10 @@ impl Workspace {
     /// Directories become [`Folder`]s and `*.md` files (extension compared case-insensitively)
     /// become [`List`]s; all other files are never opened. Hidden entries, whose name starts
     /// with `.`, are kept and tell so with [`Entry::is_hidden`], but a hidden folder without
-    /// lists at any depth is left out, and the bin (`.trash/` at the root) is never part of the
-    /// tree. Symlinked directories are not followed, so symlink loops cannot make the scan
-    /// endless. Every directory is sorted folders first, then lists, each case-insensitively
-    /// with ties broken by the exact name.
+    /// lists at any depth is left out, and the bin `bin` is never part of the tree, wherever it
+    /// is configured. Symlinked directories are not followed, so symlink loops cannot make the
+    /// scan endless. Every directory is sorted folders first, then lists, each
+    /// case-insensitively with ties broken by the exact name.
     ///
     /// List files are read and parsed in parallel. A list that cannot be read or is not UTF-8
     /// keeps its place in the tree and carries its [`LoadError`]; a subdirectory that cannot
@@ -57,16 +59,18 @@ impl Workspace {
     /// caller's decision.
     pub fn scan(
         root: impl Into<PathBuf>,
+        bin: BinPath,
         default_indent: IndentStyle,
     ) -> Result<Self, WorkspaceError> {
         let root = root.into();
-        let pending = match read_directory(&root, Path::new("")) {
+        let pending = match read_directory(&root, &bin, Path::new("")) {
             Ok(pending) => pending,
             Err(source) => return Err(WorkspaceError::ReadRoot { path: root, source }),
         };
         let (entries, _) = load_entries(&root, pending);
         Ok(Self {
             root,
+            bin,
             default_indent,
             entries,
         })
@@ -85,7 +89,7 @@ impl Workspace {
     /// Returns [`WorkspaceError::ReadRoot`] if the workspace folder cannot be read any more;
     /// the workspace is left as it was.
     pub fn rescan(&mut self) -> Result<Rescan, WorkspaceError> {
-        let pending = read_directory(&self.root, Path::new("")).map_err(|source| {
+        let pending = read_directory(&self.root, &self.bin, Path::new("")).map_err(|source| {
             WorkspaceError::ReadRoot {
                 path: self.root.clone(),
                 source,
@@ -111,6 +115,12 @@ impl Workspace {
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Returns the bin, the folder that receives deleted lists and folders.
+    #[must_use]
+    pub fn bin(&self) -> &BinPath {
+        &self.bin
     }
 
     /// Returns the configured indentation for lists without indented tasks.
@@ -202,20 +212,11 @@ impl Workspace {
     /// renamed folder change with it; their documents stay loaded. A list is renamed to
     /// `<name>.md`, as on disk. Returns `None` if the workspace has no entry at `path`.
     pub fn rename(&mut self, path: &Path, name: &EntryName) -> Option<&Entry> {
-        let (entries, index) = entry_position(&mut self.entries, path)?;
-        let mut entry = entries.remove(index);
-        let file_name = match &mut entry {
-            Entry::Folder(folder) => {
-                name.as_str().clone_into(&mut folder.name);
-                name.as_str().to_owned()
-            }
-            Entry::List(list) => {
-                name.as_str().clone_into(&mut list.name);
-                name.list_file_name()
-            }
+        let file_name = match self.entry(path)?.kind() {
+            EntryKind::Folder => name.as_str().to_owned(),
+            EntryKind::List => name.list_file_name(),
         };
-        move_entry(&mut entry, path.with_file_name(file_name));
-        Some(insert_in_display_order(entries, entry))
+        self.relocate(path, &path.with_file_name(file_name))
     }
 
     /// Moves the folder or list at `path` into the folder `folder`, keeping its name, after it
@@ -225,19 +226,41 @@ impl Workspace {
     /// with [`Workspace::rename`], everything inside a moved folder moves with it and stays
     /// loaded. Returns `None` if the workspace has no entry at `path`, if `folder` is not a
     /// folder of the workspace, or if it is `path` itself or inside it.
+    pub fn move_into(&mut self, path: &Path, folder: &Path) -> Option<&Entry> {
+        let file_name = path.file_name()?;
+        self.relocate(path, &folder.join(file_name))
+    }
+
+    /// Moves the folder or list at `from` to the path `to`, which names its folder and its new
+    /// file name, after it was moved on disk, and returns it at its new place in display order.
+    ///
+    /// Both paths are relative to the workspace root. The entry is named after the new file
+    /// name as a scan would name it, and everything inside a moved folder moves with it and
+    /// stays loaded. Returns `None` if the workspace has no entry at `from`, or if the folder
+    /// of `to` is not a folder of the workspace or lies inside `from`.
     ///
     /// # Panics
     ///
     /// Never panics in practice: the target folder is checked to exist and to lie outside the
     /// moved entry before the entry is taken out of the tree.
-    pub fn move_into(&mut self, path: &Path, folder: &Path) -> Option<&Entry> {
-        let file_name = path.file_name()?;
-        if folder.starts_with(path) || folder_entries(&self.entries, folder).is_none() {
+    pub fn relocate(&mut self, from: &Path, to: &Path) -> Option<&Entry> {
+        let (folder, file_name) = (to.parent()?, to.file_name()?);
+        if folder.starts_with(from) || folder_entries(&self.entries, folder).is_none() {
             return None;
         }
-        let (entries, index) = entry_position(&mut self.entries, path)?;
+        let (entries, index) = entry_position(&mut self.entries, from)?;
         let mut entry = entries.remove(index);
-        move_entry(&mut entry, folder.join(file_name));
+        match &mut entry {
+            Entry::Folder(moved) => moved.name = file_name.to_string_lossy().into_owned(),
+            Entry::List(moved) => {
+                moved.name = to
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+            }
+        }
+        move_entry(&mut entry, to.to_path_buf());
         let target = folder_entries_mut(&mut self.entries, folder)
             .expect("the target folder exists and is not inside the moved entry");
         Some(insert_in_display_order(target, entry))
@@ -588,11 +611,12 @@ impl PendingEntry {
     }
 }
 
-/// Reads the directory `relative` below `root` recursively, sorted in display order.
-fn read_directory(root: &Path, relative: &Path) -> io::Result<Vec<PendingEntry>> {
+/// Reads the directory `relative` below `root` recursively, without the bin `bin`, sorted in
+/// display order.
+fn read_directory(root: &Path, bin: &BinPath, relative: &Path) -> io::Result<Vec<PendingEntry>> {
     let mut entries: Vec<PendingEntry> = fs::read_dir(root.join(relative))?
         .filter_map(|entry| match entry {
-            Ok(entry) => classify(root, relative, &entry),
+            Ok(entry) => classify(root, bin, relative, &entry),
             Err(error) => {
                 warn!(directory = %relative.display(), %error, "skipping unreadable entry");
                 None
@@ -614,10 +638,10 @@ fn display_order(first: (EntryKind, &str), second: (EntryKind, &str)) -> Orderin
 }
 
 /// Turns a directory entry into a folder or list, or `None` if it is not part of the tree.
-fn classify(root: &Path, relative: &Path, entry: &DirEntry) -> Option<PendingEntry> {
+fn classify(root: &Path, bin: &BinPath, relative: &Path, entry: &DirEntry) -> Option<PendingEntry> {
     let file_name = entry.file_name();
     let path = relative.join(&file_name);
-    if is_in_bin(&path) {
+    if bin.contains(&path) {
         return None;
     }
     let file_type = match entry.file_type() {
@@ -628,7 +652,7 @@ fn classify(root: &Path, relative: &Path, entry: &DirEntry) -> Option<PendingEnt
         }
     };
     if file_type.is_dir() {
-        return read_folder(root, path, &file_name);
+        return read_folder(root, bin, path, &file_name);
     }
     // A symlink to a list file is a list, but a symlinked directory is never followed.
     if !has_list_extension(&path) || (file_type.is_symlink() && entry.path().is_dir()) {
@@ -648,8 +672,13 @@ fn classify(root: &Path, relative: &Path, entry: &DirEntry) -> Option<PendingEnt
 ///
 /// A hidden folder without lists at any depth is left out too, so that folders such as
 /// `.git/` never clutter the tree; its subfolders are left out first, from the bottom up.
-fn read_folder(root: &Path, path: PathBuf, file_name: &OsStr) -> Option<PendingEntry> {
-    match read_directory(root, &path) {
+fn read_folder(
+    root: &Path,
+    bin: &BinPath,
+    path: PathBuf,
+    file_name: &OsStr,
+) -> Option<PendingEntry> {
+    match read_directory(root, bin, &path) {
         Ok(entries) if entries.is_empty() && is_hidden_path(&path) => None,
         Ok(entries) => Some(PendingEntry::Folder {
             name: file_name.to_string_lossy().into_owned(),
@@ -673,14 +702,6 @@ fn is_hidden(file_name: &OsStr) -> bool {
 pub(crate) fn is_hidden_path(path: &Path) -> bool {
     path.components()
         .any(|component| is_hidden(component.as_os_str()))
-}
-
-/// The bin for deleted lists, relative to the workspace root, which is never part of the tree.
-const BIN_FOLDER: &str = ".trash";
-
-/// Returns whether `path`, relative to the workspace root, is the bin or inside it.
-pub(crate) fn is_in_bin(path: &Path) -> bool {
-    path.starts_with(BIN_FOLDER)
 }
 
 /// Returns whether `path` has the extension of list files.
@@ -885,6 +906,7 @@ mod tests {
 
     use super::*;
     use crate::markdown::document::TaskId;
+    use crate::storage::bin::BinPath;
 
     fn write_file(root: &Path, relative: &str, content: &[u8]) {
         let path = root.join(relative);
@@ -897,7 +919,7 @@ mod tests {
     }
 
     fn scan(root: &TempDir) -> Workspace {
-        Workspace::scan(root.path(), IndentStyle::default()).unwrap()
+        Workspace::scan(root.path(), BinPath::default(), IndentStyle::default()).unwrap()
     }
 
     fn list_path(relative: &str) -> ListPath {
@@ -1024,21 +1046,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::bin(".trash", true)]
-    #[case::inside_the_bin(".trash/deleted.md", true)]
-    #[case::trash_in_a_folder("home/.trash", false)]
-    #[case::similar_name(".trash-old", false)]
-    #[case::root("", false)]
-    fn only_the_bin_at_the_workspace_root_is_in_the_bin(
-        #[case] path: &str,
-        #[case] expected: bool,
-    ) {
-        let system_under_test = is_in_bin(Path::new(path));
-
-        assert_eq!(system_under_test, expected);
-    }
-
-    #[rstest]
     #[case::folder("home", true)]
     #[case::root("", true)]
     #[case::hidden_folder(".notes", true)]
@@ -1054,6 +1061,28 @@ mod tests {
         let system_under_test = workspace.contains_folder(Path::new(path));
 
         assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::top_level("Bin")]
+    #[case::nested("Archive/Bin")]
+    fn scan_skips_the_bin_even_if_its_name_is_not_hidden(#[case] bin: &str) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), &format!("{bin}/deleted.md"), b"");
+        write_file(root.path(), "Archive/kept.md", b"");
+        write_file(root.path(), "Other/Bin/kept.md", b"");
+        let bin = BinPath::try_from(PathBuf::from(bin)).unwrap();
+        let expected = vec![
+            "Archive/".to_owned(),
+            "Archive/kept.md".to_owned(),
+            "Other/".to_owned(),
+            "Other/Bin/".to_owned(),
+            "Other/Bin/kept.md".to_owned(),
+        ];
+
+        let system_under_test = Workspace::scan(root.path(), bin, IndentStyle::default()).unwrap();
+
+        assert_eq!(outline(system_under_test.entries()), expected);
     }
 
     #[test]
@@ -1214,7 +1243,8 @@ mod tests {
         let parent = TempDir::new().unwrap();
         let root = parent.path().join("todo");
         write_file(&root, "inbox.md", b"");
-        let mut workspace = Workspace::scan(&root, IndentStyle::default()).unwrap();
+        let mut workspace =
+            Workspace::scan(&root, BinPath::default(), IndentStyle::default()).unwrap();
         fs::remove_dir_all(&root).unwrap();
 
         let system_under_test = workspace.rescan();
@@ -1315,7 +1345,8 @@ mod tests {
         let root = TempDir::new().unwrap();
         let missing = root.path().join("missing");
 
-        let system_under_test = Workspace::scan(&missing, IndentStyle::default());
+        let system_under_test =
+            Workspace::scan(&missing, BinPath::default(), IndentStyle::default());
 
         assert!(matches!(
             system_under_test,
@@ -1330,7 +1361,7 @@ mod tests {
         write_file(root.path(), "file.md", b"");
         let file = root.path().join("file.md");
 
-        let system_under_test = Workspace::scan(&file, IndentStyle::default());
+        let system_under_test = Workspace::scan(&file, BinPath::default(), IndentStyle::default());
 
         assert!(matches!(
             system_under_test,
@@ -1343,7 +1374,7 @@ mod tests {
         let root = TempDir::new().unwrap();
         let indent = IndentStyle::Spaces(crate::config::IndentWidth::new(2).unwrap());
 
-        let system_under_test = Workspace::scan(root.path(), indent).unwrap();
+        let system_under_test = Workspace::scan(root.path(), BinPath::default(), indent).unwrap();
 
         assert_eq!(system_under_test.root(), root.path());
         assert_eq!(system_under_test.default_indent(), indent);
@@ -1588,6 +1619,28 @@ mod tests {
             system_under_test.map(Entry::path),
             Some(expected_path.as_path())
         );
+        assert_eq!(outline(workspace.entries()), expected);
+    }
+
+    #[rstest]
+    #[case::list("home/kitchen.md", "c/pantry.md", "pantry", &["c/", "c/pantry.md", "home/"])]
+    #[case::folder("home", "c/house", "house", &["c/", "c/house/", "c/house/kitchen.md"])]
+    fn relocate_moves_and_renames_the_entry_at_once(
+        #[case] from: &str,
+        #[case] to: &str,
+        #[case] expected_name: &str,
+        #[case] expected: &[&str],
+    ) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/kitchen.md", b"- [ ] a\n");
+        create_dir(root.path(), "c");
+        let mut workspace = scan(&root);
+
+        let system_under_test = workspace
+            .relocate(Path::new(from), Path::new(to))
+            .map(Entry::name);
+
+        assert_eq!(system_under_test, Some(expected_name));
         assert_eq!(outline(workspace.entries()), expected);
     }
 

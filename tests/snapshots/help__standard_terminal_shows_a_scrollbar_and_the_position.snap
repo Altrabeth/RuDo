@@ -5,7 +5,7 @@ expression: system_under_test
 "╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
 "│ No╭ Help ────────────────────────────────────────────────────────────────╮   │"
 "│ o │  zR                unfold everything                                 │   │"
-"│   │  dd                delete the selected list, empty folder or task    │   │"
+"│   │  dd                delete the selected list, folder or task          │   │"
 "│   │Lists pane                                                            │   │"
 "│   │  enter             open the selected list, or fold or unfold a folder│   │"
 "│   │  o                 create a list next to the selection or inside the…│   │"

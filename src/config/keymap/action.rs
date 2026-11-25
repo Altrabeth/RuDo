@@ -79,7 +79,7 @@ pub enum Action {
     Search,
     /// Remove the active filter.
     ClearFilter,
-    /// Undo the last change to a task.
+    /// Undo the last change to a task, list or folder.
     Undo,
     /// Redo the last undone change.
     Redo,
@@ -165,7 +165,7 @@ pub enum Action {
     ToggleCompleted,
     /// Start or end selecting several rows.
     VisualMode,
-    /// Delete the selected tasks, lists or empty folders.
+    /// Delete the selected tasks, lists or folders.
     DeleteSelection,
     /// Copy the selected tasks and their subtasks.
     YankSelection,
@@ -226,7 +226,7 @@ impl Action {
             Self::FocusTasks => "focus the tasks pane",
             Self::Search => "filter the focused pane (also inside the help)",
             Self::ClearFilter => "remove the active filter",
-            Self::Undo => "undo the last change to a task",
+            Self::Undo => "undo the last change to a task, list or folder",
             Self::Redo => "redo the last undone change",
             Self::ToggleCompleted => "show or hide completed tasks",
             Self::OpenInEditor => "open the list in your editor at the selected task",
@@ -249,7 +249,7 @@ impl Action {
             Self::Rename => "rename the selected list or folder",
             Self::MoveToFolder => "move the list, folder or selection into a folder",
             Self::ToggleHidden => "show or hide hidden folders and lists",
-            Self::Delete => "delete the selected list, empty folder or task",
+            Self::Delete => "delete the selected list, folder or task",
             Self::NewTaskBelow => "add a task below the selected one",
             Self::NewTaskAbove => "add a task above the selected one",
             Self::NewSubtask => "add a subtask to the selected task",
@@ -271,7 +271,7 @@ impl Action {
             Self::SortAlphabetically => "sort by text",
             Self::SortByStatus => "open tasks first",
             Self::VisualMode => "select several rows from here on, or stop selecting",
-            Self::DeleteSelection => "delete the selected tasks, lists or empty folders",
+            Self::DeleteSelection => "delete the selected tasks, lists or folders",
             Self::YankSelection => "copy the selected tasks and their subtasks",
             Self::CloseHelp => "close the help screen",
             Self::ConfirmYes => "confirm",

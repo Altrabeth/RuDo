@@ -4,7 +4,7 @@ expression: system_under_test
 ---
 "╭ Lists ───────────────╮╭ Tasks ───────────────────────────────────────────────╮"
 "│ No╭ Help ────────────────────────────────────────────────────────────────╮   │"
-"│ o │  d                 delete the selected tasks, lists or empty folders │   │"
+"│ o │  d                 delete the selected tasks, lists or folders       │   │"
 "│   │  y                 copy the selected tasks and their subtasks        │   │"
 "│   │Help screen, dialogs and text input                                   │   │"
 "│   │  ?, q, esc         close the help screen                             │   │"

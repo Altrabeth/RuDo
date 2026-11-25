@@ -21,7 +21,8 @@ The first release, not tagged yet. The [README](README.md) specifies the behavio
   task lines are re-rendered. Changes are saved immediately with atomic writes that keep
   symlinks and permissions. Lists that cannot be read stay in the tree and say why.
 - **Lists pane.** Create, rename and delete lists and folders (`o`, `O`, `r`, `dd`), with
-  names Obsidian accepts and a confirmation before deleting; `done/total` counters; folding;
+  names Obsidian accepts and a confirmation before deleting; deleted lists and folders, also
+  non-empty ones, go to a bin folder in the workspace (`.trash/`, `workspace.bin`); `done/total` counters; folding;
   showing hidden folders and lists such as `.obsidian/` dimmed (`H`, `workspace.show_hidden`).
 - **Tasks pane.** Nested tasks with tree guides and folding; adding tasks and subtasks
   (`o`, `O`, `a`) and editing them in place (`i`); marking done (`x`) with an optional
@@ -32,11 +33,12 @@ The first release, not tagged yet. The [README](README.md) specifies the behavio
   `#tags`, and recurrence rules (`r`) whose completion creates the next occurrence. Unknown
   inline fields are kept.
 - **Productivity.** Smart-case search and filtering of both panes and the help screen (`/`),
-  undo and redo across lists (`u`, `ctrl-r`), yank and paste of task blocks, also between
+  undo and redo across lists (`u`, `ctrl-r`) of task edits and of creating, renaming,
+  moving and deleting lists and folders, yank and paste of task blocks, also between
   lists (`yy`, `p`, `P`), sorting siblings by priority, due date, text or status (`s p`,
   `s d`, `s a`, `s s`), and opening the list in an external editor at the selected task (`e`).
 - **Visual mode.** `v` selects several tasks or lists, vim style; `d` deletes the selection
-  (asking first for several tasks and for lists), `y` yanks the selected tasks and `p`/`P`
+  (asking first for several tasks and for lists, which go to the bin), `y` yanks the selected tasks and `p`/`P`
   paste every yanked block, so tasks can be moved between lists in one go. `m` moves the
   selected lists and folders, or the selected entry, into another folder.
 - **Live reload.** The workspace is watched; lists changed by other programs are reloaded,

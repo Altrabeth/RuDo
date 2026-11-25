@@ -16,7 +16,7 @@ use crate::storage::workspace::ListPath;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ConfirmKind {
-    /// Delete these list files and empty folders.
+    /// Move these list files and folders to the bin.
     DeleteEntries(Vec<EntryKey>),
     /// Delete the tasks `tasks` of the list at `list` with their subtasks.
     DeleteTasks {

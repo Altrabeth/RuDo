@@ -23,6 +23,8 @@ use crate::ui::text_input::{TextInput, TextInputView};
 /// Share of the screen width taken by a popup, within [`POPUP_MIN_WIDTH`] and the screen.
 const POPUP_WIDTH_PERCENT: u32 = 60;
 const POPUP_MIN_WIDTH: u16 = 30;
+/// Columns of the borders and the padding on both sides of the content of a popup.
+const POPUP_FRAME_WIDTH: u16 = 4;
 /// Two border rows, the input, the hint, the preview and the error.
 const INPUT_POPUP_HEIGHT: u16 = 6;
 /// Two border rows, the message, an empty row and the keys.
@@ -39,10 +41,17 @@ const KEY_SEPARATOR: char = '/';
 /// exceeds `area`, so it fits on any terminal.
 #[must_use]
 pub fn centered_rect(area: Rect, height: u16) -> Rect {
+    centered_rect_fitting(area, height, 0)
+}
+
+/// Returns the area of a popup `height` rows high, centred in `area`, like [`centered_rect`],
+/// but wider if needed to show content `content_width` columns wide, as far as `area` allows.
+fn centered_rect_fitting(area: Rect, height: u16, content_width: u16) -> Rect {
     let share = u32::from(area.width) * POPUP_WIDTH_PERCENT / 100;
     let width = u16::try_from(share)
         .unwrap_or(u16::MAX)
         .max(POPUP_MIN_WIDTH)
+        .max(content_width.saturating_add(POPUP_FRAME_WIDTH))
         .min(area.width);
     area.centered(Constraint::Length(width), Constraint::Length(height))
 }
@@ -194,13 +203,15 @@ impl<'a> ConfirmDialog<'a> {
 
 impl Widget for ConfirmDialog<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
-        let popup = centered_rect(area, CONFIRM_DIALOG_HEIGHT);
+        let message = Line::styled(self.message, self.theme.style(Slot::Text));
+        let message_width = u16::try_from(message.width()).unwrap_or(u16::MAX);
+        let popup = centered_rect_fitting(area, CONFIRM_DIALOG_HEIGHT, message_width);
         let inner = render_popup_block(CONFIRM_DIALOG_TITLE, popup, buffer, self.theme);
         // Rows are taken from the top, so a dialog cut short by a tiny terminal keeps its
         // message; the keys follow after an empty row.
         let mut rows = inner.rows();
         if let Some(message_row) = rows.next() {
-            Line::styled(self.message, self.theme.style(Slot::Text)).render(message_row, buffer);
+            message.render(message_row, buffer);
         }
         if let Some(keys_row) = rows.nth(1) {
             confirm_keys(self.keymap, self.theme).render(keys_row, buffer);
@@ -350,6 +361,21 @@ mod tests {
         #[case] expected: Rect,
     ) {
         let system_under_test = centered_rect(area, height);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::short_content_keeps_the_share(20, Rect::new(20, 12, 60, 6))]
+    #[case::long_content_widens(70, Rect::new(13, 12, 74, 6))]
+    #[case::too_long_content_fits_the_screen(200, Rect::new(0, 12, 100, 6))]
+    fn centered_rect_fitting_widens_for_its_content(
+        #[case] content_width: u16,
+        #[case] expected: Rect,
+    ) {
+        let area = Rect::new(0, 0, 100, 30);
+
+        let system_under_test = centered_rect_fitting(area, 6, content_width);
 
         assert_eq!(system_under_test, expected);
     }

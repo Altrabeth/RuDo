@@ -274,7 +274,7 @@ fn reload_that_removes_the_anchor_ends_the_selection() {
 }
 
 #[test]
-fn deleting_several_lists_and_an_empty_folder_asks_with_counts() {
+fn deleting_several_lists_and_a_folder_asks_with_counts() {
     let mut test_app = TestApp::new(&[
         ("Inbox.md", "- [ ] Call mum\n"),
         ("Work.md", "- [ ] Write report\n- [ ] Plan week\n"),
@@ -286,10 +286,7 @@ fn deleting_several_lists_and_an_empty_folder_asks_with_counts() {
 
     let system_under_test = confirm_of(&test_app).message().to_owned();
 
-    assert_eq!(
-        system_under_test,
-        "Delete 2 lists with 3 tasks and 1 empty folder?"
-    );
+    assert_eq!(system_under_test, "Move 2 lists and 1 folder to the bin?");
     test_app.press("y");
     assert!(!exists(&test_app, "Archive"));
     assert!(!exists(&test_app, "Inbox.md"));
@@ -297,30 +294,33 @@ fn deleting_several_lists_and_an_empty_folder_asks_with_counts() {
 }
 
 #[test]
-fn non_empty_folder_in_a_delete_selection_refuses_the_whole_deletion() {
+fn non_empty_folder_in_a_delete_selection_moves_to_the_bin_with_the_rest() {
     let mut test_app = TestApp::new(LISTS);
-    test_app.press("g g v G d");
+    test_app.press("g g v G d y");
 
-    let system_under_test = message_of(&test_app);
+    let system_under_test = test_app.app().workspace().entries();
 
-    assert_eq!(system_under_test, Some("folder \"Home\" is not empty"));
-    assert!(matches!(test_app.app().mode(), Mode::Normal));
-    assert!(exists(&test_app, "Inbox.md"));
+    assert!(system_under_test.is_empty());
+    assert!(exists(&test_app, ".trash/Home/Chores.md"));
+    assert!(exists(&test_app, ".trash/Inbox.md"));
+    assert!(exists(&test_app, ".trash/Work.md"));
 }
 
 #[test]
 fn failed_deletions_are_reported_in_one_message() {
-    let mut test_app = TestApp::new(&[("Archive/.hidden", ""), ("Inbox.md", "")]);
-    test_app.press("g g v j d y");
+    let mut test_app = TestApp::new(&[("Inbox.md", ""), ("Work.md", "")]);
+    test_app.press("v j d");
+    test_app.remove("Work.md");
+    test_app.press("y");
 
     let system_under_test = message_of(&test_app).unwrap();
 
     assert!(
-        system_under_test.starts_with("deleted 1 of 2 entries; 1 failed: folder "),
+        system_under_test.starts_with("deleted 1 of 2 lists; 1 failed: cannot change "),
         "{system_under_test}"
     );
-    assert!(system_under_test.ends_with("Archive is not empty"));
-    assert!(!exists(&test_app, "Inbox.md"));
+    assert!(system_under_test.contains("Work.md"), "{system_under_test}");
+    assert!(exists(&test_app, ".trash/Inbox.md"));
 }
 
 #[test]

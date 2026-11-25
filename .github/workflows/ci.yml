@@ -113,3 +113,14 @@ jobs:
               rustup toolchain install
               cargo test --all-features
             "
+
+  docker:
+    name: Docker image smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The runner's Docker builds with BuildKit, which the Dockerfile needs.
+      - run: docker build -t rudo-tui:smoke .
+
+      - run: scripts/docker-smoke.sh rudo-tui:smoke

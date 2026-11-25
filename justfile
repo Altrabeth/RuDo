@@ -83,6 +83,11 @@ test-musl:
 smoke: build
     python3 scripts/smoke.py target/debug/rudo
 
+# Build the Docker image with BuildKit and check it without a terminal, as CI does
+docker-smoke:
+    docker build -t rudo-tui:smoke .
+    scripts/docker-smoke.sh rudo-tui:smoke
+
 # Review changed snapshots of the rendered interface
 snap:
     cargo insta review

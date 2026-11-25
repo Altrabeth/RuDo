@@ -113,6 +113,41 @@ cargo install --locked --git https://github.com/Altrabeth/RuDo rudo-tui
 cargo install --locked --path .   # in a checkout, or: just install
 ```
 
+### Docker
+
+Every release is also a minimal Docker image for `linux/amd64` and `linux/arm64`, holding only
+the static binary, on the GitHub Container Registry. Mount your workspace at `/workspace`:
+
+```sh
+docker run -it --rm --user "$(id -u):$(id -g)" -v ~/Vault/Todo:/workspace ghcr.io/altrabeth/rudo-tui
+```
+
+- `-it` gives RuDo the terminal it needs; without it, RuDo stops at once with
+  `rudo needs an interactive terminal`.
+- `--user "$(id -u):$(id -g)"` makes the lists RuDo creates belong to you; without it they
+  belong to `root` on the host.
+- The tag `latest` is the newest release; `ghcr.io/altrabeth/rudo-tui:1.0.0` pins a version.
+- Arguments after the image name go to `rudo`, which always runs with `--root /workspace`. To
+  use your configuration, mount its folder and name the file:
+
+  ```sh
+  docker run -it --rm --user "$(id -u):$(id -g)" -v ~/Vault/Todo:/workspace \
+      -v ~/.config/rudo:/config:ro ghcr.io/altrabeth/rudo-tui --config /config/config.yaml
+  ```
+
+- The container runs in UTC, which decides what "today" is for due dates. Pass your time zone
+  with `-e TZ=Europe/Berlin`, or mount `-v /etc/localtime:/etc/localtime:ro` on Linux.
+- `NO_COLOR` is passed on with `-e NO_COLOR`. Docker sets `TERM=xterm` inside the container,
+  which is enough for RuDo, since it needs no terminfo database; hex colours depend on your
+  terminal, as without Docker.
+- The image has no editor, so `e` (`open-in-editor`) does not work in it.
+- Live reload works on bind mounts on Linux. Docker Desktop on macOS and Windows does not pass
+  every change of the host to the container, so changes by other programs may only appear
+  after restarting RuDo.
+
+`docker build -t rudo-tui .` builds the image from a checkout; it needs BuildKit, the default
+builder of Docker (on some Linux distributions the `docker-buildx` package).
+
 ## Quick start
 
 ```sh
@@ -606,6 +641,9 @@ Options:
 
 `rudo config check` exits with status 1 and prints every problem if the configuration is
 invalid.
+
+Without a command, `rudo` starts the interface, which needs a terminal on standard input and
+output; if either is redirected, as in `docker run` without `-it`, it exits with status 1.
 
 `rudo bin list` prints one line per entry of the bin of the workspace (`--root` or
 `workspace.root`), the most recently deleted first: the deletion time, the original path and,

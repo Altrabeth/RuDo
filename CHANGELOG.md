@@ -27,6 +27,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`brew install altrabeth/tap/rudo-tui`); `cargo binstall rudo-tui` downloads them. The static
   Linux binaries carry the time zone database, so they know the local day without
   `/usr/share/zoneinfo`. `docs/RELEASING.md` describes the release procedure.
+- **Docker image.** Every release pushes a minimal image for `linux/amd64` and `linux/arm64`
+  to `ghcr.io/altrabeth/rudo-tui`:
+  `docker run -it --rm -v ~/Vault/Todo:/workspace ghcr.io/altrabeth/rudo-tui`.
+- Without a terminal on standard input and output, as in `docker run` without `-it`, `rudo`
+  exits at once with `rudo needs an interactive terminal` instead of failing obscurely.
 
 ### Fixed
 

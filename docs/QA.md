@@ -143,6 +143,27 @@ TZ=Pacific/Kiritimati XDG_STATE_HOME=/tmp/rudo-tz-state bwrap --ro-bind / / \
 - [ ] The static binary prints `2026-03-11 02:30  old.md`, the local time of UTC+14; a binary
       without the bundled database would fall back to UTC and print `2026-03-10 12:30`.
 
+## Docker image
+
+Once the release workflow has pushed the image, run it on Linux on the workspace of the
+previous section and on a fresh folder:
+
+```sh
+docker run --rm -e TZ=Pacific/Kiritimati -v /tmp/rudo-tz:/workspace \
+  ghcr.io/altrabeth/rudo-tui:X.Y.Z bin list
+mkdir -p /tmp/rudo-docker
+docker run -it --rm --user "$(id -u):$(id -g)" -v /tmp/rudo-docker:/workspace \
+  ghcr.io/altrabeth/rudo-tui:X.Y.Z
+```
+
+- [ ] `bin list` prints `2026-03-11 02:30  old.md`.
+- [ ] The interface starts; a list created in it appears in `/tmp/rudo-docker`, owned by you,
+      and a task added to that list in another terminal appears in RuDo.
+- [ ] `docker run --rm ghcr.io/altrabeth/rudo-tui:X.Y.Z` without `-it` exits at once with
+      `rudo needs an interactive terminal`.
+- [ ] `docker pull ghcr.io/altrabeth/rudo-tui` works without `docker login`, on amd64 and
+      arm64 (for example `--platform linux/arm64` with emulation).
+
 ## FreeBSD
 
 Run these items on FreeBSD (x86_64) when a release ships a FreeBSD binary; CI runs the tests

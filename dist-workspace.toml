@@ -24,7 +24,9 @@ hosting = "github"
 install-updater = false
 # The formula `rudo-tui` goes to this tap; the secret HOMEBREW_TAP_TOKEN may write to it
 tap = "Altrabeth/homebrew-tap"
-publish-jobs = ["homebrew"]
+# .github/workflows/publish-docker.yml pushes the image to ghcr.io/altrabeth/rudo-tui
+publish-jobs = ["homebrew", "./publish-docker"]
+github-custom-job-permissions = { "publish-docker" = { contents = "read", packages = "write" } }
 # .github/workflows/build-freebsd.yml, whose archive and checksum join the release
 global-artifacts-jobs = ["./build-freebsd"]
 

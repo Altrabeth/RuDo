@@ -414,3 +414,22 @@ fn bin_empty_of_an_empty_bin_says_so() {
     assert!(system_under_test.status.success());
     assert_eq!(text(&system_under_test.stdout), "the bin is empty\n");
 }
+
+#[test]
+fn interface_without_a_terminal_fails_fast_with_a_hint() {
+    let sandbox = Sandbox::new();
+    let workspace = sandbox.path("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+    let expected_stderr =
+        "Error: rudo needs an interactive terminal; in docker, run it with `docker run -it`\n";
+
+    let system_under_test = sandbox
+        .command(&["--root", &display(&workspace)])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    assert_eq!(system_under_test.status.code(), Some(1));
+    assert_eq!(text(&system_under_test.stderr), expected_stderr);
+    assert_eq!(text(&system_under_test.stdout), "");
+}

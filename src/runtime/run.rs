@@ -2,7 +2,7 @@
 //! draw once per batch.
 
 use std::env::{self, VarError};
-use std::io;
+use std::io::{self, IsTerminal};
 use std::num::NonZeroUsize;
 use std::process::Command;
 use std::sync::mpsc::{self, Sender};
@@ -25,6 +25,10 @@ const FALLBACK_WAIT: Duration = Duration::from_hours(1);
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum RuntimeError {
+    /// Standard input or output is not a terminal, as in `docker run` without `-it`; the
+    /// interface could neither be shown nor read keys.
+    #[error("rudo needs an interactive terminal; in docker, run it with `docker run -it`")]
+    NotATerminal,
     /// The terminal cannot be switched to the interface.
     #[error("cannot set up the terminal")]
     Setup(#[source] io::Error),
@@ -56,9 +60,13 @@ pub enum RuntimeError {
 ///
 /// # Errors
 ///
-/// Returns a [`RuntimeError`] if the terminal cannot be set up, read, drawn or handed to the
+/// Returns [`RuntimeError::NotATerminal`] if standard input or output is not a terminal, and
+/// another [`RuntimeError`] if the terminal cannot be set up, read, drawn or handed to the
 /// editor.
 pub fn run(app: &mut App) -> Result<(), RuntimeError> {
+    if !(io::stdin().is_terminal() && io::stdout().is_terminal()) {
+        return Err(RuntimeError::NotATerminal);
+    }
     let mut terminal = TerminalGuard::init().map_err(RuntimeError::Setup)?;
     app.resize(terminal.size().map_err(RuntimeError::Setup)?);
     let (sender, receiver) = mpsc::channel();

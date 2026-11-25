@@ -1,0 +1,6 @@
+# Only the sources reach the build stage of the Dockerfile
+target
+.git
+.claude
+.idea
+.env

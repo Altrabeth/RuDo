@@ -1,0 +1,17 @@
+pkgbase = rudo-tui
+	pkgdesc = A keyboard-driven terminal UI for todo lists stored as Markdown files
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Altrabeth/RuDo
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-or-later
+	makedepends = cargo
+	depends = glibc
+	depends = libgcc
+	conflicts = rudo
+	conflicts = rudo-bin
+	source = rudo-tui-1.0.0.tar.gz::https://github.com/Altrabeth/RuDo/releases/download/v1.0.0/source.tar.gz
+	sha256sums = 0000000000000000000000000000000000000000000000000000000000000000
+
+pkgname = rudo-tui

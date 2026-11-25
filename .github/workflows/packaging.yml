@@ -1,0 +1,59 @@
+name: Packaging
+
+# Builds the recipes of packaging/ that can be built before a release: the PKGBUILD from a
+# source archive of the commit, and the Nix flake. docs/PACKAGING.md describes the recipes.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arch:
+    name: makepkg and namcap on Arch Linux
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      # git first, so that the checkout is a repository that `git archive` can pack.
+      - run: pacman -Syu --noconfirm --needed git just namcap
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the dependencies of the PKGBUILD
+        shell: bash
+        run: |
+          source packaging/aur/rudo-tui/PKGBUILD
+          pacman -S --noconfirm --needed "${depends[@]}" "${makedepends[@]}"
+
+      # makepkg refuses to run as root, and the tests of failed deletes need file permissions
+      # that root ignores.
+      - name: just packaging-aur
+        run: |
+          useradd --create-home builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c 'just packaging-aur'
+
+  nix:
+    name: nix flake check and nix build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
+
+      # Builds the package, which runs the tests
+      - run: nix flake check --print-build-logs
+
+      - run: nix run . -- --version
+
+      - run: nix develop --command just --version

@@ -58,6 +58,9 @@ write access to it.
    ```
 
 8. When the release workflow has succeeded, publish the crate: `cargo publish --locked`.
+9. Update the packaging recipes with `just packaging-update X.Y.Z`, commit them and submit
+   them to the AUR, Copr, OBS, GURU, winget and Chocolatey as described in
+   [`docs/PACKAGING.md`](PACKAGING.md).
 
 A version with a pre-release suffix (`v1.1.0-rc.1`) becomes a GitHub pre-release and does not
 update the Homebrew formula or push a Docker image. If a build job fails, nothing is published: fix the cause,
@@ -76,6 +79,7 @@ building. On a tag it runs these jobs:
 | `build-local-artifacts`     | builds the `dist` profile on one runner per target, packs the archives |
 | `build-global-artifacts`    | install scripts, Homebrew formula, source archive and `sha256.sum`     |
 | `custom-build-freebsd`      | the FreeBSD archive (see below)                                        |
+| `custom-build-vendor-tarball` | the vendor archive of the crates for offline package builders        |
 | `host`                      | creates the GitHub release with the notes and uploads every file       |
 | `publish-homebrew-formula`  | commits `Formula/rudo-tui.rb` to `Altrabeth/homebrew-tap`              |
 | `custom-publish-docker`     | pushes the Docker image to `ghcr.io/altrabeth/rudo-tui` (see below)    |
@@ -96,9 +100,13 @@ The release contains, for each target, `rudo-tui-<target>.tar.xz` (`.zip` for Wi
 | `x86_64-unknown-freebsd`     | FreeBSD 14.4 VM    | custom job, not in `sha256.sum`           |
 
 Besides the archives: `rudo-tui-installer.sh` and `rudo-tui-installer.ps1`, which install
-into `~/.cargo/bin`; `rudo-tui.rb`, the formula; `source.tar.gz`; and `sha256.sum` with the
-checksums of everything dist built. `cargo binstall rudo-tui` finds the archives through
-`[package.metadata.binstall]` in `Cargo.toml`, which must keep matching the archive names.
+into `~/.cargo/bin`; `rudo-tui.rb`, the formula; `source.tar.gz`; `sha256.sum` with the
+checksums of everything dist built; and `rudo-tui-X.Y.Z-vendor.tar.xz` with its `.sha256` file,
+the crates of `Cargo.lock` for the RPM spec, which builds without network.
+`.github/workflows/build-vendor-tarball.yml`, a custom global artifacts job like the FreeBSD one,
+builds it with `just vendor-tarball`; it is not in `sha256.sum` either. `cargo binstall
+rudo-tui` finds the archives through `[package.metadata.binstall]` in `Cargo.toml`, which must
+keep matching the archive names.
 
 The musl targets depend on jiff with `tzdb-bundle-always` (a target-specific dependency in
 `Cargo.toml`), because static binaries often run where `/usr/share/zoneinfo` is missing.

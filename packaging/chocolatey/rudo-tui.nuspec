@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chocolatey package; `choco pack` in this folder builds it, see docs/PACKAGING.md -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>rudo-tui</id>
+    <version>1.0.0</version>
+    <title>RuDo</title>
+    <authors>Altrabeth</authors>
+    <owners>Altrabeth</owners>
+    <projectUrl>https://github.com/Altrabeth/RuDo</projectUrl>
+    <projectSourceUrl>https://github.com/Altrabeth/RuDo</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/Altrabeth/RuDo/issues</bugTrackerUrl>
+    <licenseUrl>https://github.com/Altrabeth/RuDo/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <tags>todo tui markdown obsidian vim cli</tags>
+    <summary>A keyboard-driven terminal UI for todo lists stored as Markdown files</summary>
+    <description>RuDo is a keyboard-driven terminal UI for todo lists stored as plain Markdown files. The workspace is a folder, every Markdown file is a list and every checkbox a task, so the same tasks can be edited in RuDo and in Obsidian. Navigation and editing use vim keybindings. The command is `rudo`.</description>
+    <releaseNotes>https://github.com/Altrabeth/RuDo/releases/tag/v1.0.0</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

@@ -1,0 +1,206 @@
+# Copyright 2026 Gentoo Authors
+# Distributed under the terms of the GNU General Public License v2
+
+# Ebuild for Gentoo GURU. `just packaging-update <version>` renames it after a release and
+# rewrites CRATES and RUST_MIN_VER; docs/PACKAGING.md explains the recipe.
+
+EAPI=8
+
+CRATES="
+	aho-corasick@1.1.5
+	allocator-api2@0.2.21
+	annotate-snippets@0.12.18
+	anstyle@1.0.14
+	anyhow@1.0.105
+	approx@0.5.1
+	arraydeque@0.5.1
+	autocfg@1.5.1
+	bitflags@2.13.2
+	by_address@1.2.1
+	castaway@0.2.4
+	cfg-if@1.0.5
+	chacha20@0.10.2
+	clap@4.6.9
+	clap_builder@4.6.7
+	clap_derive@4.6.9
+	clap_lex@1.1.2
+	compact_str@0.9.1
+	convert_case@0.10.0
+	core_detect@1.0.0
+	cpufeatures@0.3.1
+	crossbeam-deque@0.8.8
+	crossbeam-epoch@0.9.21
+	crossbeam-utils@0.8.23
+	crossterm@0.29.0
+	crossterm_winapi@0.9.1
+	darling@0.24.1
+	darling_core@0.24.1
+	darling_macro@0.24.1
+	deranged@0.5.9
+	derive_more@2.1.1
+	derive_more-impl@2.1.1
+	document-features@0.2.12
+	either@1.19.0
+	encoding_rs@0.8.44
+	encoding_rs_io@0.1.8
+	equivalent@1.0.3
+	errno@0.3.15
+	fastrand@2.5.0
+	file-id@0.2.3
+	foldhash@0.2.0
+	getrandom@0.4.3
+	glob@0.3.4
+	granit-parser@2.2.0
+	hashbrown@0.17.2
+	heck@0.5.0
+	ident_case@1.0.1
+	indoc@2.0.8
+	inotify@0.11.5
+	inotify-sys@0.1.8
+	insta@1.49.0
+	instability@0.3.14
+	itertools@0.14.0
+	itoa@1.0.19
+	jiff@1.0.2
+	jiff-core@1.0.1
+	jiff-static@1.0.2
+	jiff-tzdb@1.0.0
+	jiff-tzdb-platform@1.0.0
+	kasuari@0.4.13
+	known-folders@1.4.2
+	kqueue@1.2.1
+	kqueue-sys@1.1.2
+	lazy_static@1.5.1
+	libc@0.2.191
+	libm@0.2.16
+	line-clipping@0.3.8
+	linux-raw-sys@0.12.1
+	litrs@1.0.1
+	lock_api@0.4.14
+	log@0.4.35
+	lru@0.18.5
+	matchers@0.2.0
+	memchr@2.8.3
+	mio@1.2.5
+	multiversion_no_op@1.0.0
+	notify@9.0.0
+	notify-debouncer-full@0.8.0
+	notify-types@2.3.1
+	num-conv@0.2.2
+	num-traits@0.2.19
+	num_threads@0.1.8
+	objc2-core-foundation@0.3.2
+	objc2-core-services@0.3.2
+	once_cell@1.21.4
+	palette@0.7.7
+	palette_derive@0.7.7
+	palette_math@0.7.7
+	parking_lot@0.12.5
+	parking_lot_core@0.9.12
+	pin-project-lite@0.2.18
+	portable-atomic@1.15.0
+	portable-atomic-util@0.2.8
+	powerfmt@0.2.1
+	proc-macro2@1.0.107
+	proptest@1.12.0
+	quote@1.0.47
+	r-efi@6.0.0
+	rand@0.10.4
+	rand_core@0.10.1
+	rand_xorshift@0.5.0
+	ratatui@0.30.2
+	ratatui-core@0.1.2
+	ratatui-crossterm@0.1.2
+	ratatui-widgets@0.3.2
+	rayon@1.12.0
+	rayon-core@1.13.0
+	redox_syscall@0.5.18
+	regex@1.13.2
+	regex-automata@0.4.19
+	regex-syntax@0.8.12
+	relative-path@1.9.3
+	rstest@0.29.0
+	rstest_macros@0.29.0
+	rustc-hash@2.1.3
+	rustc_version@0.4.1
+	rustix@1.1.6
+	rustversion@1.0.23
+	ryu@1.0.23
+	same-file@1.0.6
+	scopeguard@1.2.0
+	semver@1.0.28
+	serde@1.0.229
+	serde-saphyr@2.2.0
+	serde_core@1.0.229
+	serde_derive@1.0.229
+	serde_json@1.0.154
+	sharded-slab@0.1.7
+	shell-words@1.1.1
+	signal-hook@0.3.18
+	signal-hook-mio@0.2.5
+	signal-hook-registry@1.4.8
+	simdutf8@0.1.5
+	similar@2.7.0
+	smallvec@1.16.6
+	static_assertions@1.1.0
+	strsim@0.11.1
+	strum@0.28.0
+	strum_macros@0.28.0
+	syn@2.0.119
+	syn@3.0.10
+	tempfile@3.27.0
+	thiserror@2.0.21
+	thiserror-impl@2.0.21
+	thread_local@1.1.10
+	time@0.3.55
+	time-core@0.1.9
+	tracing@0.1.44
+	tracing-core@0.1.36
+	tracing-subscriber@0.3.23
+	unarray@0.1.4
+	unicode-ident@1.0.27
+	unicode-segmentation@1.13.3
+	unicode-truncate@2.0.1
+	unicode-width@0.2.3
+	walkdir@2.5.1
+	wasi@0.11.1+wasi-snapshot-preview1
+	winapi@0.3.9
+	winapi-i686-pc-windows-gnu@0.4.0
+	winapi-util@0.1.11
+	winapi-x86_64-pc-windows-gnu@0.4.0
+	windows-link@0.2.1
+	windows-sys@0.60.2
+	windows-sys@0.61.2
+	windows-targets@0.53.5
+	windows_aarch64_gnullvm@0.53.1
+	windows_aarch64_msvc@0.53.1
+	windows_i686_gnu@0.53.1
+	windows_i686_gnullvm@0.53.1
+	windows_i686_msvc@0.53.1
+	windows_x86_64_gnu@0.53.1
+	windows_x86_64_gnullvm@0.53.1
+	windows_x86_64_msvc@0.53.1
+	xxhash-rust@0.8.21
+	zmij@1.0.23
+"
+RUST_MIN_VER="1.100.0"
+
+inherit cargo
+
+DESCRIPTION="A keyboard-driven terminal UI for todo lists stored as Markdown files"
+HOMEPAGE="https://github.com/Altrabeth/RuDo"
+SRC_URI="
+	https://github.com/Altrabeth/RuDo/releases/download/v${PV}/source.tar.gz -> ${P}.tar.gz
+	${CARGO_CRATE_URIS}
+"
+
+LICENSE="GPL-3+"
+# Dependent crate licenses
+LICENSE+=" BSD Boost-1.0 CC0-1.0 ISC MIT Unicode-3.0 ZLIB"
+SLOT="0"
+KEYWORDS="~amd64 ~arm64"
+
+src_install() {
+	cargo_src_install
+	dodoc README.md CHANGELOG.md
+}

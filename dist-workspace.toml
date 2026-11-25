@@ -27,8 +27,9 @@ tap = "Altrabeth/homebrew-tap"
 # .github/workflows/publish-docker.yml pushes the image to ghcr.io/altrabeth/rudo-tui
 publish-jobs = ["homebrew", "./publish-docker"]
 github-custom-job-permissions = { "publish-docker" = { contents = "read", packages = "write" } }
-# .github/workflows/build-freebsd.yml, whose archive and checksum join the release
-global-artifacts-jobs = ["./build-freebsd"]
+# .github/workflows/build-freebsd.yml and build-vendor-tarball.yml, whose archives and checksums
+# join the release
+global-artifacts-jobs = ["./build-freebsd", "./build-vendor-tarball"]
 
 # Pins the actions of the generated workflow to the commits of these releases, as in ci.yml
 [dist.github-action-commits]

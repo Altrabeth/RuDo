@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+
+PackageIdentifier: Altrabeth.RuDo
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: Altrabeth
+PublisherUrl: https://github.com/Altrabeth
+PublisherSupportUrl: https://github.com/Altrabeth/RuDo/issues
+PackageName: RuDo
+PackageUrl: https://github.com/Altrabeth/RuDo
+License: GPL-3.0-or-later
+LicenseUrl: https://github.com/Altrabeth/RuDo/blob/main/LICENSE
+ShortDescription: A keyboard-driven terminal UI for todo lists stored as Markdown files
+Description: |-
+  RuDo is a keyboard-driven terminal UI for todo lists stored as plain Markdown files. The
+  workspace is a folder, every Markdown file is a list and every checkbox a task, so the same
+  tasks can be edited in RuDo and in Obsidian. Navigation and editing use vim keybindings.
+Moniker: rudo
+Tags:
+  - markdown
+  - obsidian
+  - todo
+  - tui
+  - vim
+ReleaseNotesUrl: https://github.com/Altrabeth/RuDo/releases/tag/v1.0.0
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

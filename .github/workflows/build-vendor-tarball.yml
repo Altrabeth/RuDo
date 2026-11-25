@@ -1,0 +1,38 @@
+name: Build vendor archive
+
+# Offline builders (Fedora Copr, openSUSE OBS) cannot download crates, so the RPM spec takes them
+# from rudo-tui-<version>-vendor.tar.xz. release.yml calls this workflow as a custom global
+# artifacts job (`global-artifacts-jobs` in dist-workspace.toml); its `artifacts-*` upload lands
+# in the GitHub release next to the archives that dist builds.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: the dist manifest of the plan job, which this job does not need
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  vendor:
+    name: build the vendor archive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just
+
+      # rustup on the runner installs the toolchain pinned in rust-toolchain.toml.
+      - run: just vendor-tarball distrib
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifacts-build-vendor-tarball
+          path: distrib/*

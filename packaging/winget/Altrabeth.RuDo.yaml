@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json
+# Goes to manifests/a/Altrabeth/RuDo/<version>/ in microsoft/winget-pkgs; see docs/PACKAGING.md
+
+PackageIdentifier: Altrabeth.RuDo
+PackageVersion: 1.0.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.10.0

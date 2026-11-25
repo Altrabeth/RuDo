@@ -32,6 +32,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docker run -it --rm -v ~/Vault/Todo:/workspace ghcr.io/altrabeth/rudo-tui`.
 - Without a terminal on standard input and output, as in `docker run` without `-it`, `rudo`
   exits at once with `rudo needs an interactive terminal` instead of failing obscurely.
+- **Packaging recipes.** `packaging/` holds a PKGBUILD for the AUR and `makepkg`, an RPM spec
+  for Fedora Copr and openSUSE OBS, an ebuild for Gentoo GURU, and winget and Chocolatey
+  manifests; `flake.nix` makes `nix run github:Altrabeth/RuDo` work. Every release carries
+  `rudo-tui-<version>-vendor.tar.xz` with the crates for offline builders, and
+  `just packaging-update <version>` updates versions and checksums of the recipes.
+  `docs/PACKAGING.md` explains them.
 
 ### Fixed
 

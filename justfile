@@ -110,4 +110,47 @@ publish-dry-run *args:
     cargo publish --dry-run --locked "$@"
 
 # Run every check required before committing
-check: (fmt "--check") lint test doc deny
+check: (fmt "--check") lint test test-packaging doc deny
+
+# Pack the crates of Cargo.lock reproducibly into rudo-tui-<version>-vendor.tar.xz
+vendor-tarball out_dir="target/distrib":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+    archive="rudo-tui-$version-vendor.tar.xz"
+    staging="$(mktemp -d)"
+    trap 'rm -rf "$staging"' EXIT
+    cargo vendor --locked --versioned-dirs --quiet "$staging/vendor" > /dev/null
+    mkdir -p "$1"
+    tar -C "$staging" --sort=name --mtime="@$(git log -1 --format=%ct)" --owner=0 --group=0 \
+        --numeric-owner --mode=go-w,a+rX \
+        --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+        -cf - vendor | xz -9 --threads=1 > "$1/$archive"
+    cd "$1"
+    sha256sum "$archive" > "$archive.sha256"
+    echo "$1/$archive"
+
+# Build and lint the Arch package of the current commit with makepkg and namcap
+packaging-aur:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="target/packaging/aur"
+    rm -rf "$build"
+    mkdir -p "$build"
+    cp packaging/aur/rudo-tui/PKGBUILD "$build/"
+    version="$(sed -n 's/^pkgver=//p' "$build/PKGBUILD")"
+    git archive --format=tar.gz --prefix="rudo-tui-$version/" HEAD > "$build/rudo-tui-$version.tar.gz"
+    cd "$build"
+    makepkg --printsrcinfo | diff -u ../../../packaging/aur/rudo-tui/.SRCINFO -
+    makepkg --force --cleanbuild --skipchecksums
+    # The -debug package is left out: namcap flags its build-id links into the main package
+    namcap PKGBUILD rudo-tui-[0-9]*.pkg.tar.zst | tee namcap.log
+    ! grep -q ' E: ' namcap.log
+
+# Set the version and checksums of every packaging recipe from a published GitHub release
+packaging-update version:
+    python3 packaging/update.py "$1"
+
+# Test the packaging update script
+test-packaging:
+    python3 -B -m unittest discover --start-directory packaging --pattern 'test_*.py'

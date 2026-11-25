@@ -92,6 +92,11 @@ blocked by Gatekeeper until you remove the quarantine attribute:
 xattr -d com.apple.quarantine ./rudo
 ```
 
+On Arch Linux, install the AUR package `rudo-tui` (for example `paru -S rudo-tui`); with
+[Nix](https://nixos.org), run `nix run github:Altrabeth/RuDo`. The recipes for these, for Fedora
+Copr, openSUSE OBS, Gentoo GURU, winget and Chocolatey are kept in `packaging/` and `flake.nix`;
+[`docs/PACKAGING.md`](docs/PACKAGING.md) explains them for packagers.
+
 RuDo is also published on [crates.io](https://crates.io/crates/rudo-tui) as `rudo-tui`; the
 command it installs is `rudo`. To build it from source you need Rust 1.100 or newer, installed
 for example with [rustup](https://rustup.rs):
@@ -724,6 +729,7 @@ all recipes.
 | `just cov`           | test coverage (`just cov --open` for the HTML report)          |
 | `just deny`          | check dependencies for advisories and licenses                 |
 | `just publish-dry-run` | list the files of the crate and build it as crates.io would  |
+| `just packaging-aur` | build and lint the Arch package of the current commit (see [`docs/PACKAGING.md`](docs/PACKAGING.md)) |
 | `just check`         | everything that must pass before a commit                      |
 
 Development is test driven: write a failing test, make it pass, refactor. The architecture

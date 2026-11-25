@@ -7,80 +7,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+## [1.0.0] - 2026-11-25
 
-- **crates.io.** RuDo is installed with `cargo install --locked rudo-tui`; the crate is named
-  `rudo-tui` because `rudo` is taken, the command and the library stay `rudo`.
-  `just publish-dry-run` checks the package before a release.
-- **Windows.** The configuration is read from `%APPDATA%\rudo\config.yaml`, the log goes to
-  `%LOCALAPPDATA%\rudo\rudo.log` and the default workspace is `RuDo` in the `Documents`
-  folder that Windows reports, also when OneDrive or a redirection moved it; `XDG_*`
-  variables are honoured there too. `notepad` is the last editor fallback, and the editor
-  command is split by Windows rules, so `C:\Program Files\Neovim\bin\nvim.exe` works with
-  or without quotes. Saving keeps the read-only attribute of a list and replaces a list that
-  another program, such as Obsidian, has open; a list that a program holds open without
-  allowing that is retried briefly and then kept unchanged with a message naming the lock.
-- **FreeBSD.** RuDo builds and passes its tests on FreeBSD (x86_64), with the folders and the
-  `vi` fallback of Linux.
-- **Release binaries.** Every GitHub release has archives for Linux (x86_64 and aarch64, glibc
-  and static musl), macOS (x86_64 and aarch64), Windows (x86_64) and FreeBSD (x86_64) with
-  SHA-256 checksums, install scripts for the shell and PowerShell, and a Homebrew formula
-  (`brew install altrabeth/tap/rudo-tui`); `cargo binstall rudo-tui` downloads them. The static
-  Linux binaries carry the time zone database, so they know the local day without
-  `/usr/share/zoneinfo`. `docs/RELEASING.md` describes the release procedure.
-- **Docker image.** Every release pushes a minimal image for `linux/amd64` and `linux/arm64`
-  to `ghcr.io/altrabeth/rudo-tui`:
-  `docker run -it --rm -v ~/Vault/Todo:/workspace ghcr.io/altrabeth/rudo-tui`.
-- Without a terminal on standard input and output, as in `docker run` without `-it`, `rudo`
-  exits at once with `rudo needs an interactive terminal` instead of failing obscurely.
-- **Packaging recipes.** `packaging/` holds a PKGBUILD for the AUR and `makepkg`, an RPM spec
-  for Fedora Copr and openSUSE OBS, an ebuild for Gentoo GURU, and winget and Chocolatey
-  manifests; `flake.nix` makes `nix run github:Altrabeth/RuDo` work. Every release carries
-  `rudo-tui-<version>-vendor.tar.xz` with the crates for offline builders, and
-  `just packaging-update <version>` updates versions and checksums of the recipes.
-  `docs/PACKAGING.md` explains them.
-- **Linux packages.** Every release carries `.deb` and `.rpm` packages for x86_64 and aarch64,
-  built from the static musl binary so that they install on old and new distributions
-  (`sudo apt install ./rudo-tui_<version>-1_amd64.deb`,
-  `sudo dnf install ./rudo-tui-<version>-1.x86_64.rpm`), and an Arch package built from the
-  PKGBUILD (`sudo pacman -U ./rudo-tui-<version>-1-x86_64.pkg.tar.zst`), each with its SHA-256
-  checksum. CI installs every package in a Debian, Fedora, openSUSE or Arch container. A
-  pre-release such as `1.0.0-rc.1` becomes `1.0.0~rc.1` in the `.deb` and `.rpm` and `1.0.0rc1`
-  in the Arch package, so that it sorts before its release.
-- **Fuzzy folder picker.** Moving lists and folders (`m`) and restoring entries of the bin
-  whose original folder is unknown (`R`) ask for the folder with a picker like fzf instead of
-  a text prompt: the matching folders are listed while you type, the best match first with
-  the matched letters highlighted; `up`/`down` or `ctrl-p`/`ctrl-n` select, `tab` completes
-  and cycles, `enter` accepts. The new actions `picker-next`, `picker-previous` and
-  `complete` can be rebound.
-- **Go to anything.** `ctrl-p` (the new action `go-to`) opens a fuzzy finder over every
-  folder, list and task of the workspace, like the "go to file" of an editor. Each match
-  shows its kind and a task its list (`Buy milk · Home/Groceries`), completed tasks dimmed;
-  names rank before paths, folders and lists before tasks and open tasks before completed
-  ones. `enter` selects a folder in the lists pane, opens a list, or opens the list of a task
-  and selects it, unfolding its parents and revealing it if the search filter or hidden
-  completed tasks hide it. Hidden entries are searched while they are shown, the bin and
-  unreadable lists never. Inside the picker `ctrl-p` still selects the previous match;
-  `go-to: ctrl-space` in the configuration opens the finder with `ctrl-space` instead.
-
-### Fixed
-
-- **macOS.** Live reload works in a workspace below a symbolic link, such as every temporary
-  folder; FSEvents reports the resolved paths, which RuDo used to drop.
-
-### Changed
-
-- Paths inside the workspace are shown and stored in the index of the bin with `/` on every
-  platform; the index is read with `/` or `\`. Error messages about a list or folder name it
-  relative to the workspace, as the lists pane does, instead of with its absolute path.
-- **Documentation.** The README is a short introduction; the reference chapters (files and
-  task syntax, keybindings, configuration, command line, installation, platforms,
-  troubleshooting, development) moved into [`docs/`](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md). A test checks every
-  relative link and heading anchor in the Markdown files.
-
-## [1.0.0] - Unreleased
-
-The first release, not tagged yet. The [documentation](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md) specifies the behaviour in detail.
+The first release. The [documentation](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md) specifies the behaviour in detail.
 
 ### Added
 
@@ -111,6 +40,18 @@ The first release, not tagged yet. The [documentation](https://github.com/Altrab
   moving and deleting lists and folders, yank and paste of task blocks, also between
   lists (`yy`, `p`, `P`), sorting siblings by priority, due date, text or status (`s p`,
   `s d`, `s a`, `s s`), and opening the list in an external editor at the selected task (`e`).
+- **Go to anything.** `ctrl-p` (the action `go-to`) opens a fuzzy finder over every folder,
+  list and task of the workspace, like the "go to file" of an editor. Each match shows its
+  kind and a task its list (`Buy milk · Home/Groceries`), completed tasks dimmed; names rank
+  before paths, folders and lists before tasks and open tasks before completed ones. `enter`
+  selects a folder, opens a list, or opens the list of a task and selects it, revealing it if
+  the search filter or hidden completed tasks hide it. Inside the picker `ctrl-p` selects the
+  previous match; `go-to: ctrl-space` in the configuration opens the finder with `ctrl-space`.
+- **Fuzzy folder picker.** Moving lists and folders (`m`) and restoring entries of the bin
+  whose original folder is unknown (`R`) ask for the folder with a picker like fzf: the
+  matching folders are listed while you type, the best match first with the matched letters
+  highlighted; `up`/`down` or `ctrl-p`/`ctrl-n` select, `tab` completes and cycles, `enter`
+  accepts.
 - **Visual mode.** `v` selects several tasks or lists, vim style; `d` deletes the selection
   (asking first for several tasks and for lists, which go to the bin), `y` yanks the selected tasks and `p`/`P`
   paste every yanked block, so tasks can be moved between lists in one go. `m` moves the
@@ -128,7 +69,28 @@ The first release, not tagged yet. The [documentation](https://github.com/Altrab
   error messages.
 - **Command line.** `--root` and `--config`, and `rudo config path`, `rudo config default`
   and `rudo config check`.
-- File logging with `RUDO_LOG` filter directives.
+- File logging with `RUDO_LOG` filter directives. Without a terminal on standard input and
+  output, as in `docker run` without `-it`, `rudo` exits at once with
+  `rudo needs an interactive terminal`.
+- **Platforms.** Linux, macOS, Windows and FreeBSD. On Windows the configuration is read from
+  `%APPDATA%\rudo\config.yaml`, the log goes to `%LOCALAPPDATA%\rudo\rudo.log` and the
+  default workspace is `RuDo` in the `Documents` folder that Windows reports, also when
+  OneDrive moved it; editor commands are split by Windows rules, `notepad` is the last editor
+  fallback, and saving keeps the read-only attribute and works while Obsidian has the list
+  open. On macOS live reload also works below symbolic links. Paths inside the workspace are
+  shown with `/` on every platform.
+- **Installation.** `cargo install --locked rudo-tui` from crates.io (the crate is named
+  `rudo-tui` because `rudo` is taken; the command stays `rudo`). Every GitHub release has
+  archives for Linux (x86_64 and aarch64, glibc and static musl with the time zone database),
+  macOS (x86_64 and aarch64), Windows (x86_64) and FreeBSD (x86_64) with SHA-256 checksums,
+  install scripts for the shell and PowerShell, a Homebrew formula
+  (`brew install altrabeth/tap/rudo-tui`, also `cargo binstall rudo-tui`), `.deb` and `.rpm`
+  packages for x86_64 and aarch64 and an Arch package for x86_64, a minimal Docker image
+  `ghcr.io/altrabeth/rudo-tui` for `linux/amd64` and `linux/arm64`, and
+  `rudo-tui-<version>-vendor.tar.xz` with the crates for offline builds.
+  `nix run github:Altrabeth/RuDo` works through `flake.nix`, and `packaging/` holds the
+  recipes for the AUR, Fedora Copr, openSUSE OBS, Gentoo GURU, winget and Chocolatey
+  ([`PACKAGING.md`](https://github.com/Altrabeth/RuDo/blob/main/docs/PACKAGING.md)).
 
 [Unreleased]: https://github.com/Altrabeth/RuDo/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/Altrabeth/RuDo/releases/tag/v1.0.0

@@ -1,8 +1,7 @@
 # Installation
 
-RuDo 1.0 is not released yet. Building from source works today; every other method below is
-marked with the release that makes it work. Once a method is live, it moves into the
-installation section of the [README](../README.md).
+Every method below installs the same `rudo` command. Methods that depend on a package
+repository outside this project say so until the package is accepted there.
 
 | System  | Methods                                                                               |
 | ------- | ------------------------------------------------------------------------------------- |
@@ -28,16 +27,13 @@ binary into `~/.cargo/bin`. The crate named `rudo` on crates.io is an unrelated 
 command of the same name; if it is installed, cargo refuses to overwrite its binary until you
 remove it with `cargo uninstall rudo`.
 
-*Available with the 1.0 release:* the development version is installed from the repository
-without a checkout:
+The development version is installed from the repository without a checkout:
 
 ```sh
 cargo install --locked --git https://github.com/Altrabeth/RuDo rudo-tui
 ```
 
 ## crates.io
-
-*Available with the 1.0 release.*
 
 RuDo is published on [crates.io](https://crates.io/crates/rudo-tui) as `rudo-tui`; the command
 it installs is `rudo`. It needs the same Rust version as a build [from source](#from-source):
@@ -47,8 +43,6 @@ cargo install --locked rudo-tui
 ```
 
 ## Release binaries and install scripts
-
-*Available with the 1.0 release.*
 
 Every [GitHub release](https://github.com/Altrabeth/RuDo/releases) has ready-made binaries
 for Linux (x86_64 and aarch64, linked to glibc or fully static with musl), macOS (Intel and
@@ -77,8 +71,6 @@ xattr -d com.apple.quarantine ./rudo
 
 ## Homebrew and cargo-binstall
 
-*Available with the 1.0 release.*
-
 With [Homebrew](https://brew.sh) on macOS and Linux, or with
 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), which downloads the same
 release archives instead of compiling:
@@ -89,8 +81,6 @@ cargo binstall rudo-tui
 ```
 
 ## .deb, .rpm and Arch packages
-
-*Available with the 1.0 release.*
 
 Every release also has `.deb` and `.rpm` packages for x86_64 and aarch64 (`amd64` and `arm64`
 for Debian) and an Arch package for x86_64, so that your package manager installs and removes
@@ -109,19 +99,15 @@ The `.deb` and `.rpm` packages hold the static binary, so they work on old relea
 
 ## AUR
 
-*Available after the 1.0 release, once the package is submitted.*
+*Not available yet: the AUR does not accept new accounts at the moment.*
 
 On Arch Linux, install the AUR package `rudo-tui` (for example `paru -S rudo-tui`).
 
 ## Nix
 
-*Available with the 1.0 release.*
-
 With [Nix](https://nixos.org), run `nix run github:Altrabeth/RuDo`.
 
 ## Docker
-
-*Available with the 1.0 release.*
 
 Every release is also a minimal Docker image for `linux/amd64` and `linux/arm64`, holding only
 the static binary, on the GitHub Container Registry. Mount your workspace at `/workspace`:
@@ -135,7 +121,7 @@ the container.
 
 ## winget and Chocolatey
 
-*Available after the 1.0 release, once the packages are accepted.*
+*Not available yet: the packages are submitted after the release and appear once accepted.*
 
 The manifests for winget (`Altrabeth.RuDo`) and Chocolatey (`rudo-tui`) are kept in
 `packaging/`.

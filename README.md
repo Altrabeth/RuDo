@@ -20,9 +20,8 @@ the same tasks from the terminal and from Obsidian at the same time.
  o new task  a subtask  i edit  x done  dd delete  D due date                     ? help
 ```
 
-> **Status:** release candidate for 1.0. Every feature below is implemented; the remaining
-> 1.0 work is tracked in the [v1.0 milestone](https://github.com/Altrabeth/RuDo/milestone/1),
-> changes are listed in the [changelog](CHANGELOG.md).
+> **Status:** 1.0, the first stable release. Changes are listed in the
+> [changelog](CHANGELOG.md).
 
 ## Features
 
@@ -63,23 +62,31 @@ the same tasks from the terminal and from Obsidian at the same time.
 
 ## Installation
 
-RuDo is built from source until the 1.0 release. You need Rust 1.100 or newer, installed for
-example with [rustup](https://rustup.rs); in a checkout, the compiler version pinned in
-`rust-toolchain.toml` is installed automatically:
+With Rust 1.100 or newer, installed for example with [rustup](https://rustup.rs):
 
 ```sh
-git clone https://github.com/Altrabeth/RuDo
-cd RuDo
-cargo install --locked --path .   # or: just install
+cargo install --locked rudo-tui
 ```
 
-`--locked` builds with the dependency versions RuDo is tested with. This installs the `rudo`
-binary into `~/.cargo/bin`. The crate named `rudo` on crates.io is an unrelated tool with a
-command of the same name; if it is installed, cargo refuses to overwrite its binary until you
-remove it with `cargo uninstall rudo`.
+The package is named `rudo-tui`, the command it installs is `rudo`. The crate named `rudo` is
+an unrelated tool with a command of the same name; if it is installed, cargo refuses to
+overwrite its binary until you remove it with `cargo uninstall rudo`.
 
-crates.io, release binaries, Homebrew, `.deb`, `.rpm` and Arch packages, Docker, Nix and more
-follow with the 1.0 release; [`docs/installation.md`](docs/installation.md) describes them.
+Without Rust, the install script downloads the binary for your system, or use Homebrew:
+
+```sh
+# Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Altrabeth/RuDo/releases/latest/download/rudo-tui-installer.sh | sh
+brew install altrabeth/tap/rudo-tui
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Altrabeth/RuDo/releases/latest/download/rudo-tui-installer.ps1 | iex"
+```
+
+[`docs/installation.md`](docs/installation.md) describes the `.deb`, `.rpm` and Arch
+packages, Nix, Docker, building from source and the other methods.
 
 ## Quick start
 

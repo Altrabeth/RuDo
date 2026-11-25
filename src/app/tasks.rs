@@ -9,11 +9,12 @@ use std::mem;
 
 use crate::app::lists::EntryChange;
 use crate::app::state::{App, Focus};
+use crate::app::task_visibility::CompletedTasks;
 use crate::config::keymap::action::Action;
 use crate::markdown::document::{TaskId, TodoDocument};
 use crate::markdown::task_line::TaskLine;
 use crate::storage::workspace::{List, ListPath, Workspace};
-use crate::ui::outline::{Outcome, Outline, OutlineCommand, OutlineItem};
+use crate::ui::outline::{Outcome, Outline, OutlineCommand, OutlineItem, prune};
 
 /// A task of a document with its id and nesting depth.
 #[derive(Debug)]
@@ -47,24 +48,39 @@ impl OutlineItem for TaskItem<'_> {
 /// for an [`Outline`].
 #[must_use]
 pub fn task_items(document: &TodoDocument) -> Vec<TaskItem<'_>> {
-    document
-        .tasks()
-        .map(|node| TaskItem {
-            id: node.id(),
-            depth: node.depth(),
-            task: node.task(),
-        })
-        .collect()
+    all_task_items(document).collect()
 }
 
-/// Returns the tasks of the list at `path`; none if it is missing or could not be loaded,
-/// which the tasks pane shows instead.
+/// Returns the tasks of `document` that the tasks pane shows with `completed_tasks`, in
+/// display order; a task below a hidden task is hidden with it.
+#[must_use]
+pub fn visible_task_items(
+    document: &TodoDocument,
+    completed_tasks: CompletedTasks,
+) -> Vec<TaskItem<'_>> {
+    prune(all_task_items(document), |item| {
+        completed_tasks.shows(item.task.status())
+    })
+    .collect()
+}
+
+fn all_task_items(document: &TodoDocument) -> impl Iterator<Item = TaskItem<'_>> {
+    document.tasks().map(|node| TaskItem {
+        id: node.id(),
+        depth: node.depth(),
+        task: node.task(),
+    })
+}
+
+/// Returns the tasks of the list at `path` that the tasks pane shows with `completed_tasks`;
+/// none if it is missing or could not be loaded, which the tasks pane shows instead.
 pub(super) fn list_items<'workspace>(
     workspace: &'workspace Workspace,
     path: &ListPath,
+    completed_tasks: CompletedTasks,
 ) -> Vec<TaskItem<'workspace>> {
     match workspace.list(path).map(List::content) {
-        Some(Ok(loaded)) => task_items(loaded.document()),
+        Some(Ok(loaded)) => visible_task_items(loaded.document(), completed_tasks),
         Some(Err(_)) | None => Vec::new(),
     }
 }
@@ -131,14 +147,14 @@ impl App {
     /// Brings the task tree of the active list in line with its document and the height of
     /// the pane: after opening the list, an edit or a resize.
     ///
-    /// The selection stays on its task; if the task was removed, the task now in its row is
-    /// selected.
+    /// The selection stays on its task; if the task was removed or hidden, the task now in its
+    /// row is selected.
     pub(super) fn refresh_tasks(&mut self) {
         let viewport_height = self.viewport_height(Focus::Tasks);
         let Some(path) = self.lists.active() else {
             return;
         };
-        let items = list_items(&self.workspace, path);
+        let items = list_items(&self.workspace, path, self.completed_tasks);
         self.tasks
             .outline_mut(path)
             .refresh(&items, viewport_height);
@@ -151,7 +167,7 @@ impl App {
         let Some(path) = self.lists.active() else {
             return;
         };
-        let items = list_items(&self.workspace, path);
+        let items = list_items(&self.workspace, path, self.completed_tasks);
         match self
             .tasks
             .outline_mut(path)
@@ -173,7 +189,7 @@ impl App {
         let viewport_height = self.viewport_height(Focus::Tasks);
         let outcome = match self.lists.active() {
             Some(path) => {
-                let items = list_items(&self.workspace, path);
+                let items = list_items(&self.workspace, path, self.completed_tasks);
                 self.tasks
                     .outline_mut(path)
                     .apply(&items, command, viewport_height)
@@ -228,7 +244,7 @@ mod tests {
         let app = app_in(directory.path());
         let path = only_list_path(&app);
 
-        let system_under_test = list_items(app.workspace(), &path);
+        let system_under_test = list_items(app.workspace(), &path, CompletedTasks::Shown);
 
         assert!(system_under_test.is_empty());
     }

@@ -1,0 +1,16 @@
+---
+source: tests/tasks_hide_completed.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Groceries  2/7  completed hidden ────────────────────╮"
+"│ • Groceries      2/7 ││ ▾ [ ] Buy milk                                       │"
+"│                      ││ │   [ ] Oat milk                                     │"
+"│                      ││   [/] Clean fridge                                   │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new task  a subtask  i edit  x done  dd delete  D due date            ? help "

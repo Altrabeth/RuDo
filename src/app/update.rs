@@ -118,8 +118,8 @@ impl App {
             Action::Undo => return self.step_history(Direction::Undo),
             Action::Redo => return self.step_history(Direction::Redo),
             Action::Edit => self.edit_task(),
+            Action::ToggleCompleted => self.toggle_completed(),
             Action::ClearFilter
-            | Action::ToggleCompleted
             | Action::Yank
             | Action::PasteBelow
             | Action::PasteAbove

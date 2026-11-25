@@ -10,6 +10,7 @@ use crate::app::lists::ListsPane;
 use crate::app::prompt::PromptOverlay;
 use crate::app::status::Status;
 use crate::app::task_input::InlineEdit;
+use crate::app::task_visibility::CompletedTasks;
 use crate::app::tasks::TasksPane;
 use crate::config::Config;
 use crate::config::keymap::action::Context;
@@ -36,6 +37,7 @@ pub struct App {
     pub(super) focus: Focus,
     pub(super) lists: ListsPane,
     pub(super) tasks: TasksPane,
+    pub(super) completed_tasks: CompletedTasks,
     pub(super) mode: Mode,
     pub(super) today: Date,
     pub(super) status: Status,
@@ -65,6 +67,7 @@ impl App {
         let mut app = Self {
             lists: ListsPane::new(&workspace, viewport_height(screen_size, Focus::Lists)),
             tasks: TasksPane::default(),
+            completed_tasks: CompletedTasks::from_setting(config.tasks().show_completed()),
             workspace,
             config,
             theme,

@@ -86,6 +86,7 @@ src/
     task_priority.rs       raising and lowering the priority of the selected task
     task_reorder.rs        moving, indenting and outdenting the selected task
     task_due.rs            setting the due date of the selected task in a prompt
+    task_visibility.rs     showing and hiding completed tasks (CompletedTasks)
     status.rs              StatusMessage, Severity and when messages expire
     update.rs              App::update(Action) -> Vec<Effect>
     effect.rs              Effect and its executor
@@ -95,7 +96,7 @@ src/
     help.rs                help screen state (Mode::Help): scrolling and filter input
   ui/
     mod.rs                 view(&App, &mut Frame)
-    outline.rs             generic tree navigation: selection, folding, scrolling
+    outline.rs             generic tree navigation: selection, folding, scrolling, prune
     layout.rs              responsive layout: pane, bottom bar and overlay areas, focus border
     lists_pane.rs          workspace tree
     tasks_pane.rs          task tree with metadata

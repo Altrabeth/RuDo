@@ -224,6 +224,10 @@ other; the keys typed so far are shown in the bottom bar.
 | `s a`          | `sort-alphabetically` | sort by text                                     |
 | `s s`          | `sort-by-status`      | open tasks first                                 |
 
+While completed (done and cancelled) tasks are hidden with `H`, the pane title says
+`completed hidden` and the counter still counts every task. An open subtask of a completed
+task is hidden together with its parent.
+
 ### Help screen, dialogs and text input
 
 | Keys                 | Action        | Where         | Description                 |

@@ -494,9 +494,64 @@ impl<K: Clone + Eq + Hash> Outline<K> {
     }
 }
 
-/// Computes the rows of `items` that no folded ancestor hides.
+/// Keeps the items for which `is_shown` holds and leaves out every other item together with
+/// its descendants, so that the result is again a tree in document order.
 ///
-/// This is the single place that decides visibility, so a later filter predicate belongs here.
+/// This is how a pane filters its items before it hands them to an [`Outline`]: the outline
+/// then never sees the hidden items, and a selected item that is left out hands the selection
+/// to the item now in its row. Filters compose by combining predicates with `&&` or by
+/// chaining calls. A shown item below a hidden ancestor is left out with that ancestor.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::ui::outline::{OutlineItem, prune};
+///
+/// struct Entry {
+///     name: &'static str,
+///     depth: usize,
+/// }
+///
+/// impl OutlineItem for Entry {
+///     type Key = &'static str;
+///
+///     fn key(&self) -> &Self::Key {
+///         &self.name
+///     }
+///
+///     fn depth(&self) -> usize {
+///         self.depth
+///     }
+/// }
+///
+/// let items = [
+///     Entry { name: "groceries", depth: 0 },
+///     Entry { name: "milk", depth: 1 },
+///     Entry { name: "work", depth: 0 },
+/// ];
+/// let shown: Vec<&str> = prune(items, |entry| entry.name != "groceries")
+///     .map(|entry| entry.name)
+///     .collect();
+/// assert_eq!(shown, ["work"]);
+/// ```
+pub fn prune<I: OutlineItem>(
+    items: impl IntoIterator<Item = I>,
+    mut is_shown: impl FnMut(&I) -> bool,
+) -> impl Iterator<Item = I> {
+    let mut hidden_depth = None;
+    items.into_iter().filter(move |item| {
+        let depth = item.depth();
+        if hidden_depth.is_some_and(|hidden_depth| depth > hidden_depth) {
+            return false;
+        }
+        let shown = is_shown(item);
+        hidden_depth = (!shown).then_some(depth);
+        shown
+    })
+}
+
+/// Computes the rows of `items` that no folded ancestor hides; items left out by a filter
+/// are removed beforehand with [`prune`].
 fn visible_rows<'a, I: OutlineItem>(
     items: &'a [I],
     collapsed: &HashSet<I::Key>,
@@ -639,6 +694,27 @@ mod tests {
     ) -> Observed {
         let outcome = outline.apply(items, command, height);
         Observed::of(&outline, items, outcome)
+    }
+
+    #[rstest]
+    #[case::everything_shown("", "abcdefg")]
+    #[case::leaf("c", "abdefg")]
+    #[case::subtree("b", "adefg")]
+    #[case::root_with_descendants("a", "efg")]
+    #[case::shown_child_of_hidden_parent("e", "abcdg")]
+    #[case::siblings("bd", "aefg")]
+    #[case::everything("aeg", "")]
+    fn prune_leaves_out_hidden_items_with_their_descendants(
+        #[case] hidden: &str,
+        #[case] expected: &str,
+    ) {
+        let items = tree();
+
+        let system_under_test: String = prune(items, |node| !hidden.contains(node.key))
+            .map(|node| node.key)
+            .collect();
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[rstest]

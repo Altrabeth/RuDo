@@ -19,7 +19,8 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use crate::app::task_input::InlineEditKind;
-use crate::app::tasks::{TaskItem, task_items};
+use crate::app::task_visibility::CompletedTasks;
+use crate::app::tasks::{TaskItem, visible_task_items};
 use crate::app::{App, Focus, Mode};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::keymap::Keymap;
@@ -47,8 +48,10 @@ const EXPANDED_MARKER: &str = "▾ ";
 const COLLAPSED_MARKER: &str = "▸ ";
 /// Keeps the checkboxes of tasks without subtasks aligned with the others.
 const LEAF_MARKER: &str = "  ";
-/// Separates the list name from its counter in the title.
+/// Separates the parts of the title: list name, counter and [`COMPLETED_HIDDEN`].
 const TITLE_SEPARATOR: &str = "  ";
+/// Ends the title while completed tasks are hidden.
+const COMPLETED_HIDDEN: &str = "completed hidden";
 /// Columns that tree guides never take from a row: the fold marker, the checkbox and the
 /// first ten cells of the description.
 const MIN_TEXT_WIDTH: usize = 16;
@@ -56,18 +59,29 @@ const MIN_TEXT_WIDTH: usize = 16;
 const METADATA_GAP: &str = " ";
 
 /// Returns the title of the tasks pane of `app`: the name of the active list with its
-/// `done/total` counter, or [`TITLE`] while no list is open.
+/// `done/total` counter of all tasks, followed by `completed hidden` while completed tasks
+/// are hidden, or [`TITLE`] while no list is open.
 #[must_use]
 pub fn title(app: &App) -> Cow<'_, str> {
     let Some(list) = app.active_list() else {
         return Cow::Borrowed(TITLE);
     };
     match list.content() {
-        Ok(loaded) => Cow::Owned(format!(
-            "{}{TITLE_SEPARATOR}{}",
-            list.name(),
-            loaded.document().progress()
-        )),
+        Ok(loaded) => {
+            let mut title = format!(
+                "{}{TITLE_SEPARATOR}{}",
+                list.name(),
+                loaded.document().progress()
+            );
+            match app.completed_tasks() {
+                CompletedTasks::Shown => {}
+                CompletedTasks::Hidden => {
+                    title.push_str(TITLE_SEPARATOR);
+                    title.push_str(COMPLETED_HIDDEN);
+                }
+            }
+            Cow::Owned(title)
+        }
         // The pane itself shows why the list could not be loaded.
         Err(_) => Cow::Borrowed(list.name()),
     }
@@ -102,7 +116,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             return;
         }
     };
-    let items = task_items(loaded.document());
+    let items = visible_task_items(loaded.document(), app.completed_tasks());
     let inline_edit = inline_edit(app);
     let new_task = inline_edit.and_then(|(kind, input)| match kind {
         InlineEditKind::New(position) => Some((position, input)),
@@ -579,6 +593,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
+    use crate::app::tasks::task_items;
     use crate::config::keymap::keymap::KeyBindings;
     use crate::markdown::document::TodoDocument;
     use crate::ui::outline::{Outcome, OutlineCommand};

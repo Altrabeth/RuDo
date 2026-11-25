@@ -38,13 +38,13 @@ impl App {
     }
 
     /// Selects the task on `selected_line`, or the last one before it, in the tasks pane of
-    /// `list` after its document was replaced.
+    /// `list` after its document was replaced; the first visible task if that task is hidden.
     fn restore_selection(&mut self, list: &ListPath, selected_line: Option<usize>) {
         let viewport_height = self.viewport_height(Focus::Tasks);
         let Some(outline) = self.tasks.reset(list) else {
             return;
         };
-        let items = list_items(&self.workspace, list);
+        let items = list_items(&self.workspace, list, self.completed_tasks);
         let task = self
             .workspace
             .list(list)
@@ -53,11 +53,9 @@ impl App {
             .zip(selected_line)
             .and_then(|(loaded, line)| loaded.document().task_at_or_before(line));
         match task {
-            // The task is one of `items`, so selecting it always succeeds.
-            Some(task) => {
-                let _: Outcome = outline.select(&items, &task, viewport_height);
-            }
-            None => outline.refresh(&items, viewport_height),
+            // The outline was reset, so selecting fails only for a hidden completed task.
+            Some(task) if outline.select(&items, &task, viewport_height) == Outcome::Changed => {}
+            Some(_) | None => outline.refresh(&items, viewport_height),
         }
     }
 }

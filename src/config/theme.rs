@@ -384,6 +384,7 @@ mod tests {
 
     use super::*;
     use crate::config::{Config, ConfigError, DEFAULT_CONFIG_YAML};
+    use crate::readme;
 
     fn parse_theme(yaml: &str) -> Result<ThemeConfig, ConfigError> {
         Config::from_yaml(yaml, Path::new("config.yaml")).map(|config| config.theme().clone())
@@ -631,6 +632,62 @@ mod tests {
         #[case] expected: ColourMode,
     ) {
         let system_under_test = ColourMode::from_no_color(no_color.map(OsStr::new));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    /// Returns the code spans in the first column of the README theme table with the header
+    /// `first_header`.
+    fn readme_theme_column(first_header: &str) -> Vec<&'static str> {
+        readme::table_rows(&readme::section("### Theme"), first_header)
+            .into_iter()
+            .flat_map(|cells| readme::code_spans(cells[0]))
+            .collect()
+    }
+
+    #[test]
+    fn readme_theme_table_lists_every_slot_in_order() {
+        let expected: Vec<Slot> = Slot::iter().collect();
+
+        let system_under_test: Vec<Slot> = readme_theme_column("Slot")
+            .into_iter()
+            .map(|name| serde_saphyr::from_str(name).unwrap())
+            .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn readme_colour_table_lists_colours_that_parse() {
+        let expected = [
+            Color::Black,
+            Color::Red,
+            Color::Green,
+            Color::Yellow,
+            Color::Blue,
+            Color::Magenta,
+            Color::Cyan,
+            Color::Gray,
+            Color::DarkGray,
+            Color::LightRed,
+            Color::LightGreen,
+            Color::LightYellow,
+            Color::LightBlue,
+            Color::LightMagenta,
+            Color::LightCyan,
+            Color::White,
+            Color::Reset,
+            Color::Rgb(0xff, 0x55, 0x55),
+            Color::Indexed(238),
+        ];
+
+        let system_under_test: Vec<Color> = readme_theme_column("Colour")
+            .into_iter()
+            .map(|colour| {
+                let style = parse_style(&format!("{{ fg: {colour} }}")).unwrap();
+                style.fg.unwrap()
+            })
+            .collect();
 
         assert_eq!(system_under_test, expected);
     }

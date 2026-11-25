@@ -58,8 +58,6 @@ impl App {
     }
 
     /// Performs `action` and returns the effects it requires.
-    ///
-    /// Actions that have no effect yet are accepted and ignored.
     #[must_use]
     pub fn update(&mut self, action: Action) -> Vec<Effect> {
         match action {

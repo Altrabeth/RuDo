@@ -13,21 +13,23 @@ in the same change.
   The core is therefore tested with fast, output-based unit tests and needs no mocks.
 - **The Elm architecture.** Input becomes an `Action`; `App::update(action)` changes the
   in-memory `App` and returns a list of `Effect`s (save a file, create a folder, open the
-  editor). The shell executes the effects and feeds their results back as events. `view`
-  renders the state and never changes it.
+  editor). The shell executes the effects, which report their results back to the `App`.
+  `view` renders the state and never changes it.
 - **Parse, don't validate.** Text from outside (configuration, Markdown files, typed names,
   date expressions, key notation) is parsed once at the boundary into types that can only
-  hold valid values: `KeySequence`, `ListName`, `DueDate`, `Recurrence`, `Priority`.
+  hold valid values: `KeySequence`, `EntryName`, `Date`, `Recurrence`, `Priority`,
+  `IndentStyle`.
 - **One source of truth for every fact** (DRY):
 
   | Fact                       | Source of truth                   | Derived from it                                              |
   | -------------------------- | --------------------------------- | ------------------------------------------------------------ |
-  | what a user can do         | `Action` enum                     | config validation, help screen, key hints, README guard test |
+  | what a user can do         | `Action` enum                     | config validation, help screen, key hints, README guard tests |
   | which keys trigger what    | effective `Keymap`                | key resolution, help screen, bottom bar hints, empty states  |
   | default configuration      | `assets/default-config.yaml`      | `Config::default()` (guard test), `rudo config default`      |
-  | colours                    | `Theme` with the `Slot` enum      | every widget; no widget hard-codes a colour                  |
+  | colours                    | `Theme` with the `Slot` enum      | every widget, README guard test; no widget hard-codes a colour |
   | a task's Markdown syntax   | `markdown::task_line`             | parsing and rendering of every task line                     |
   | tree navigation            | `ui::outline::Outline`            | lists pane, tasks pane, help screen scrolling                |
+  | screen geometry            | `ui::layout`                      | the drawn areas and the viewport heights used for scrolling  |
 
 - **Lossless storage.** A file that RuDo loads and saves without an edit is byte-identical.
   An edit re-renders only the task lines it touched.
@@ -46,23 +48,27 @@ src/
   cli.rs                   clap definitions: options and `config` subcommands
   logging.rs               file logging with `tracing-subscriber`, `RUDO_LOG` filter
   paths.rs                 XDG config, data and state directories, `~` expansion
+  readme.rs                test only: README sections, tables and code spans for guard tests
   config/
-    mod.rs                 Config, loading, error reporting
+    mod.rs                 Config, config file lookup, parsing with located error reports
     root.rs                WorkspaceRoot: `--root`, `workspace.root` or the default folder
     settings.rs            Settings: config, theme and keymap loaded and validated together
-    theme.rs               Theme, Slot, StyleConfig, NO_COLOR
+    theme.rs               Theme, Slot, StyleConfig, ColourMode (`NO_COLOR`)
     keymap/
+      mod.rs               module tree
       key.rs               KeyChord, KeySequence: notation parsing and Display
-      action.rs            Action, Context, descriptions, default keys
+      action.rs            Action, Context, descriptions, labels, default keys
       keymap.rs            effective Keymap: defaults + overrides, conflict validation
-      resolver.rs          multi-key sequence state machine
+      resolver.rs          KeyResolver: multi-key sequence state machine
   domain/
-    date.rs                due date expressions and relative formatting
+    mod.rs                 module tree; nothing here reads the clock
+    date.rs                due date expressions, DueClass and relative formatting
     recurrence.rs          recurrence rules and next occurrence
-    priority.rs            Priority levels
+    priority.rs            Priority levels and stepping through them
     tags.rs                Obsidian tag recognition
   markdown/
-    task_line.rs           one task line: parse and render
+    mod.rs                 module tree
+    task_line.rs           one task line: parse and render, TaskStatus, InlineField
     document/
       mod.rs               TodoDocument: lossless file model and task tree, EditOutcome
       insert.rs            inserting, removing, copying and pasting task blocks
@@ -70,76 +76,94 @@ src/
       sort.rs              sorting a task and its siblings by a SortKey
       content.rs           description, status and inline field edits
   storage/
+    mod.rs                 module tree
     fingerprint.rs         content fingerprints for detecting external changes
-    workspace.rs           scanning the workspace into a tree of folders and lists
-    save.rs                atomic saving, external modification detection
-    entries.rs             create, rename and delete lists and folders
+    workspace.rs           Workspace: scan, rescan and reload of the tree of folders and lists
+    save.rs                atomic saving that refuses to overwrite external changes
+    entries.rs             EntryName; create, rename and delete lists and folders
     watch.rs               WorkspaceWatcher: debounced recursive watching, FsChange
   app/
-    state.rs               App, Focus, Mode
+    mod.rs                 module tree and re-exports (App, Focus, Mode, Effect, execute)
+    state.rs               App, Focus, Mode, the context and viewport heights
+    update.rs              App::handle_key, handle_paste, update(Action) -> Vec<Effect>, edit_list
+    effect.rs              Effect and execute, its executor, and the result handlers
+    status.rs              StatusMessage, Severity and when messages expire
     editor.rs              open-in-editor: choosing the editor, its command line with the line
-    reload.rs              external changes: App::on_fs_changed, reload_list, rescan
+    reload.rs              external changes: App::on_fs_changed, reload_list, rescan, conflicts
+    history.rs             undo and redo stacks of document snapshots
+    register.rs            the yank register holding a detached TaskBlock
+    filter.rs              smart-case matching shared by every filter
     search.rs              pane search (Mode::Search): PaneFilter per pane and per list
-    lists.rs               lists pane state: workspace tree navigation, active list
+    help.rs                help screen state (Mode::Help): scrolling and filter input
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
-    task_input.rs          inline task editor (Mode::InlineEdit): adding and editing tasks, one edit on submit
+    lists.rs               lists pane state: workspace tree navigation, active list
     tasks.rs               tasks pane state: task tree navigation per list
+    task_input.rs          inline task editor (Mode::InlineEdit): adding and editing tasks
+    task_fields.rs         reading and writing inline fields of the selected task
+    task_toggle.rs         marking the selected task done or open again
     task_priority.rs       raising and lowering the priority of the selected task
+    task_due.rs            the due date prompt with its live preview
+    task_recurrence.rs     the recurrence prompt, the next occurrence on completion
     task_reorder.rs        moving, indenting and outdenting the selected task
     task_delete.rs         deleting the selected task with its subtasks
     task_sort.rs           sorting the selected task and its siblings
     task_yank.rs           yanking the selected task and pasting the register
-    task_due.rs            setting the due date of the selected task in a prompt
-    task_recurrence.rs     setting the recurrence rule in a prompt, the next occurrence on completion
     task_visibility.rs     showing and hiding completed tasks (CompletedTasks)
-    status.rs              StatusMessage, Severity and when messages expire
-    update.rs              App::update(Action) -> Vec<Effect>
-    effect.rs              Effect and its executor
-    history.rs             undo and redo
-    register.rs            yank register
-    filter.rs              smart-case search and filtering
-    help.rs                help screen state (Mode::Help): scrolling and filter input
   ui/
     mod.rs                 view(&App, &mut Frame)
+    layout.rs              responsive layout: Screen, pane, bottom bar and overlay areas
     outline.rs             generic tree navigation: selection, folding, scrolling, prune
-    layout.rs              responsive layout: pane, bottom bar and overlay areas, focus border
-    lists_pane.rs          workspace tree
+    lists_pane.rs          workspace tree with `done/total` counters
     tasks_pane.rs          task tree with metadata
-    status_bar.rs          key hints, pending keys, messages
-    text_input.rs          single-line text editor widget
+    pane_message.rs        messages of empty panes that name the bound keys
+    status_bar.rs          key hints, pending keys, messages, the search prompt
+    text_input.rs          TextInput, EditCommand, EDITING_KEYS and the TextInputView widget
     popup.rs               input popup and confirmation dialog
-    help.rs                help content model
+    help.rs                help content model generated from the effective keymap
     help_overlay.rs        help overlay: rows, scrollbar, filter line
     highlight.rs           search match highlighting inside styled row text
   runtime/
-    terminal.rs            terminal setup and restore, panic safety
-    event.rs               merging terminal, tick and file system events
-    run.rs                 the event loop
+    mod.rs                 module tree
+    terminal.rs            TerminalGuard: terminal setup and restore, suspend for the editor
+    event.rs               Event, InputThread and batching of the event channel
+    run.rs                 the event loop and the editor hand-over
 ```
-
-The layout is a target, not a mandate. Create a module when the first issue needs it, and
-keep the names above unless there is a reason to deviate.
 
 ## Data flow
 
 ```text
- terminal input ─┐
- file watcher   ─┼─► mpsc channel ─► runtime::run ─► KeyResolver ─► Action
- tick           ─┘         ▲                                          │
-                           │                                          ▼
-                    effect results              App::update(&mut self, Action) -> Vec<Effect>
-                           │                                          │
-                           └────────── Effect executor ◄──────────────┘
-                                       (storage::*, editor)
- after each batch of events: terminal.draw(|frame| ui::view(&app, frame))
+ terminal input (InputThread) ─┐
+                               ├─► mpsc channel ─► runtime::run ─► next_batch ─┐
+ file watcher (FsChanged)     ─┘                                               │
+                                                                               ▼
+           App::handle_key ─► KeyResolver ─► App::update(Action) ─► Vec<Effect>
+           App::handle_paste, App::on_fs_changed, App::resize ─┘         │
+                                                                         ▼
+                      runtime: OpenInEditor ◄── perform ──► app::execute (storage::*)
+                                                                         │
+                                        results reported to App ◄────────┘
+ before waiting for the next batch: app.tick(now), app.set_today(date), terminal.draw(view)
 ```
 
-- Events are read on a dedicated thread and sent over a `std::sync::mpsc` channel. RuDo has
-  no async runtime; the work is a single interactive loop plus blocking file I/O.
-- The loop blocks on the channel, drains all queued events, then draws once. There is no busy
-  loop; it only wakes up without an event at the start of the next day, to update today's
-  date, and a tick is only scheduled while a timed message is visible.
+- Events are read on a dedicated thread and sent over a `std::sync::mpsc` channel as
+  `Event::Key`, `Resize`, `Paste` or `FsChanged`. RuDo has no async runtime; the work is a
+  single interactive loop plus blocking file I/O.
+- The loop draws, then blocks on the channel and drains all queued events (`next_batch`)
+  before it draws again. There is no tick event and no busy loop: the wait times out only at
+  `App::next_deadline` (while a timed message is visible) and at the start of the next day,
+  so that today's date is updated.
+- `App::handle_key` resolves the chord in `App::context()`, which is derived from the mode
+  and the focus, and calls `App::update` for a complete sequence. A key that no action is
+  bound to is typed into the open text input, if any. Pasted text (bracketed paste) only
+  goes into an open text input and is never interpreted as keys.
+- The `Mode` decides what takes the keys: `Normal` (the focused pane), `Help(HelpOverlay)`,
+  `Prompt(PromptOverlay)` (input popup), `Confirm(ConfirmOverlay)`, `InlineEdit(InlineEdit)`
+  (a row of the tasks pane) and `Search(Focus)` (the search prompt in the bottom bar).
+  `Prompt`, `InlineEdit`, `Search` and the open help filter resolve keys in `Context::Input`.
+- `Effect` is one of `Save`, `CreateEntry`, `RenameEntry`, `DeleteEntry`, `OpenInEditor`,
+  `ReloadList` and `Rescan`. `app::execute` performs all but `OpenInEditor` and reports the
+  result to the `App`; failures become a `StatusMessage`, never an abort.
 - The input thread polls with a short timeout and stops when its `InputThread` handle is
   dropped, so the terminal can be handed to an external editor and input resumed afterwards
   by spawning a new one.
@@ -162,6 +186,9 @@ keep the names above unless there is a reason to deviate.
   not change, so selections, folds and undo history stay keyed by path; changed lists are
   reloaded and the state of removed lists is forgotten. If the watcher cannot start
   (for example the inotify limit), RuDo runs on and shows `live reload disabled: <reason>`.
+- A reloaded list keeps the selection on the line of the previously selected task (or the
+  last task before it), opens its folds, forgets its undo history and shows
+  `<list> reloaded`. A list file that cannot be loaded any more shows its load error.
 - Only `KeyEventKind::Press` and `Repeat` are handled; `Release` events (Windows, kitty
   keyboard protocol) are dropped at the boundary.
 - The runtime reports the terminal size with `App::resize` at start-up and on every resize
@@ -170,7 +197,8 @@ keep the names above unless there is a reason to deviate.
   (`ui::layout::pane_content`, `ui::layout::help_overlay`), so navigation moves by exactly
   the height that is drawn. There are no viewport constants. `App::resize` refreshes every
   outline with the new heights, so the selections stay visible, and `view` renders from the
-  stored offsets without changing state.
+  stored offsets without changing state. Below 60 columns only the focused pane is shown
+  (`Screen::FocusedOnly`), below 24 columns or 5 rows only a short message.
 - Text inputs scroll horizontally without stored state: `TextInputView` computes the scroll
   offset from the text, the cursor and the width of its row on every render (just far
   enough to show the cursor cell). A `TextInput` therefore holds only its text and cursor,
@@ -178,8 +206,9 @@ keep the names above unless there is a reason to deviate.
   `InputPopup`s from `&TextInput` and `&Prompt`. The price is that the cursor rests at the
   right edge while moving left through text scrolled to its end, instead of the text staying
   put until the cursor reaches the left edge.
-- `ratatui::init` and `ratatui::restore` manage the terminal, including restoring it on panic.
-  Use crossterm through `ratatui::crossterm` so there is exactly one crossterm version.
+- `TerminalGuard` sets the terminal up with `ratatui::try_init`, whose panic hook restores
+  it, enables bracketed paste and restores everything when dropped. Use crossterm through
+  `ratatui::crossterm` so there is exactly one crossterm version.
 
 ## Document model
 
@@ -214,30 +243,36 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
 - The task tree is implicit: a task is the child of the nearest preceding task with a smaller
   indentation width (a tab counts as four columns). A task's *block* is the task line plus all
   following lines that are indented deeper, including continuation lines and blank lines
-  between them. Moving, deleting, yanking and indenting always operate on whole blocks.
+  between them. Moving, deleting, yanking, sorting and indenting always operate on whole
+  blocks.
 - The indent style is detected on demand (`indent_style(fallback)`): the first indented task
   decides between tab and spaces, the space width is the smallest step between a task and its
   parent; without indented tasks the configured `tasks.indent` is used.
 - `TaskId` is assigned when a document is parsed and survives edits, so the UI keeps the
   selection on the same task while lines shift. An external reload parses the file with
   `TodoDocument::reparse`, whose ids continue after those of the previous version, so an id
-  held by an open inline editor or prompt never names a different task after a reload.
+  held by an open inline editor or prompt never names a different task after a reload: it
+  finds its task gone and says so.
 - Fenced code blocks and front matter are tracked while parsing; task-like lines inside them
   stay `Raw`.
 - RuDo writes Dataview inline fields: `[due:: …]`, `[priority:: …]`, `[repeat:: …]`,
   `[completion:: …]`. A re-rendered task is written as
   `{indent}{marker} [{status}] {description}` followed by ` [key:: value]` for every field.
+  Setting a field replaces the first one with its key in place (and drops duplicates) or
+  appends it.
 
 ## Keymap model
 
 - `Action` is a closed enum (`strum::EnumIter`, kebab-case names). Every action knows its
-  description, the `Context`s it is valid in and its default key sequences, each through an
-  exhaustive `match`, so adding an action fails to compile until all three are defined.
+  description, its short label for the bottom bar, the `Context`s it is valid in and its
+  default key sequences, each through an exhaustive `match`, so adding an action fails to
+  compile until all four are defined.
 - `Context` is one of `Lists`, `Tasks`, `Help`, `Dialog`, `Input`. Global actions are valid in
-  `Lists` and `Tasks`; navigation actions additionally in `Help`.
+  `Lists` and `Tasks`; navigation actions and `search` additionally in `Help`.
 - The effective `Keymap` is built once at start-up from the defaults and the user's
   overrides and validated per context: no key sequence bound twice, no binding that is a prefix
-  of another, no printable characters in `Input`. Validation errors name both actions.
+  of another, no binding in `Input` that starts with a printable key. Validation errors name
+  both actions.
 - `KeyResolver` consumes one `KeyChord` at a time and answers `Action`, `Pending`,
   `Cancelled` (`esc` while a sequence is pending) or `NoMatch`. A chord that breaks a pending
   sequence is retried once as the start of a new one, and pending chords never carry over into
@@ -247,21 +282,23 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
 
 - Features change documents only through `App::edit_list`, the single mutation choke point:
   it applies the edit and returns `Effect::Save` when the document changed. The executor
-  writes atomically: a temporary file in the same directory, `fsync`, then `rename` over the
-  target. Symlinks are resolved first so the link survives, and the original file permissions
-  are kept.
+  writes atomically: a temporary file (`.tmp…`, hidden from the scanner and the watcher) in
+  the same directory, `fsync`, then `rename` over the target. Symlinks are resolved first so
+  the link survives, and the original file permissions are kept.
 - Text typed into a task row (`Mode::InlineEdit`) does not touch the document: the tasks pane
   shows a placeholder row, and submitting applies the whole change with one `edit_list` call,
   so it is saved once and undone in one step; cancelling leaves the file byte-identical.
 - `edit_list` also records the document and the selected task before every changing edit in
-  `app::history` (100 entries per stack). Undo and redo swap that snapshot with the document,
-  bypassing `edit_list`, and save. A list's history follows it when it is renamed and is
-  forgotten when it is deleted, reloaded from disk or fails to save because it was modified
-  externally.
-- Before writing, the executor compares the file on disk with the content RuDo loaded. If it
-  differs, RuDo does not overwrite it, reloads the file and reports that the last change was
-  not applied.
-- After saving, the content hash is remembered so the watcher can ignore RuDo's own writes.
+  `app::history`: one undo stack and one redo stack for all lists, each bounded to 100
+  entries, and a new change clears the redo stack. Undo and redo swap the snapshot with the
+  document of its list, bypassing `edit_list`, open that list if it is not the active one,
+  select the remembered task and save. A list's history follows it when it is renamed and is
+  forgotten when it is deleted, removed or reloaded from disk.
+- Every loaded list remembers the `Fingerprint` of the content RuDo last loaded or saved.
+  Before writing, `storage::save` compares the file on disk with it. If it differs, RuDo does
+  not overwrite it: `App::save_conflicted` reloads the file and reports
+  `<list> changed on disk; your last change was not applied`. After saving, the fingerprint
+  of the new content is remembered, which is also how reloads recognise RuDo's own writes.
 - Operations on files and folders (create, rename, delete) are confirmed where destructive and
   are not part of the undo history; edits to tasks are.
 
@@ -277,17 +314,18 @@ run in-process.
 | `App::update`                      | build a state, apply actions, assert on the resulting state and effects |
 | widgets and layout                 | `TestApp::render(width, height)` into a `TestBackend`; `insta` text snapshots (`just snap`), colours asserted on single cells |
 | storage                            | the real file system under `tempfile::TempDir`                        |
-| user scenarios                     | `tests/` drive a `TestApp` with key strings (`"o"`, `"Buy milk"`, `"enter"`) against a `TempDir` workspace and assert on the files; the README journeys in `tests/scenarios.rs` compare them with golden files in `tests/fixtures/` |
+| user scenarios                     | `tests/` drive a `TestApp` (`tests/common`) with `press` and `type_text` against a `TempDir` workspace and assert on the files and the rendered screen; the README journeys in `tests/scenarios.rs` compare the files with golden files in `tests/fixtures/` |
+| documentation                      | guard tests read the README through `src/readme.rs`: every `Action` with its default keys, every `Slot`, the colour names and the configuration example; others check the default configuration file |
 | terminal and event loop            | kept too thin to need unit tests (humble object); `just smoke` drives the real binary in a pseudo-terminal, and [`QA.md`](QA.md) is the manual checklist before a release |
 
 Every test has the three phases required by AGENTS.md: setup, `system_under_test`, assertions.
 Time is never read inside the core: functions that need today's date take it as a parameter,
-and the shell passes `jiff::Zoned::now().date()`.
+and the shell passes `jiff::ZonedDateTime::now().date()`.
 
 ## Conventions
 
 - No pictographic symbols in the interface. Box-drawing characters and simple geometric
-  shapes (`▸`, `▾`) are fine; emoji and emoji-like dingbats are not.
+  shapes (`▸`, `▾`, `•`) are fine; emoji and emoji-like dingbats are not.
 - Logging goes to a file only (`$XDG_STATE_HOME/rudo/rudo.log`); writing to stdout or stderr
   would corrupt the terminal interface.
 - Program output of command line subcommands (`rudo config default`) goes to stdout and is

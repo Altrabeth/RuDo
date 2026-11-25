@@ -338,6 +338,7 @@ mod tests {
     use super::*;
     use crate::config::keymap::action::Action;
     use crate::config::keymap::keymap::Keymap;
+    use crate::readme;
 
     const HOME: &str = "/home/alice";
 
@@ -500,6 +501,22 @@ mod tests {
     #[test]
     fn default_config_file_has_a_valid_keymap() {
         let config = Config::from_yaml(DEFAULT_CONFIG_YAML, source()).unwrap();
+
+        let system_under_test = Keymap::new(config.keybindings());
+
+        assert_eq!(system_under_test.err(), None);
+    }
+
+    #[test]
+    fn readme_configuration_example_has_a_valid_keymap() {
+        let example: String = readme::section("## Configuration")
+            .into_iter()
+            .skip_while(|line| *line != "```yaml")
+            .skip(1)
+            .take_while(|line| *line != "```")
+            .flat_map(|line| [line, "\n"])
+            .collect();
+        let config = Config::from_yaml(&example, source()).unwrap();
 
         let system_under_test = Keymap::new(config.keybindings());
 

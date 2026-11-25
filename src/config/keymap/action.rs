@@ -448,8 +448,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
-
-    const README: &str = include_str!("../../../README.md");
+    use crate::readme;
 
     fn sequences(notations: &[&str]) -> Vec<KeySequence> {
         notations
@@ -462,37 +461,45 @@ mod tests {
         serde_saphyr::from_str(name).unwrap()
     }
 
-    /// Returns every action of the README keybinding tables with its keys, in table order and
-    /// without repetitions.
+    /// Returns every row of the README keybinding tables as the action with its keys, in table
+    /// order.
     fn readme_bindings() -> Vec<(Action, Vec<KeySequence>)> {
-        let section = README
-            .split_once("\n## Keybindings\n")
-            .and_then(|(_, rest)| rest.split_once("\n## Configuration\n"))
-            .map(|(section, _)| section)
-            .unwrap();
-        let mut seen = HashSet::new();
-        section
-            .lines()
-            .filter(|line| line.starts_with("| `"))
-            .map(|line| {
-                let cells: Vec<&str> = line.split('|').map(str::trim).collect();
-                let keys = cells[1]
-                    .split(", ")
-                    .map(|notation| notation.trim_matches('`').parse().unwrap())
+        readme::table_rows(&readme::section("## Keybindings"), "Keys")
+            .iter()
+            .map(|cells| {
+                let keys = readme::code_spans(cells[0])
+                    .map(|notation| notation.parse().unwrap())
                     .collect();
-                (parse_action(cells[2].trim_matches('`')), keys)
+                let [action] = readme::code_spans(cells[1]).collect::<Vec<_>>()[..] else {
+                    panic!("expected one action in {cells:?}");
+                };
+                (parse_action(action), keys)
             })
-            .filter(|(action, _)| seen.insert(*action))
             .collect()
     }
 
     #[test]
-    fn registry_matches_the_readme_keybinding_tables() {
-        let expected = readme_bindings();
+    fn readme_keybinding_tables_list_every_action_in_registry_order() {
+        let expected: Vec<Action> = Action::iter().collect();
+        let mut seen = HashSet::new();
 
-        let system_under_test: Vec<(Action, Vec<KeySequence>)> = Action::iter()
-            .map(|action| (action, action.default_keys()))
+        let system_under_test: Vec<Action> = readme_bindings()
+            .into_iter()
+            .map(|(action, _)| action)
+            .filter(|action| seen.insert(*action))
             .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn readme_keybinding_tables_show_the_default_keys() {
+        let expected: Vec<(Action, Vec<KeySequence>)> = readme_bindings()
+            .into_iter()
+            .map(|(action, _)| (action, action.default_keys()))
+            .collect();
+
+        let system_under_test = readme_bindings();
 
         assert_eq!(system_under_test, expected);
     }

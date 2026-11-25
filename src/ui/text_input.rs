@@ -512,6 +512,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
+    use crate::readme::README;
 
     /// Marks the cursor position in the text of test cases.
     const CURSOR_MARK: char = '|';
@@ -733,14 +734,13 @@ mod tests {
 
     #[test]
     fn readme_lists_every_editing_key() {
-        let readme = include_str!("../../README.md");
         let expected: Vec<&str> = Vec::new();
 
         let system_under_test: Vec<&str> = EDITING_KEYS
             .iter()
             .flat_map(EditingKey::keys)
             .copied()
-            .filter(|key| !readme.contains(&format!("`{key}`")))
+            .filter(|key| !README.contains(&format!("`{key}`")))
             .collect();
 
         assert_eq!(system_under_test, expected);

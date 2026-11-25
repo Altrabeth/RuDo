@@ -11,6 +11,7 @@ use ratatui::layout::{Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::app::entry_visibility::HiddenEntries;
 use crate::app::lists::TreeItem;
 use crate::app::{App, Focus};
 use crate::config::keymap::action::Action;
@@ -39,17 +40,32 @@ const ACTIVE_MARKER: &str = "• ";
 const LIST_MARKER: &str = "  ";
 /// Shown instead of the counter of a list that could not be loaded.
 const UNREADABLE: &str = "unreadable";
+/// Added to the title while hidden entries are shown.
+const HIDDEN_SHOWN: &str = "hidden shown";
 
-/// Returns the title of the lists pane of `app`: [`TITLE`], followed by the search filter
-/// while one is active, such as `Lists  /milk`.
+/// Returns the title of the lists pane of `app`: [`TITLE`], followed by `hidden shown` while
+/// hidden entries are shown and by the search filter while one is active, such as
+/// `Lists  hidden shown  /milk`.
 #[must_use]
 pub fn title(app: &App) -> Cow<'_, str> {
     let filter = app.lists().filter();
-    if filter.is_active() {
-        Cow::Owned(format!("{TITLE}{TITLE_SEPARATOR}{filter}"))
-    } else {
-        Cow::Borrowed(TITLE)
+    let hidden_shown = match app.hidden_entries() {
+        HiddenEntries::Shown => Some(HIDDEN_SHOWN),
+        HiddenEntries::Hidden => None,
+    };
+    if !filter.is_active() && hidden_shown.is_none() {
+        return Cow::Borrowed(TITLE);
     }
+    let mut title = TITLE.to_owned();
+    if let Some(hidden_shown) = hidden_shown {
+        title.push_str(TITLE_SEPARATOR);
+        title.push_str(hidden_shown);
+    }
+    if filter.is_active() {
+        title.push_str(TITLE_SEPARATOR);
+        title.push_str(&filter.to_string());
+    }
+    Cow::Owned(title)
 }
 
 /// Renders the contents of the lists pane of `app` into `area`, the inside of its border.
@@ -105,7 +121,8 @@ fn render_row(app: &App, frame: &mut Frame, area: Rect, row: &OutlineRow<'_, Tre
         width: area.width - indent,
         ..area
     };
-    match row.item().entry() {
+    let entry = row.item().entry();
+    match entry {
         Entry::Folder(folder) => {
             let marker = match row.fold() {
                 Fold::Collapsed => COLLAPSED_MARKER,
@@ -115,15 +132,31 @@ fn render_row(app: &App, frame: &mut Frame, area: Rect, row: &OutlineRow<'_, Tre
                 FilterRole::Match => Slot::Folder,
                 FilterRole::Context => Slot::FilterContext,
             };
-            let label = Line::from_iter([marker, folder.name()]).style(app.theme().style(slot));
+            let style = label_style(app, entry, slot);
+            let label = Line::from_iter([marker, folder.name()]).style(style);
             frame.render_widget(label, label_area);
         }
-        Entry::List(list) => render_list(app, frame, label_area, list),
+        Entry::List(list) => {
+            let style = label_style(app, entry, Slot::List);
+            render_list(app, frame, label_area, list, style);
+        }
     }
 }
 
-/// Renders `list` with its marker and its right-aligned counter into `area`.
-fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List) {
+/// Returns the style of the name of `entry` drawn with `slot`, dimmed with
+/// [`Slot::HiddenEntry`] if the entry is hidden.
+fn label_style(app: &App, entry: &Entry, slot: Slot) -> Style {
+    let style = app.theme().style(slot);
+    if entry.is_hidden() {
+        style.patch(app.theme().style(Slot::HiddenEntry))
+    } else {
+        style
+    }
+}
+
+/// Renders `list` with its marker and its right-aligned counter into `area`, its name in
+/// `style`.
+fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List, style: Style) {
     let theme = app.theme();
     let counter = match list.content() {
         Ok(loaded) => Span::styled(
@@ -152,7 +185,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List) {
     let highlight = Highlight::new(app.lists().filter().query(), list.name(), theme);
     let mut spans = vec![Span::raw(marker)];
     highlight.push_spans(&mut spans, list.name(), 0, Style::new());
-    let label = Line::from(spans).style(theme.style(Slot::List));
+    let label = Line::from(spans).style(style);
     frame.render_widget(label, label_area);
     frame.render_widget(counter, counter_area);
 }

@@ -111,6 +111,7 @@ src/
     task_sort.rs           sorting the selected task and its siblings
     task_yank.rs           yanking the selected task and pasting the register
     task_visibility.rs     showing and hiding completed tasks (CompletedTasks)
+    entry_visibility.rs    showing and hiding hidden folders and lists (HiddenEntries)
   ui/
     mod.rs                 view(&App, &mut Frame)
     layout.rs              responsive layout: Screen, pane, bottom bar and overlay areas
@@ -165,9 +166,9 @@ src/
   `Visual` (a selection of several rows of the focused pane). `Prompt`, `InlineEdit`, `Search`
   and the open help filter resolve keys in `Context::Input`, `Visual` in `Context::Visual`.
 - The visual selection is an anchor key in the pane's `Outline` plus its cursor; the selected
-  keys are derived from the visible rows whenever they are needed, so folds, filters and
-  hidden completed tasks are respected and a reload that removes the anchor ends visual mode
-  (`App::end_visual_mode_without_anchor`). Every action on the selection ends visual mode
+  keys are derived from the visible rows whenever they are needed, so folds, filters, hidden
+  completed tasks and hidden entries are respected and a reload that removes the anchor ends
+  visual mode (`App::end_visual_mode_without_anchor`). Every action on the selection ends visual mode
   before it acts or opens a dialog.
 - `Effect` is one of `Save`, `CreateEntry`, `RenameEntry`, `DeleteEntries`, `MoveEntries`,
   `OpenInEditor`, `ReloadList` and `Rescan`. Every deletion of lists and folders, a single one
@@ -191,9 +192,13 @@ src/
   now (`PathState::File`, `Directory` or `Missing`), inspected on the watcher thread, so that
   `App::on_fs_changed` can classify purely against the in-memory workspace: a file at a known
   list becomes `Effect::ReloadList` (also for editors that save by renaming a temporary file),
-  any other change of the tree one `Effect::Rescan`; hidden paths and non-`.md` files are
-  ignored. RuDo's own writes are reported as well and change nothing: the workspace already
-  matches the disk and `App::reload_list` compares fingerprints. `App::rescan` scans the tree
+  any other change of the tree one `Effect::Rescan`; the bin (`.trash/`), non-`.md` files and
+  new directories in folders the tree left out (such as `.git/objects/ab`) are ignored. Hidden
+  paths count like any other: the workspace always holds hidden entries (`Entry::is_hidden`,
+  any path component starting with `.`), the scan leaves out only hidden folders without lists
+  and the bin, and the lists pane hides them with `outline::prune` while `HiddenEntries` is
+  `Hidden`, so toggling them needs no rescan. RuDo's own writes are reported as well and change
+  nothing: the workspace already matches the disk and `App::reload_list` compares fingerprints. `App::rescan` scans the tree
   again with `Workspace::rescan`, which keeps the document of every list whose fingerprint did
   not change, so selections, folds and undo history stay keyed by path; changed lists are
   reloaded and the state of removed lists is forgotten. If the watcher cannot start
@@ -296,8 +301,8 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
 
 - Features change documents only through `App::edit_list`, the single mutation choke point:
   it applies the edit and returns `Effect::Save` when the document changed. The executor
-  writes atomically: a temporary file (`.tmp…`, hidden from the scanner and the watcher) in
-  the same directory, `fsync`, then `rename` over the target. Symlinks are resolved first so
+  writes atomically: a temporary file (`.tmp…`, without the `.md` extension, so the scanner and
+  the watcher ignore it) in the same directory, `fsync`, then `rename` over the target. Symlinks are resolved first so
   the link survives, and the original file permissions are kept.
 - Text typed into a task row (`Mode::InlineEdit`) does not touch the document: the tasks pane
   shows a placeholder row, and submitting applies the whole change with one `edit_list` call,

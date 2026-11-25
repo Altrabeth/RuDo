@@ -119,6 +119,7 @@ impl App {
             Action::Redo => return self.step_history(Direction::Redo),
             Action::Edit => self.edit_task(),
             Action::ToggleCompleted => self.toggle_completed(),
+            Action::ToggleHidden => self.toggle_hidden(),
             Action::SetRecurrence => self.open_recurrence_prompt(),
             Action::SortAlphabetically => return self.sort_tasks(SortKey::Alphabetical),
             Action::SortByDueDate => return self.sort_tasks(SortKey::DueDate),

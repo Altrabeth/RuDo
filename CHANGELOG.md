@@ -21,11 +21,12 @@ The first release, not tagged yet. The [README](README.md) specifies the behavio
   task lines are re-rendered. Changes are saved immediately with atomic writes that keep
   symlinks and permissions. Lists that cannot be read stay in the tree and say why.
 - **Lists pane.** Create, rename and delete lists and folders (`o`, `O`, `r`, `dd`), with
-  names Obsidian accepts and a confirmation before deleting; `done/total` counters; folding.
+  names Obsidian accepts and a confirmation before deleting; `done/total` counters; folding;
+  showing hidden folders and lists such as `.obsidian/` dimmed (`H`, `workspace.show_hidden`).
 - **Tasks pane.** Nested tasks with tree guides and folding; adding tasks and subtasks
   (`o`, `O`, `a`) and editing them in place (`i`); marking done (`x`) with an optional
   completion date; deleting (`dd`), moving (`J`, `K`), indenting (`>`, `<`); hiding completed
-  tasks (`H`).
+  tasks (`H` in the tasks pane).
 - **Task metadata** in the Dataview format of the Obsidian Tasks plugin: priorities (`+`,
   `-`), due dates with relative input and colour-coded relative display (`D`), Obsidian
   `#tags`, and recurrence rules (`r`) whose completion creates the next occurrence. Unknown

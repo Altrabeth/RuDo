@@ -52,6 +52,8 @@ pub enum Slot {
     List,
     /// `done/total` counter of a list.
     ListCount,
+    /// Hidden folder or list, whose name starts with `.`, while hidden entries are shown.
+    HiddenEntry,
     /// Indentation guides and fold markers.
     TreeGuide,
     /// Text of a done task.
@@ -133,6 +135,7 @@ impl Slot {
                 StyleConfig::fg(Color::Cyan, Modifier::BOLD)
             }
             Self::Selection | Self::VisualSelection => StyleConfig::modifiers(Modifier::REVERSED),
+            Self::HiddenEntry => StyleConfig::modifiers(Modifier::DIM),
             Self::SelectionUnfocused => {
                 StyleConfig::modifiers(Modifier::REVERSED.union(Modifier::DIM))
             }

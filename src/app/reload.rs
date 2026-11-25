@@ -2,6 +2,8 @@
 //! make to the workspace: deciding what a reported change means with [`App::on_fs_changed`],
 //! reloading a changed list and scanning the workspace again.
 
+use std::path::Path;
+
 use crate::app::effect::{Effect, error_report};
 use crate::app::lists::EntryChange;
 use crate::app::state::{App, Focus};
@@ -9,7 +11,7 @@ use crate::app::status::StatusMessage;
 use crate::app::tasks::list_items;
 use crate::storage::watch::{FsChange, PathState, WatchError};
 use crate::storage::workspace::{
-    Entry, List, ListPath, Reload, Workspace, has_list_extension, is_hidden,
+    Entry, List, ListPath, Reload, Workspace, has_list_extension, is_in_bin,
 };
 use crate::ui::outline::Outcome;
 
@@ -28,10 +30,13 @@ impl App {
     ///
     /// A file at the path of a known list asks to reload it ([`Effect::ReloadList`]); this
     /// covers editors that save by renaming a temporary file over the list. Anything else
-    /// that changes the tree asks for one [`Effect::Rescan`]: a new `.md` file or directory, a
-    /// removed list or folder, or a list and folder replacing each other. Hidden paths (any
-    /// component starting with `.`, including RuDo's own temporary files), files without the
-    /// `.md` extension, known folders that still exist and missing unknown paths are ignored.
+    /// that changes the tree asks for one [`Effect::Rescan`]: a new `.md` file, a new directory
+    /// in a folder of the tree, a removed list or folder, or a list and folder replacing each
+    /// other. Hidden paths count like any other, because the workspace holds hidden entries
+    /// whether the lists pane shows them or not. The bin, files without the `.md` extension
+    /// (including RuDo's own temporary files), directories in folders the tree left out (such
+    /// as `.git/objects/ab`), known folders that still exist and missing unknown paths are
+    /// ignored.
     /// RuDo's own saves and entry operations are reported too; they reload nothing, because
     /// the workspace already matches the disk and [`App::reload_list`] compares fingerprints.
     ///
@@ -225,20 +230,28 @@ fn reaction<'workspace>(
     change: &FsChange,
 ) -> Option<Reaction<'workspace>> {
     let path = change.path();
-    if path
-        .components()
-        .any(|component| is_hidden(component.as_os_str()))
-    {
+    if is_in_bin(path) {
         return None;
     }
     match (change.state(), workspace.entry(path)) {
         (PathState::File, Some(Entry::List(list))) => Some(Reaction::Reload(list.path())),
         (PathState::File, None) => has_list_extension(path).then_some(Reaction::Rescan),
+        (PathState::Directory, None) => is_in_tree(workspace, path).then_some(Reaction::Rescan),
         (PathState::Directory, Some(Entry::Folder(_))) | (PathState::Missing, None) => None,
         (PathState::File, Some(Entry::Folder(_)))
-        | (PathState::Directory, Some(Entry::List(_)) | None)
+        | (PathState::Directory, Some(Entry::List(_)))
         | (PathState::Missing, Some(_)) => Some(Reaction::Rescan),
     }
+}
+
+/// Returns whether a new directory at `path` belongs in the tree of `workspace`: the
+/// workspace folder itself, or a directory in a folder of the tree.
+///
+/// A directory in a folder the tree left out, such as `.git/objects/ab`, changes nothing,
+/// because hidden folders without lists are not part of the tree.
+fn is_in_tree(workspace: &Workspace, path: &Path) -> bool {
+    path.parent()
+        .is_none_or(|parent| workspace.contains_folder(parent))
 }
 
 #[cfg(test)]
@@ -265,10 +278,13 @@ mod tests {
         Rescan,
     }
 
-    /// Starts an app on a workspace with `inbox.md` and `home/chores.md`.
+    /// Starts an app on a workspace with `inbox.md`, `home/chores.md` and the hidden
+    /// `.notes/ideas.md`.
     fn classification_app(root: &Path) -> App {
         fs::create_dir(root.join("home")).unwrap();
         fs::write(root.join("home/chores.md"), "").unwrap();
+        fs::create_dir(root.join(".notes")).unwrap();
+        fs::write(root.join(".notes/ideas.md"), "").unwrap();
         fs::write(root.join("inbox.md"), "").unwrap();
         app_in(root)
     }
@@ -297,10 +313,20 @@ mod tests {
     #[case::file_without_extension("home/README", PathState::File, Expected::Nothing)]
     #[case::removed_unknown_path("gone.md", PathState::Missing, Expected::Nothing)]
     #[case::temporary_file(".tmpA1b2C3", PathState::File, Expected::Nothing)]
-    #[case::hidden_list(".draft.md", PathState::File, Expected::Nothing)]
-    #[case::hidden_folder(".obsidian", PathState::Directory, Expected::Nothing)]
-    #[case::inside_hidden_folder(".git/inbox.md", PathState::File, Expected::Nothing)]
-    #[case::hidden_folder_inside("home/.trash", PathState::Directory, Expected::Nothing)]
+    #[case::new_hidden_list(".draft.md", PathState::File, Expected::Rescan)]
+    #[case::new_hidden_folder(".obsidian", PathState::Directory, Expected::Rescan)]
+    #[case::new_list_in_new_hidden_folder(".git/inbox.md", PathState::File, Expected::Rescan)]
+    #[case::hidden_folder_inside("home/.trash", PathState::Directory, Expected::Rescan)]
+    #[case::written_hidden_list(
+        ".notes/ideas.md",
+        PathState::File,
+        Expected::Reload(".notes/ideas.md")
+    )]
+    #[case::folder_in_unknown_folder(".git/objects/ab", PathState::Directory, Expected::Nothing)]
+    #[case::hidden_file(".obsidian/workspace.json", PathState::File, Expected::Nothing)]
+    #[case::bin(".trash", PathState::Directory, Expected::Nothing)]
+    #[case::list_in_bin(".trash/inbox.md", PathState::File, Expected::Nothing)]
+    #[case::removed_from_bin(".trash/inbox.md", PathState::Missing, Expected::Nothing)]
     fn fs_changes_are_classified(
         #[case] path: &str,
         #[case] state: PathState,

@@ -8,6 +8,7 @@
 pub mod confirm;
 pub mod editor;
 pub mod effect;
+pub mod entry_visibility;
 pub mod filter;
 pub mod help;
 mod history;

@@ -1,0 +1,16 @@
+---
+source: tests/hidden_entries.rs
+expression: system_under_test
+---
+"╭ Lists  hidden shown ─╮╭ Chores  1/2 ─────────────────────────────────────────╮"
+"│ ▾ .obsidian          ││   [ ] Vacuum                                         │"
+"│   ▾ templates        ││   [x] Dust                                           │"
+"│       Daily      0/1 ││                                                      │"
+"│ ▾ Home               ││                                                      │"
+"│   • Chores       1/2 ││                                                      │"
+"│   .drafts        0/1 ││                                                      │"
+"│   Inbox          0/1 ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" o new list  O new folder  enter open  r rename  dd delete               ? help "

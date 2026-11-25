@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::app::confirm::ConfirmKind;
+use crate::app::entry_visibility::HiddenEntries;
 use crate::app::prompt::PromptKind;
 use crate::app::search::{PaneFilter, SearchItem};
 use crate::app::state::{App, Focus, Mode};
@@ -14,7 +15,7 @@ use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
 use crate::config::keymap::action::Action;
 use crate::storage::workspace::{Entry, List, ListPath, Workspace, moved_path};
-use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem};
+use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem, prune};
 use crate::ui::text_input::TextInput;
 
 /// Identifies a row of the workspace tree across rescans.
@@ -129,13 +130,13 @@ impl OutlineItem for TreeItem<'_> {
     }
 }
 
-/// Returns every folder and list of `workspace` in display order, parents before their
-/// entries, ready for an [`Outline`].
+/// Returns the folders and lists of `workspace` that `hidden_entries` shows, in display order,
+/// parents before their entries, ready for an [`Outline`].
 #[must_use]
-pub fn tree_items(workspace: &Workspace) -> Vec<TreeItem<'_>> {
+pub fn tree_items(workspace: &Workspace, hidden_entries: HiddenEntries) -> Vec<TreeItem<'_>> {
     let mut items = Vec::new();
     push_items(&mut items, workspace.entries(), 0);
-    items
+    prune(items, |item| hidden_entries.shows(item.entry)).collect()
 }
 
 fn push_items<'workspace>(
@@ -157,21 +158,26 @@ fn push_items<'workspace>(
     }
 }
 
-/// The lists pane: the selection and folding of the workspace tree, its search filter and the
-/// active list, whose tasks the tasks pane shows.
+/// The lists pane: the selection and folding of the workspace tree, its search filter, whether
+/// it shows hidden entries and the active list, whose tasks the tasks pane shows.
 #[derive(Debug, Clone)]
 pub struct ListsPane {
     outline: Outline<EntryKey>,
     active: Option<ListPath>,
     filter: PaneFilter<EntryKey>,
+    hidden_entries: HiddenEntries,
 }
 
 impl ListsPane {
-    /// Selects and activates the first list of `workspace` in display order, if it has any,
-    /// in a pane `viewport_height` rows high.
+    /// Selects and activates the first list of `workspace` in display order that
+    /// `hidden_entries` shows, if there is any, in a pane `viewport_height` rows high.
     #[must_use]
-    pub fn new(workspace: &Workspace, viewport_height: usize) -> Self {
-        let items = tree_items(workspace);
+    pub fn new(
+        workspace: &Workspace,
+        hidden_entries: HiddenEntries,
+        viewport_height: usize,
+    ) -> Self {
+        let items = tree_items(workspace, hidden_entries);
         let mut outline = Outline::new();
         let first_list = items.iter().find_map(|item| match &item.key {
             EntryKey::List(path) => Some((&item.key, path)),
@@ -183,6 +189,7 @@ impl ListsPane {
                 outline,
                 active: None,
                 filter: PaneFilter::default(),
+                hidden_entries,
             };
         };
         match outline.select(&items, key, viewport_height) {
@@ -193,7 +200,26 @@ impl ListsPane {
             active: Some(path.clone()),
             outline,
             filter: PaneFilter::default(),
+            hidden_entries,
         }
+    }
+
+    /// Returns whether the pane shows hidden folders and lists.
+    #[must_use]
+    pub fn hidden_entries(&self) -> HiddenEntries {
+        self.hidden_entries
+    }
+
+    /// Shows hidden entries of `workspace` if they are hidden and hides them otherwise, in a
+    /// viewport `viewport_height` rows high; a selection that becomes hidden moves to the
+    /// nearest entry that is still shown.
+    pub(super) fn toggle_hidden(&mut self, workspace: &Workspace, viewport_height: usize) {
+        self.hidden_entries = self.hidden_entries.toggled();
+        let all = self
+            .filter
+            .apply(tree_items(workspace, HiddenEntries::Shown));
+        let shown = self.items(workspace);
+        self.outline.select_nearest(&all, &shown, viewport_height);
     }
 
     /// Returns the navigation state of the workspace tree.
@@ -222,7 +248,8 @@ impl ListsPane {
     /// display order.
     #[must_use]
     pub fn items<'workspace>(&self, workspace: &'workspace Workspace) -> Vec<TreeItem<'workspace>> {
-        self.filter.apply(tree_items(workspace))
+        self.filter
+            .apply(tree_items(workspace, self.hidden_entries))
     }
 
     pub(super) fn filter_mut(&mut self) -> &mut PaneFilter<EntryKey> {
@@ -232,8 +259,12 @@ impl ListsPane {
     /// Filters the tree of `workspace` again after the filter changed, in a viewport
     /// `viewport_height` rows high.
     pub(super) fn refilter(&mut self, workspace: &Workspace, viewport_height: usize) {
-        self.filter
-            .refilter(&mut self.outline, || tree_items(workspace), viewport_height);
+        let hidden_entries = self.hidden_entries;
+        self.filter.refilter(
+            &mut self.outline,
+            || tree_items(workspace, hidden_entries),
+            viewport_height,
+        );
     }
 
     /// Keeps the selection inside a viewport `viewport_height` rows high, for example after
@@ -439,9 +470,7 @@ pub(super) fn check_move_target(
     entries: &[EntryKey],
     folder: &Path,
 ) -> Result<(), String> {
-    let is_folder =
-        folder.as_os_str().is_empty() || matches!(workspace.entry(folder), Some(Entry::Folder(_)));
-    if !is_folder {
+    if !workspace.contains_folder(folder) {
         return Err(format!("there is no folder {}", folder.display()));
     }
     let moved_into_itself = entries.iter().find_map(|entry| match entry {
@@ -609,7 +638,33 @@ mod tests {
         let workspace = Workspace::scan(root.path(), IndentStyle::default()).unwrap();
         let expected = [("home", 0), ("empty", 1), ("chores", 1), ("inbox", 0)];
 
-        let system_under_test: Vec<(&str, usize)> = tree_items(&workspace)
+        let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, HiddenEntries::Hidden)
+            .iter()
+            .map(|item| (item.entry().name(), item.depth()))
+            .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::shown(
+        HiddenEntries::Shown,
+        &[(".obsidian", 0), ("daily", 1), ("home", 0), (".drafts", 1), ("chores", 1)]
+    )]
+    #[case::hidden(HiddenEntries::Hidden, &[("home", 0), ("chores", 1)])]
+    fn tree_items_leave_out_hidden_entries_while_they_are_hidden(
+        #[case] hidden_entries: HiddenEntries,
+        #[case] expected: &[(&str, usize)],
+    ) {
+        let root = TempDir::new().unwrap();
+        fs::create_dir_all(root.path().join(".obsidian")).unwrap();
+        fs::create_dir_all(root.path().join("home")).unwrap();
+        fs::write(root.path().join(".obsidian/daily.md"), "").unwrap();
+        fs::write(root.path().join("home/.drafts.md"), "").unwrap();
+        fs::write(root.path().join("home/chores.md"), "").unwrap();
+        let workspace = Workspace::scan(root.path(), IndentStyle::default()).unwrap();
+
+        let system_under_test: Vec<(&str, usize)> = tree_items(&workspace, hidden_entries)
             .iter()
             .map(|item| (item.entry().name(), item.depth()))
             .collect();

@@ -83,8 +83,6 @@ pub enum Action {
     Undo,
     /// Redo the last undone change.
     Redo,
-    /// Show or hide completed tasks.
-    ToggleCompleted,
     /// Open the list in the editor at the selected task.
     OpenInEditor,
     /// Select the next row.
@@ -119,6 +117,8 @@ pub enum Action {
     Rename,
     /// Move the selected lists and folders into another folder.
     MoveToFolder,
+    /// Show or hide hidden folders and lists.
+    ToggleHidden,
     /// Delete the selected list, folder or task.
     Delete,
     /// Add a task below the selected one.
@@ -161,6 +161,8 @@ pub enum Action {
     SortAlphabetically,
     /// Sort by status.
     SortByStatus,
+    /// Show or hide completed tasks.
+    ToggleCompleted,
     /// Start or end selecting several rows.
     VisualMode,
     /// Delete the selected tasks, lists or empty folders.
@@ -246,6 +248,7 @@ impl Action {
             Self::NewFolder => "create a folder",
             Self::Rename => "rename the selected list or folder",
             Self::MoveToFolder => "move the list, folder or selection into a folder",
+            Self::ToggleHidden => "show or hide hidden folders and lists",
             Self::Delete => "delete the selected list, empty folder or task",
             Self::NewTaskBelow => "add a task below the selected one",
             Self::NewTaskAbove => "add a task above the selected one",
@@ -310,6 +313,7 @@ impl Action {
             Self::NewFolder => "new folder",
             Self::Rename => "rename",
             Self::MoveToFolder => "move",
+            Self::ToggleHidden => "hidden",
             Self::Delete | Self::DeleteSelection => "delete",
             Self::NewTaskBelow => "new task",
             Self::NewTaskAbove => "task above",
@@ -356,7 +360,6 @@ impl Action {
             | Self::ClearFilter
             | Self::Undo
             | Self::Redo
-            | Self::ToggleCompleted
             | Self::OpenInEditor => GLOBAL,
             Self::Search => SEARCH,
             Self::MoveDown
@@ -371,7 +374,9 @@ impl Action {
             | Self::FoldAll
             | Self::UnfoldAll
             | Self::Delete => TREE,
-            Self::Open | Self::NewList | Self::NewFolder | Self::Rename => LISTS,
+            Self::Open | Self::NewList | Self::NewFolder | Self::Rename | Self::ToggleHidden => {
+                LISTS
+            }
             Self::MoveToFolder => LISTS_AND_VISUAL,
             Self::NewTaskBelow
             | Self::NewTaskAbove
@@ -392,7 +397,8 @@ impl Action {
             | Self::SortByPriority
             | Self::SortByDueDate
             | Self::SortAlphabetically
-            | Self::SortByStatus => TASKS,
+            | Self::SortByStatus
+            | Self::ToggleCompleted => TASKS,
             Self::VisualMode => PANES_AND_VISUAL,
             Self::DeleteSelection | Self::YankSelection => VISUAL,
             Self::CloseHelp => HELP,
@@ -428,7 +434,7 @@ impl Action {
             Self::ClearFilter => &["esc"],
             Self::Undo => &["u"],
             Self::Redo => &["ctrl-r"],
-            Self::ToggleCompleted => &["H"],
+            Self::ToggleCompleted | Self::ToggleHidden => &["H"],
             Self::OpenInEditor => &["e"],
             Self::MoveDown => &["j", "down"],
             Self::MoveUp => &["k", "up"],
@@ -550,6 +556,8 @@ mod tests {
     #[case::delete_selection(Action::DeleteSelection, &["d"])]
     #[case::yank_selection(Action::YankSelection, &["y"])]
     #[case::move_to_folder(Action::MoveToFolder, &["m"])]
+    #[case::toggle_completed(Action::ToggleCompleted, &["H"])]
+    #[case::toggle_hidden(Action::ToggleHidden, &["H"])]
     fn default_keys_match_the_readme(#[case] action: Action, #[case] notations: &[&str]) {
         let expected = sequences(notations);
 
@@ -569,6 +577,8 @@ mod tests {
     #[case::delete(Action::Delete, &[Context::Lists, Context::Tasks])]
     #[case::lists(Action::NewList, &[Context::Lists])]
     #[case::tasks(Action::NewTaskBelow, &[Context::Tasks])]
+    #[case::toggle_completed(Action::ToggleCompleted, &[Context::Tasks])]
+    #[case::toggle_hidden(Action::ToggleHidden, &[Context::Lists])]
     #[case::help(Action::CloseHelp, &[Context::Help])]
     #[case::dialog(Action::ConfirmYes, &[Context::Dialog])]
     #[case::input(Action::Submit, &[Context::Input])]

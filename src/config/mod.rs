@@ -184,6 +184,7 @@ where
 #[serde(default, deny_unknown_fields)]
 pub struct WorkspaceConfig {
     root: Option<PathBuf>,
+    show_hidden: bool,
 }
 
 impl WorkspaceConfig {
@@ -191,6 +192,13 @@ impl WorkspaceConfig {
     #[must_use]
     pub fn root(&self) -> Option<&Path> {
         self.root.as_deref()
+    }
+
+    /// Returns whether hidden folders and lists, whose name starts with `.`, are shown on
+    /// start-up.
+    #[must_use]
+    pub const fn show_hidden(&self) -> bool {
+        self.show_hidden
     }
 }
 
@@ -379,6 +387,7 @@ mod tests {
         let system_under_test = Config::default();
 
         assert_eq!(system_under_test.workspace().root(), None);
+        assert!(!system_under_test.workspace().show_hidden());
         assert_eq!(*system_under_test.tasks(), expected_tasks);
         assert_eq!(system_under_test.editor(), None);
     }
@@ -429,11 +438,13 @@ mod tests {
 
     #[test]
     fn reads_every_setting() {
-        let yaml = "workspace:\n  root: /srv/todo\ntasks:\n  show_completed: false\n  \
-                    record_completion_date: false\n  indent: 2\neditor: code --wait\n";
+        let yaml = "workspace:\n  root: /srv/todo\n  show_hidden: true\ntasks:\n  \
+                    show_completed: false\n  record_completion_date: false\n  indent: 2\n\
+                    editor: code --wait\n";
         let expected = Config {
             workspace: WorkspaceConfig {
                 root: Some(PathBuf::from("/srv/todo")),
+                show_hidden: true,
             },
             tasks: TasksConfig {
                 show_completed: false,

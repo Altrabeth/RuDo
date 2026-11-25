@@ -73,7 +73,7 @@ fn title_says_completed_hidden_and_counts_every_task() {
     let mut test_app = TestApp::new(WORKSPACE);
     let expected_title = "Groceries  2/7  completed hidden";
 
-    let system_under_test = top_row(test_app.press("H"));
+    let system_under_test = top_row(test_app.press("2 H"));
 
     assert!(system_under_test.contains(expected_title));
 }

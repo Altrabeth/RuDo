@@ -15,9 +15,12 @@ workspace:
   # relative path is relative to the folder of this file. `--root` on the command line wins.
   # `null` uses $XDG_DATA_HOME/rudo (~/.local/share/rudo), which is created on first start.
   root: null
+  # Show hidden folders and lists, whose name starts with `.`, on start-up (toggle with `H`
+  # in the lists pane).
+  show_hidden: false
 
 tasks:
-  # Show completed tasks on start-up (toggle with `H`).
+  # Show completed tasks on start-up (toggle with `H` in the tasks pane).
   show_completed: true
   # Write `[completion:: YYYY-MM-DD]` when a task is marked done.
   record_completion_date: true
@@ -48,6 +51,7 @@ theme:
   # folder: { fg: blue }
   # list: {}
   # list_count: { fg: dark-gray }
+  # hidden_entry: { modifiers: [dim] }
   # tree_guide: { fg: dark-gray }
   # task_done: { fg: dark-gray }
   # task_in_progress: { fg: yellow }

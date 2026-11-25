@@ -295,7 +295,6 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::ClearFilter
         | Action::Undo
         | Action::Redo
-        | Action::ToggleCompleted
         | Action::OpenInEditor => HelpHeading::Everywhere,
         Action::MoveDown
         | Action::MoveUp
@@ -313,7 +312,8 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::NewList
         | Action::NewFolder
         | Action::Rename
-        | Action::MoveToFolder => HelpHeading::ListsPane,
+        | Action::MoveToFolder
+        | Action::ToggleHidden => HelpHeading::ListsPane,
         Action::NewTaskBelow
         | Action::NewTaskAbove
         | Action::NewSubtask
@@ -333,7 +333,8 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::SortByPriority
         | Action::SortByDueDate
         | Action::SortAlphabetically
-        | Action::SortByStatus => HelpHeading::TasksPane,
+        | Action::SortByStatus
+        | Action::ToggleCompleted => HelpHeading::TasksPane,
         Action::VisualMode | Action::DeleteSelection | Action::YankSelection => {
             HelpHeading::VisualMode
         }
@@ -641,6 +642,7 @@ mod tests {
             "O",
             "r",
             "m",
+            "H",
             "Visual mode (lists and tasks pane)",
             "d",
         ];

@@ -134,6 +134,7 @@ impl OutlineCommand {
             | Action::NewFolder
             | Action::Rename
             | Action::MoveToFolder
+            | Action::ToggleHidden
             | Action::Delete
             | Action::NewTaskBelow
             | Action::NewTaskAbove

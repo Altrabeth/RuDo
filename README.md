@@ -90,9 +90,15 @@ first, then lists, each sorted by name ignoring case:
 | ------------------------------- | ----------------------------------------------------- |
 | directory                       | folder, can be folded with `za`                       |
 | `*.md` file                     | todo list, named after the file without `.md`         |
-| hidden entries (`.obsidian/`)   | ignored                                               |
+| hidden entries (`.obsidian/`, `.drafts.md`) | shown dimmed after `H` in the lists pane  |
 | other files                     | ignored                                               |
 | symbolic link                   | a link to a `.md` file is a list; linked directories are not followed |
+
+Folders and lists whose name starts with a dot are hidden until `H` in the lists pane shows
+them; the pane title then says `hidden shown`, and `H` hides them again. Everything inside a
+hidden folder is hidden with it, hidden folders that contain no `.md` file at any depth (such
+as `.git/`) are left out completely, and the bin `.trash/` at the top of the workspace is
+never shown. `workspace.show_hidden: true` shows hidden entries from the start.
 
 A list shows `done/total` for all its tasks, subtasks included; the active list, whose tasks
 the tasks pane shows, is marked with `•`. A file that cannot be read or is not UTF-8 stays in
@@ -211,7 +217,6 @@ other; the keys typed so far are shown in the bottom bar.
 | `esc`           | `clear-filter`     | remove the active filter                            |
 | `u`             | `undo`             | undo the last change to a task                      |
 | `ctrl-r`        | `redo`             | redo the last undone change                         |
-| `H`             | `toggle-completed` | show or hide completed tasks                        |
 | `e`             | `open-in-editor`   | open the list in your editor at the selected task   |
 
 `/` opens a search prompt in the bottom bar and filters the focused pane while you type,
@@ -260,6 +265,7 @@ when the editor exits.
 | `O`     | `new-folder` | create a folder                                           |
 | `r`     | `rename`     | rename the selected list or folder                        |
 | `m`     | `move-to-folder` | move the list, folder or selection into a folder      |
+| `H`     | `toggle-hidden` | show or hide hidden folders and lists                    |
 | `d d`   | `delete`     | delete the selected list or empty folder (asks first)     |
 
 ### Tasks pane
@@ -287,6 +293,7 @@ when the editor exits.
 | `s d`          | `sort-by-due-date`    | sort by due date, tasks without one last         |
 | `s a`          | `sort-alphabetically` | sort by text                                     |
 | `s s`          | `sort-by-status`      | open tasks first                                 |
+| `H`            | `toggle-completed`    | show or hide completed tasks                     |
 
 The task text is edited in its row; `enter` saves it, `esc` discards it, and empty text
 changes nothing. Deleting a task does not ask: `u` brings it back and `p` pastes it. Every
@@ -297,6 +304,9 @@ sorts highest first, alphabetical sorting ignores case.
 While completed (done and cancelled) tasks are hidden with `H`, the pane title says
 `completed hidden` and the counter still counts every task. An open subtask of a completed
 task is hidden together with its parent.
+
+`H` in the lists pane shows and hides hidden folders and lists instead (`toggle-hidden`); a
+binding of `toggle-completed` in your configuration only applies in the tasks pane.
 
 `m` asks for the folder that receives the selected list or folder, relative to the workspace
 folder (`Home/Garden`); empty text moves it to the top level. A folder cannot be moved into
@@ -372,9 +382,12 @@ workspace:
   # Folder holding your lists (default: null for $XDG_DATA_HOME/rudo). `~` is expanded; a
   # relative path is relative to this file. Overridden by `--root`.
   root: ~/Obsidian/Vault/Todo
+  # Show hidden folders and lists, such as `.obsidian/`, on start-up (toggle with `H` in the
+  # lists pane).
+  show_hidden: false
 
 tasks:
-  # Show completed tasks on start-up (toggle with `H`).
+  # Show completed tasks on start-up (toggle with `H` in the tasks pane).
   show_completed: false
   # Write `[completion:: YYYY-MM-DD]` when a task is marked done.
   record_completion_date: true
@@ -452,6 +465,7 @@ there.
 | `selection`, `selection_unfocused`    | selected row in the focused and the other pane   |
 | `visual_selection`                    | rows selected in visual mode                     |
 | `folder`, `list`, `list_count`        | lists pane entries and `done/total` counters     |
+| `hidden_entry`                        | hidden folders and lists while they are shown    |
 | `tree_guide`                          | indentation guides and fold markers              |
 | `task_done`, `task_in_progress`, `task_cancelled` | task text by status                  |
 | `priority_highest`, `priority_high`, `priority_medium`, `priority_low`, `priority_lowest` | priority markers |

@@ -72,7 +72,9 @@ set to the Dataview task format, and RuDo next to it.
 - [ ] Editing the same list in both programs at the same moment never loses the Obsidian
       edit; RuDo says that its last change was not applied.
 - [ ] Creating, renaming and deleting a list in Obsidian updates the lists pane.
-- [ ] The `.obsidian/` folder is not shown in the lists pane.
+- [ ] The `.obsidian/` folder is not shown in the lists pane until **`H`** there shows it
+      dimmed (title `hidden shown`); `.git/` and `.trash/` never appear, and **`H`** again
+      hides them.
 
 ## Editor
 

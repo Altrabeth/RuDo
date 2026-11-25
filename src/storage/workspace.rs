@@ -38,10 +38,12 @@ impl Workspace {
     /// Scans the folder `root` recursively and loads every list in it.
     ///
     /// Directories become [`Folder`]s and `*.md` files (extension compared case-insensitively)
-    /// become [`List`]s; all other files are never opened. Entries whose name starts with `.`
-    /// are skipped, and symlinked directories are not followed, so symlink loops cannot make
-    /// the scan endless. Every directory is sorted folders first, then lists, each
-    /// case-insensitively with ties broken by the exact name.
+    /// become [`List`]s; all other files are never opened. Hidden entries, whose name starts
+    /// with `.`, are kept and tell so with [`Entry::is_hidden`], but a hidden folder without
+    /// lists at any depth is left out, and the bin (`.trash/` at the root) is never part of the
+    /// tree. Symlinked directories are not followed, so symlink loops cannot make the scan
+    /// endless. Every directory is sorted folders first, then lists, each case-insensitively
+    /// with ties broken by the exact name.
     ///
     /// List files are read and parsed in parallel. A list that cannot be read or is not UTF-8
     /// keeps its place in the tree and carries its [`LoadError`]; a subdirectory that cannot
@@ -147,6 +149,13 @@ impl Workspace {
     pub fn entry(&self, path: &Path) -> Option<&Entry> {
         let siblings = folder_entries(&self.entries, path.parent()?)?;
         siblings.iter().find(|entry| entry.path() == path)
+    }
+
+    /// Returns whether `path`, relative to the workspace root, is a folder of the workspace or
+    /// the root itself (an empty path).
+    #[must_use]
+    pub fn contains_folder(&self, path: &Path) -> bool {
+        folder_entries(&self.entries, path).is_some()
     }
 
     /// Reads the list file at `path` again, as a scan would, and replaces its content if the
@@ -355,6 +364,13 @@ impl Entry {
             Self::Folder(_) => EntryKind::Folder,
             Self::List(_) => EntryKind::List,
         }
+    }
+
+    /// Returns whether the entry is hidden: its name or the name of a folder containing it
+    /// starts with `.`, as in `.obsidian/` or `.drafts.md`.
+    #[must_use]
+    pub fn is_hidden(&self) -> bool {
+        is_hidden_path(self.path())
     }
 }
 
@@ -600,7 +616,8 @@ fn display_order(first: (EntryKind, &str), second: (EntryKind, &str)) -> Orderin
 /// Turns a directory entry into a folder or list, or `None` if it is not part of the tree.
 fn classify(root: &Path, relative: &Path, entry: &DirEntry) -> Option<PendingEntry> {
     let file_name = entry.file_name();
-    if is_hidden(&file_name) {
+    let path = relative.join(&file_name);
+    if is_in_bin(&path) {
         return None;
     }
     let file_type = match entry.file_type() {
@@ -610,7 +627,6 @@ fn classify(root: &Path, relative: &Path, entry: &DirEntry) -> Option<PendingEnt
             return None;
         }
     };
-    let path = relative.join(&file_name);
     if file_type.is_dir() {
         return read_folder(root, path, &file_name);
     }
@@ -629,8 +645,12 @@ fn classify(root: &Path, relative: &Path, entry: &DirEntry) -> Option<PendingEnt
 }
 
 /// Reads the folder at `path`, or logs a warning and returns `None` if it is unreadable.
+///
+/// A hidden folder without lists at any depth is left out too, so that folders such as
+/// `.git/` never clutter the tree; its subfolders are left out first, from the bottom up.
 fn read_folder(root: &Path, path: PathBuf, file_name: &OsStr) -> Option<PendingEntry> {
     match read_directory(root, &path) {
+        Ok(entries) if entries.is_empty() && is_hidden_path(&path) => None,
         Ok(entries) => Some(PendingEntry::Folder {
             name: file_name.to_string_lossy().into_owned(),
             path,
@@ -643,9 +663,24 @@ fn read_folder(root: &Path, path: PathBuf, file_name: &OsStr) -> Option<PendingE
     }
 }
 
-/// Returns whether `file_name` starts with `.`, which hides it from the workspace.
-pub(crate) fn is_hidden(file_name: &OsStr) -> bool {
+/// Returns whether `file_name` starts with `.`, which makes it a hidden entry.
+fn is_hidden(file_name: &OsStr) -> bool {
     file_name.as_encoded_bytes().first() == Some(&b'.')
+}
+
+/// Returns whether the entry at `path`, relative to the workspace root, is hidden: its name or
+/// the name of a folder containing it starts with `.`.
+pub(crate) fn is_hidden_path(path: &Path) -> bool {
+    path.components()
+        .any(|component| is_hidden(component.as_os_str()))
+}
+
+/// The bin for deleted lists, relative to the workspace root, which is never part of the tree.
+const BIN_FOLDER: &str = ".trash";
+
+/// Returns whether `path`, relative to the workspace root, is the bin or inside it.
+pub(crate) fn is_in_bin(path: &Path) -> bool {
+    path.starts_with(BIN_FOLDER)
 }
 
 /// Returns whether `path` has the extension of list files.
@@ -916,16 +951,109 @@ mod tests {
     }
 
     #[test]
-    fn scan_skips_hidden_entries() {
+    fn scan_keeps_hidden_entries_in_display_order() {
         let root = TempDir::new().unwrap();
-        write_file(root.path(), ".obsidian/workspace.md", b"");
+        write_file(root.path(), ".obsidian/templates/daily.md", b"");
         write_file(root.path(), ".hidden.md", b"");
         write_file(root.path(), "visible.md", b"");
-        let expected = vec!["visible.md".to_owned()];
+        let expected = [
+            ".obsidian/",
+            ".obsidian/templates/",
+            ".obsidian/templates/daily.md",
+            ".hidden.md",
+            "visible.md",
+        ]
+        .map(String::from);
 
         let system_under_test = scan(&root);
 
         assert_eq!(outline(system_under_test.entries()), expected);
+    }
+
+    #[rstest]
+    #[case::hidden_list(".hidden.md", true)]
+    #[case::hidden_folder(".obsidian", true)]
+    #[case::inside_a_hidden_folder(".obsidian/templates/daily.md", true)]
+    #[case::visible_list("visible.md", false)]
+    #[case::visible_folder("home", false)]
+    #[case::hidden_inside_a_visible_folder("home/.drafts.md", true)]
+    fn entries_inside_or_named_with_a_dot_are_hidden(#[case] path: &str, #[case] expected: bool) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), ".obsidian/templates/daily.md", b"");
+        write_file(root.path(), ".hidden.md", b"");
+        write_file(root.path(), "visible.md", b"");
+        write_file(root.path(), "home/.drafts.md", b"");
+        let workspace = scan(&root);
+
+        let system_under_test = workspace.entry(Path::new(path)).unwrap();
+
+        assert_eq!(system_under_test.is_hidden(), expected);
+    }
+
+    #[test]
+    fn scan_leaves_out_hidden_folders_without_lists_at_any_depth() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), ".git/objects/ab/cdef", b"");
+        write_file(root.path(), ".obsidian/plugins/tasks/main.js", b"");
+        write_file(root.path(), ".obsidian/notes/todo.md", b"");
+        create_dir(root.path(), ".empty");
+        create_dir(root.path(), "visible");
+        let expected = [
+            ".obsidian/",
+            ".obsidian/notes/",
+            ".obsidian/notes/todo.md",
+            "visible/",
+        ]
+        .map(String::from);
+
+        let system_under_test = scan(&root);
+
+        assert_eq!(outline(system_under_test.entries()), expected);
+    }
+
+    #[test]
+    fn scan_never_includes_the_bin() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), ".trash/deleted.md", b"");
+        write_file(root.path(), "home/.trash/kept.md", b"");
+        let expected = ["home/", "home/.trash/", "home/.trash/kept.md"].map(String::from);
+
+        let system_under_test = scan(&root);
+
+        assert_eq!(outline(system_under_test.entries()), expected);
+    }
+
+    #[rstest]
+    #[case::bin(".trash", true)]
+    #[case::inside_the_bin(".trash/deleted.md", true)]
+    #[case::trash_in_a_folder("home/.trash", false)]
+    #[case::similar_name(".trash-old", false)]
+    #[case::root("", false)]
+    fn only_the_bin_at_the_workspace_root_is_in_the_bin(
+        #[case] path: &str,
+        #[case] expected: bool,
+    ) {
+        let system_under_test = is_in_bin(Path::new(path));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::folder("home", true)]
+    #[case::root("", true)]
+    #[case::hidden_folder(".notes", true)]
+    #[case::list("inbox.md", false)]
+    #[case::missing("garden", false)]
+    fn contains_folder_finds_folders_and_the_root(#[case] path: &str, #[case] expected: bool) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/chores.md", b"");
+        write_file(root.path(), ".notes/ideas.md", b"");
+        write_file(root.path(), "inbox.md", b"");
+        let workspace = scan(&root);
+
+        let system_under_test = workspace.contains_folder(Path::new(path));
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[test]

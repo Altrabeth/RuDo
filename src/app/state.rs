@@ -4,6 +4,7 @@ use jiff::civil::Date;
 use ratatui::layout::{Rect, Size};
 
 use crate::app::confirm::ConfirmOverlay;
+use crate::app::entry_visibility::HiddenEntries;
 use crate::app::help::HelpOverlay;
 use crate::app::history::History;
 use crate::app::lists::ListsPane;
@@ -67,7 +68,11 @@ impl App {
         // The size is unknown until the runtime calls `resize`, which scrolls the panes again.
         let screen_size = Size::ZERO;
         let mut app = Self {
-            lists: ListsPane::new(&workspace, viewport_height(screen_size, Focus::Lists)),
+            lists: ListsPane::new(
+                &workspace,
+                HiddenEntries::from_setting(config.workspace().show_hidden()),
+                viewport_height(screen_size, Focus::Lists),
+            ),
             tasks: TasksPane::default(),
             completed_tasks: CompletedTasks::from_setting(config.tasks().show_completed()),
             workspace,

@@ -87,7 +87,10 @@ impl InputThread {
             .spawn({
                 let stop = Arc::clone(&stop);
                 move || {
-                    read_events(&sender, &stop);
+                    {
+                        let _report = PanicReport(&sender);
+                        read_events(&sender, &stop);
+                    }
                     sender
                 }
             })?;
@@ -120,6 +123,24 @@ impl Drop for InputThread {
     fn drop(&mut self) {
         // Dropping the sender closes the channel unless another sender is left.
         drop(self.join());
+    }
+}
+
+/// Reports a panic of the input thread to the event loop as an input error.
+///
+/// The workspace watcher holds another sender, so the channel stays open when the input
+/// thread dies; without this report the loop would wait for input that never comes.
+struct PanicReport<'sender>(&'sender Sender<io::Result<Event>>);
+
+impl Drop for PanicReport<'_> {
+    fn drop(&mut self) {
+        if !thread::panicking() {
+            return;
+        }
+        let error = io::Error::other("the terminal input thread panicked");
+        if self.0.send(Err(error)).is_err() {
+            tracing::error!("the terminal input thread panicked after the event loop ended");
+        }
     }
 }
 
@@ -174,6 +195,34 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    #[test]
+    fn panic_of_the_input_thread_reaches_the_loop_as_an_error() {
+        let (sender, receiver) = mpsc::channel();
+        let _still_open = sender.clone();
+
+        let system_under_test = thread::spawn(move || {
+            let _report = PanicReport(&sender);
+            panic!("simulated failure of the input thread");
+        })
+        .join();
+
+        assert!(system_under_test.is_err());
+        assert!(matches!(receiver.try_recv(), Ok(Err(_))));
+    }
+
+    #[test]
+    fn input_thread_that_ends_normally_reports_nothing() {
+        let (sender, receiver) = mpsc::channel();
+
+        let system_under_test = thread::spawn(move || {
+            let _report = PanicReport(&sender);
+        })
+        .join();
+
+        assert!(system_under_test.is_ok());
+        assert!(receiver.try_recv().is_err());
+    }
 
     fn key_event(kind: KeyEventKind) -> terminal_event::Event {
         terminal_event::Event::Key(KeyEvent {

@@ -52,7 +52,9 @@ the recipes of the justfile, and `just packaging-update` writes it into the reci
 
 A `~` sorts before anything in Debian and RPM; an alphabetic part after the release sorts before
 it in `vercmp`; Gentoo has the suffixes `_alpha`, `_beta`, `_pre` and `_rc`. Further hyphens of
-the pre-release become dots. A release version is the same in every format. The script refuses a
+the pre-release become dots. A release version is the same in every format. GitHub does not
+allow a `~` in the name of a release file, so the files of a pre-release are named with a dot
+instead (`rudo-tui_1.0.0.rc.1-1_amd64.deb`); the version inside the package keeps the `~`. The script refuses a
 pre-release that Arch cannot sort (one that starts with a digit) or Gentoo cannot express (one
 other than `alpha`, `beta`, `pre` or `rc` with an optional number).
 

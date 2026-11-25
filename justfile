@@ -192,9 +192,13 @@ linux-packages target="x86_64-unknown-linux-musl" out_dir="target/distrib":
         --output "$staging"
     cd "$staging"
     for package in *; do
-        sha256sum "$package" > "$package.sha256"
-        mv "$package" "$package.sha256" "{{ absolute_path(out_dir) }}/"
-        echo "$2/$package"
+        # GitHub renames release assets with a `~` (pre-releases) to a `.`; naming the file that
+        # way already keeps the name in its checksum file equal to the downloaded file
+        asset="${package//\~/.}"
+        [ "$asset" = "$package" ] || mv "$package" "$asset"
+        sha256sum "$asset" > "$asset.sha256"
+        mv "$asset" "$asset.sha256" "{{ absolute_path(out_dir) }}/"
+        echo "$2/$asset"
     done
 
 # Install every package in out_dir in a container of its distribution, run it and remove it

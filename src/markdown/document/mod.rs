@@ -41,7 +41,9 @@ const MIN_FENCE_LENGTH: usize = 3;
 /// Identifies a task within one [`TodoDocument`].
 ///
 /// Ids are assigned when a document is parsed, are unique within it and stay attached to
-/// their task while other lines change. Parsing the text again assigns new ids.
+/// their task while other lines change. [`TodoDocument::reparse`] gives the tasks of a new
+/// version of a document ids that the old version never used, so an id kept from before a
+/// reload, for example by an open editor, never names a different task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TaskId(u32);
 
@@ -115,6 +117,22 @@ impl TodoDocument {
     /// than 20 GiB.
     #[must_use]
     pub fn parse(text: &str) -> Self {
+        Self::parse_from(text, 0)
+    }
+
+    /// Parses `text`, a new version of this document read from disk, with task ids that
+    /// continue after the ids of this document, so that none of its ids is reused.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ids of both versions together exceed [`u32::MAX`].
+    #[must_use]
+    pub fn reparse(&self, text: &str) -> Self {
+        Self::parse_from(text, self.next_task_id)
+    }
+
+    /// Parses `text` and numbers its tasks from `first_task_id`.
+    fn parse_from(text: &str, first_task_id: u32) -> Self {
         let (byte_order_mark, text) = match text.strip_prefix(BYTE_ORDER_MARK) {
             Some(rest) => (true, rest),
             None => (false, text),
@@ -122,6 +140,7 @@ impl TodoDocument {
         let front_matter_lines = front_matter_line_count(text);
         let mut document = Self {
             byte_order_mark,
+            next_task_id: first_task_id,
             ..Self::default()
         };
         let mut fence: Option<Fence> = None;
@@ -244,7 +263,8 @@ impl TodoDocument {
     /// or `None` if no task starts on or before that line.
     ///
     /// After a document was parsed again, this finds the task that took the place of a task
-    /// remembered by its [`TodoDocument::line_number`], because re-parsing assigns new ids.
+    /// remembered by its [`TodoDocument::line_number`], because [`TodoDocument::reparse`]
+    /// assigns new ids.
     #[must_use]
     pub fn task_at_or_before(&self, line_number: usize) -> Option<TaskId> {
         self.lines
@@ -738,6 +758,21 @@ mod tests {
         let system_under_test = document.allocate_task_id();
 
         assert!(!parsed.contains(&system_under_test));
+    }
+
+    #[test]
+    fn reparse_assigns_ids_the_previous_version_never_used() {
+        let previous = TodoDocument::parse("- [ ] a\n- [ ] b\n");
+        let previous_ids: HashSet<TaskId> = previous.tasks().map(|node| node.id()).collect();
+
+        let system_under_test = previous.reparse("- [ ] a\n- [ ] b\n- [ ] c\n");
+
+        assert!(
+            system_under_test
+                .tasks()
+                .all(|node| !previous_ids.contains(&node.id()))
+        );
+        assert_eq!(system_under_test.to_string(), "- [ ] a\n- [ ] b\n- [ ] c\n");
     }
 
     #[test]

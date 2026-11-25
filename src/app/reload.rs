@@ -3,11 +3,10 @@
 //! reloading a changed list and scanning the workspace again.
 
 use crate::app::effect::{Effect, error_report};
-use crate::app::history::History;
 use crate::app::lists::EntryChange;
 use crate::app::state::{App, Focus};
 use crate::app::status::StatusMessage;
-use crate::app::tasks::{TasksPane, list_items};
+use crate::app::tasks::list_items;
 use crate::storage::watch::{FsChange, PathState, WatchError};
 use crate::storage::workspace::{
     Entry, List, ListPath, Reload, Workspace, has_list_extension, is_hidden,
@@ -61,16 +60,20 @@ impl App {
     /// Scans the workspace folder again after another program created, removed or renamed
     /// lists or folders, and brings both panes in line with the new tree.
     ///
-    /// This is the minimal version: every list is read again, the lists pane keeps its
-    /// selection and folds where the entries still exist, the active list stays open unless
-    /// it is gone, and the tasks pane and the undo history of every list start afresh because
-    /// re-parsing assigns new task ids. Keeping documents, task selections and folds by path, and handling
-    /// conflicts with unsaved state, follows in issue #69. A workspace folder that cannot be
-    /// read any more keeps the current tree and shows an error message.
+    /// Lists whose file did not change keep their document, so their selection, folds and
+    /// undo history stay as they are; a list whose file changed is reloaded as
+    /// [`App::reload_list`] does. The lists pane keeps its selection and folds where the
+    /// entries still exist. The state of removed lists is forgotten, and if the active list
+    /// was removed, the tasks pane empties and a message says so. A workspace folder that
+    /// cannot be read any more keeps the current tree and shows an error message.
     pub fn rescan(&mut self) {
-        let root = self.workspace.root().to_path_buf();
-        let workspace = match Workspace::scan(root, self.workspace.default_indent()) {
-            Ok(workspace) => workspace,
+        let selected_lines: Vec<(&ListPath, usize)> = self
+            .tasks
+            .lists()
+            .filter_map(|list| Some((list, self.selected_line(list)?)))
+            .collect();
+        let rescan = match self.workspace.rescan() {
+            Ok(rescan) => rescan,
             Err(error) => {
                 let report = error_report(&error);
                 tracing::warn!(%report, "cannot scan the workspace again");
@@ -79,18 +82,40 @@ impl App {
             }
         };
         tracing::info!("workspace changed on disk and was scanned again");
-        self.workspace = workspace;
-        self.tasks = TasksPane::default();
-        self.history = History::default();
-        match self.lists.active().cloned() {
-            Some(active) if self.workspace.list(&active).is_none() => {
-                self.apply_entry_change(EntryChange::Removed(active.as_path()));
-            }
-            Some(_) | None => self
-                .lists
-                .refresh(&self.workspace, self.viewport_height(Focus::Lists)),
+        let replaced: Vec<(&ListPath, Option<usize>)> = rescan
+            .replaced()
+            .iter()
+            .map(|list| {
+                let line = selected_lines
+                    .iter()
+                    .find_map(|&(selected, line)| (selected == list).then_some(line));
+                (list, line)
+            })
+            .collect();
+        for (list, selected_line) in replaced {
+            self.list_replaced(list, selected_line);
         }
+        for list in rescan.removed() {
+            self.list_removed(list);
+        }
+        self.lists
+            .refresh(&self.workspace, self.viewport_height(Focus::Lists));
         self.refresh_tasks();
+    }
+
+    /// Forgets the state of `list`, which is no longer in the workspace, and closes it if it
+    /// is the active list.
+    fn list_removed(&mut self, list: &List) {
+        let path = list.path();
+        self.history.forget(path);
+        self.tasks.forget(path);
+        if self.lists.active() == Some(path) {
+            self.apply_entry_change(EntryChange::Removed(path.as_path()));
+            self.show_message(StatusMessage::info(format!(
+                "{} was removed on disk",
+                list.name()
+            )));
+        }
     }
 
     /// Reports that the workspace cannot be watched, so changes by other programs only show
@@ -107,24 +132,53 @@ impl App {
     /// since RuDo last loaded or saved it, judged by its fingerprint.
     ///
     /// This is how changes made by other programs win over the in-memory state, both after
-    /// the external editor exits and when the file watcher reports a change. Re-parsing
-    /// assigns new task ids, so the tasks pane of the list starts afresh: folds are opened
-    /// and the selection moves to the task on the line of the previously selected task, or
-    /// to the last task before that line. A file that cannot be loaded any more makes the
-    /// list show its load error. The undo history of a replaced list is forgotten, because it
-    /// describes a document that no longer exists. An unchanged file and a list missing from
-    /// the workspace are left alone.
+    /// the external editor exits and when the file watcher reports a change. The new
+    /// document gets task ids the old one never used, so the tasks pane of the list starts
+    /// afresh: folds are opened and the selection moves to the task on the line of the
+    /// previously selected task, or to the last task before that line; an open inline editor
+    /// or prompt for a task of the old document finds its task gone. A file that cannot be
+    /// loaded any more makes the list show its load error. The undo history of a replaced
+    /// list is forgotten, because it describes a document that no longer exists, and the
+    /// message `<list> reloaded` is shown. An unchanged file and a list missing from the
+    /// workspace are left alone.
     pub fn reload_list(&mut self, list: &ListPath) {
         let selected_line = self.selected_line(list);
         match self.workspace.reload(list) {
             Some(Reload::Replaced) => {
                 tracing::info!(%list, "list changed on disk and was reloaded");
-                self.history.forget(list);
-                self.restore_selection(list, selected_line);
+                self.list_replaced(list, selected_line);
+                let message = format!("{} reloaded", self.list_name(list));
+                self.show_message(StatusMessage::info(message));
             }
             Some(Reload::Unchanged) => {}
             None => tracing::warn!(%list, "list to reload is not in the workspace"),
         }
+    }
+
+    /// Follows a save of `list` that was refused because another program changed its file
+    /// since RuDo loaded it: the file on disk wins, so the list is reloaded and the message
+    /// says that the last change was dropped.
+    pub(super) fn save_conflicted(&mut self, list: &ListPath) {
+        tracing::warn!(%list, "list changed on disk before it was saved; the change was dropped");
+        self.reload_list(list);
+        let message = format!(
+            "{} changed on disk; your last change was not applied",
+            self.list_name(list)
+        );
+        self.show_message(StatusMessage::error(message));
+    }
+
+    /// Follows the replaced document of `list`: forgets its undo history, which describes a
+    /// document that no longer exists, and selects the task on `selected_line`.
+    fn list_replaced(&mut self, list: &ListPath, selected_line: Option<usize>) {
+        self.history.forget(list);
+        self.restore_selection(list, selected_line);
+    }
+
+    /// Returns the name of the list at `list`, or an empty name if it is not in the
+    /// workspace.
+    fn list_name(&self, list: &ListPath) -> &str {
+        self.workspace.list(list).map_or("", List::name)
     }
 
     /// Returns the 1-based line number of the task selected in the tasks pane of `list`.
@@ -189,6 +243,7 @@ mod tests {
 
     use super::*;
     use crate::app::effect::execute;
+    use crate::app::history::History;
     use crate::app::state::tests::{app_in, only_list_path, toggle_first_task};
     use crate::config::keymap::action::Action;
     use crate::markdown::document::TaskId;
@@ -331,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn rescan_forgets_the_undo_history() {
+    fn rescan_keeps_the_undo_history_of_an_unchanged_list() {
         let directory = TempDir::new().unwrap();
         fs::write(directory.path().join("plan.md"), "- [ ] a\n").unwrap();
         let mut app = app_in(directory.path());
@@ -339,11 +394,13 @@ mod tests {
         for effect in app.edit_list(&list, toggle_first_task) {
             execute(&mut app, effect);
         }
+        let expected = app.history.clone();
         app.rescan();
 
         let system_under_test = &app.history;
 
-        assert_eq!(system_under_test, &History::default());
+        assert_eq!(system_under_test, &expected);
+        assert_ne!(system_under_test, &History::default());
     }
 
     #[test]

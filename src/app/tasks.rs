@@ -109,6 +109,17 @@ impl TasksPane {
         Some(outline)
     }
 
+    /// Returns the lists that were opened so far.
+    pub(super) fn lists(&self) -> impl Iterator<Item = &ListPath> {
+        self.outlines.keys()
+    }
+
+    /// Forgets the navigation state of the list at `path`, which is no longer in the
+    /// workspace.
+    pub(super) fn forget(&mut self, path: &ListPath) {
+        self.outlines.remove(path);
+    }
+
     /// Returns the navigation state of the list at `path`, creating it on first use.
     fn outline_mut(&mut self, path: &ListPath) -> &mut Outline<TaskId> {
         // `entry` would clone the path on every call, also for lists opened before.

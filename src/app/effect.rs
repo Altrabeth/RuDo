@@ -95,13 +95,8 @@ fn save_list(app: &mut App, list: &ListPath) {
     let path = app.workspace().absolute_path(list);
     match save(&path, loaded.document(), loaded.fingerprint()) {
         Ok(fingerprint) => app.saved(list, fingerprint),
-        Err(error) => {
-            if matches!(error, SaveError::ModifiedExternally { .. }) {
-                // The history describes the document RuDo had, not the one on disk.
-                app.history.forget(list);
-            }
-            app.save_failed(&error);
-        }
+        Err(SaveError::ModifiedExternally { .. }) => app.save_conflicted(list),
+        Err(error) => app.save_failed(&error),
     }
 }
 

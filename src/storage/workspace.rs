@@ -5,10 +5,12 @@
 //! the tree and carries its [`LoadError`], so one broken file never hides the others.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, DirEntry};
 use std::io;
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::str::{self, Utf8Error};
 
@@ -60,12 +62,47 @@ impl Workspace {
             Ok(pending) => pending,
             Err(source) => return Err(WorkspaceError::ReadRoot { path: root, source }),
         };
-        let entries = load_entries(&root, pending);
+        let (entries, _) = load_entries(&root, pending);
         Ok(Self {
             root,
             default_indent,
             entries,
         })
+    }
+
+    /// Scans the folder again, as [`Workspace::scan`] does, after other programs created,
+    /// removed or renamed folders and lists, and returns what changed among the lists the
+    /// workspace held before.
+    ///
+    /// A list that is still at its path is reloaded as [`Workspace::reload`] does: its
+    /// document is kept if the file did not change, so its task ids stay valid. Lists that
+    /// are no longer found are returned with their content.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceError::ReadRoot`] if the workspace folder cannot be read any more;
+    /// the workspace is left as it was.
+    pub fn rescan(&mut self) -> Result<Rescan, WorkspaceError> {
+        let pending = read_directory(&self.root, Path::new("")).map_err(|source| {
+            WorkspaceError::ReadRoot {
+                path: self.root.clone(),
+                source,
+            }
+        })?;
+        let mut known = HashMap::new();
+        take_lists(mem::take(&mut self.entries), &mut known);
+        let pending = adopt_known_lists(pending, &mut known);
+        let (entries, replaced) = load_entries(&self.root, pending);
+        self.entries = entries;
+        let mut removed: Vec<List> = known
+            .into_iter()
+            .map(|(path, mut list)| {
+                list.path = path;
+                list
+            })
+            .collect();
+        removed.sort_unstable_by(|first, second| first.path.cmp(&second.path));
+        Ok(Rescan { replaced, removed })
     }
 
     /// Returns the workspace folder that was scanned.
@@ -373,15 +410,34 @@ impl List {
             }
         };
         let fingerprint = Fingerprint::of(&bytes);
-        if self
-            .content
-            .as_ref()
-            .is_ok_and(|loaded| loaded.fingerprint == fingerprint)
-        {
+        let previous = self.content.as_ref().ok();
+        if previous.is_some_and(|loaded| loaded.fingerprint == fingerprint) {
             return Reload::Unchanged;
         }
-        self.content = parse_list(&bytes, fingerprint);
+        self.content = parse_list(&bytes, fingerprint, previous.map(LoadedList::document));
         Reload::Replaced
+    }
+}
+
+/// What [`Workspace::rescan`] changed among the lists the workspace held before.
+#[derive(Debug, Default)]
+pub struct Rescan {
+    replaced: Vec<ListPath>,
+    removed: Vec<List>,
+}
+
+impl Rescan {
+    /// Returns the lists still in the workspace whose content was replaced because their file
+    /// changed or cannot be loaded any more.
+    #[must_use]
+    pub fn replaced(&self) -> &[ListPath] {
+        &self.replaced
+    }
+
+    /// Returns the lists that are no longer in the workspace, ordered by path.
+    #[must_use]
+    pub fn removed(&self) -> &[List] {
+        &self.removed
     }
 }
 
@@ -471,19 +527,22 @@ enum PendingEntry {
         name: String,
         path: ListPath,
     },
+    /// A list the workspace held before a [`Workspace::rescan`], still at its path.
+    Known(List),
 }
 
 impl PendingEntry {
     fn kind(&self) -> EntryKind {
         match self {
             Self::Folder { .. } => EntryKind::Folder,
-            Self::List { .. } => EntryKind::List,
+            Self::List { .. } | Self::Known(_) => EntryKind::List,
         }
     }
 
     fn name(&self) -> &str {
         match self {
             Self::Folder { name, .. } | Self::List { name, .. } => name,
+            Self::Known(list) => list.name(),
         }
     }
 }
@@ -581,42 +640,111 @@ fn lowercase_chars(name: &str) -> impl Iterator<Item = char> + '_ {
     name.chars().flat_map(char::to_lowercase)
 }
 
-/// Loads the list files of `pending` in parallel, keeping the order of the entries.
-fn load_entries(root: &Path, pending: Vec<PendingEntry>) -> Vec<Entry> {
+/// Moves every list of `entries` into `lists`, keyed by its path.
+///
+/// The path moves into the key instead of being cloned; the list gets it back when it leaves
+/// the map, so a list in the map has an empty path.
+fn take_lists(entries: Vec<Entry>, lists: &mut HashMap<ListPath, List>) {
+    for entry in entries {
+        match entry {
+            Entry::Folder(folder) => take_lists(folder.entries, lists),
+            Entry::List(mut list) => {
+                let path = mem::replace(&mut list.path, ListPath(PathBuf::new()));
+                lists.insert(path, list);
+            }
+        }
+    }
+}
+
+/// Replaces every pending list that is in `known` by the known list, taking it out of
+/// `known`.
+fn adopt_known_lists(
+    pending: Vec<PendingEntry>,
+    known: &mut HashMap<ListPath, List>,
+) -> Vec<PendingEntry> {
     pending
+        .into_iter()
+        .map(|entry| match entry {
+            PendingEntry::Folder {
+                name,
+                path,
+                entries,
+            } => PendingEntry::Folder {
+                name,
+                path,
+                entries: adopt_known_lists(entries, known),
+            },
+            PendingEntry::List { name, path } => match known.remove(&path) {
+                Some(mut list) => {
+                    list.path = path;
+                    PendingEntry::Known(list)
+                }
+                None => PendingEntry::List { name, path },
+            },
+            known_list @ PendingEntry::Known(_) => known_list,
+        })
+        .collect()
+}
+
+/// Loads the list files of `pending` in parallel, keeping the order of the entries, and
+/// returns the entries with the paths of the known lists whose content was replaced.
+fn load_entries(root: &Path, pending: Vec<PendingEntry>) -> (Vec<Entry>, Vec<ListPath>) {
+    let (entries, replaced): (Vec<Entry>, Vec<Vec<ListPath>>) = pending
         .into_par_iter()
         .map(|entry| match entry {
             PendingEntry::Folder {
                 name,
                 path,
                 entries,
-            } => Entry::Folder(Folder {
-                name,
-                path,
-                entries: load_entries(root, entries),
-            }),
+            } => {
+                let (entries, replaced) = load_entries(root, entries);
+                let folder = Entry::Folder(Folder {
+                    name,
+                    path,
+                    entries,
+                });
+                (folder, replaced)
+            }
             PendingEntry::List { name, path } => {
                 let content = load_list(&root.join(&path.0));
-                Entry::List(List {
+                let list = Entry::List(List {
                     name,
                     path,
                     content,
-                })
+                });
+                (list, Vec::new())
+            }
+            PendingEntry::Known(mut list) => {
+                let replaced = match list.reload(&root.join(&list.path.0)) {
+                    Reload::Replaced => vec![list.path.clone()],
+                    Reload::Unchanged => Vec::new(),
+                };
+                (Entry::List(list), replaced)
             }
         })
-        .collect()
+        .unzip();
+    (entries, replaced.into_iter().flatten().collect())
 }
 
 fn load_list(path: &Path) -> Result<LoadedList, LoadError> {
     let bytes = fs::read(path).map_err(LoadError::Read)?;
-    parse_list(&bytes, Fingerprint::of(&bytes))
+    parse_list(&bytes, Fingerprint::of(&bytes), None)
 }
 
-/// Parses the content `bytes` of a list file, whose fingerprint is `fingerprint`.
-fn parse_list(bytes: &[u8], fingerprint: Fingerprint) -> Result<LoadedList, LoadError> {
+/// Parses the content `bytes` of a list file, whose fingerprint is `fingerprint`, as a new
+/// version of `previous` if the list was loaded before.
+fn parse_list(
+    bytes: &[u8],
+    fingerprint: Fingerprint,
+    previous: Option<&TodoDocument>,
+) -> Result<LoadedList, LoadError> {
     let text = str::from_utf8(bytes).map_err(LoadError::NotUtf8)?;
+    let document = match previous {
+        Some(previous) => previous.reparse(text),
+        None => TodoDocument::parse(text),
+    };
     Ok(LoadedList {
-        document: TodoDocument::parse(text),
+        document,
         fingerprint,
     })
 }
@@ -696,6 +824,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::markdown::document::TaskId;
 
     fn write_file(root: &Path, relative: &str, content: &[u8]) {
         let path = root.join(relative);
@@ -843,6 +972,105 @@ mod tests {
 
         assert_eq!(system_under_test, Some(Reload::Replaced));
         assert!(workspace.list(&path).unwrap().content().is_err());
+    }
+
+    #[test]
+    fn reload_gives_the_new_document_ids_the_old_one_never_used() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"- [ ] a\n");
+        let mut workspace = scan(&root);
+        let path = list_path("inbox.md");
+        let old_ids = task_ids(&workspace, &path);
+        write_file(root.path(), "inbox.md", b"- [ ] b\n");
+        let _: Option<Reload> = workspace.reload(&path);
+
+        let system_under_test = task_ids(&workspace, &path);
+
+        assert!(system_under_test.iter().all(|id| !old_ids.contains(id)));
+    }
+
+    /// Returns the ids of the tasks of the loaded list at `path`.
+    fn task_ids(workspace: &Workspace, path: &ListPath) -> Vec<TaskId> {
+        let loaded = workspace.list(path).unwrap().content().unwrap();
+        loaded.document().tasks().map(|node| node.id()).collect()
+    }
+
+    #[test]
+    fn rescan_keeps_the_document_of_an_unchanged_list() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"- [ ] a\n");
+        let mut workspace = scan(&root);
+        let path = list_path("inbox.md");
+        let expected = workspace.list(&path).unwrap().content().unwrap().clone();
+        write_file(root.path(), "new.md", b"");
+
+        let system_under_test = workspace.rescan().unwrap();
+
+        assert_eq!(system_under_test.replaced(), [] as [ListPath; 0]);
+        assert_eq!(system_under_test.removed().len(), 0);
+        assert_eq!(workspace.list(&path).unwrap().content().unwrap(), &expected);
+        assert!(workspace.list(&list_path("new.md")).is_some());
+    }
+
+    #[test]
+    fn rescan_reloads_a_changed_list_with_new_ids() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "home/chores.md", b"- [ ] sweep\n");
+        let mut workspace = scan(&root);
+        let path = list_path("home/chores.md");
+        let old_ids = task_ids(&workspace, &path);
+        write_file(root.path(), "home/chores.md", b"- [ ] mop\n");
+
+        let system_under_test = workspace.rescan().unwrap();
+
+        assert_eq!(system_under_test.replaced(), std::slice::from_ref(&path));
+        let loaded = workspace.list(&path).unwrap().content().unwrap();
+        assert_eq!(loaded.document().to_string(), "- [ ] mop\n");
+        assert!(
+            task_ids(&workspace, &path)
+                .iter()
+                .all(|id| !old_ids.contains(id))
+        );
+    }
+
+    #[test]
+    fn rescan_returns_the_removed_lists_in_path_order() {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"");
+        write_file(root.path(), "home/b.md", b"");
+        write_file(root.path(), "home/a.md", b"");
+        let mut workspace = scan(&root);
+        fs::remove_dir_all(root.path().join("home")).unwrap();
+        let expected = [list_path("home/a.md"), list_path("home/b.md")];
+
+        let system_under_test = workspace.rescan().unwrap();
+
+        assert_eq!(
+            system_under_test
+                .removed()
+                .iter()
+                .map(List::path)
+                .collect::<Vec<_>>(),
+            expected.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(outline(workspace.entries()), ["inbox.md"]);
+    }
+
+    #[test]
+    fn rescan_of_an_unreadable_root_keeps_the_workspace() {
+        let parent = TempDir::new().unwrap();
+        let root = parent.path().join("todo");
+        write_file(&root, "inbox.md", b"");
+        let mut workspace = Workspace::scan(&root, IndentStyle::default()).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+
+        let system_under_test = workspace.rescan();
+
+        assert!(matches!(
+            system_under_test,
+            Err(WorkspaceError::ReadRoot { .. })
+        ));
+        assert_eq!(outline(workspace.entries()), ["inbox.md"]);
     }
 
     #[test]

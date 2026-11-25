@@ -105,7 +105,8 @@ fn edit_of_an_externally_modified_list_is_reported_and_not_saved() {
             .status_message()
             .is_some_and(|message| {
                 message.severity() == Severity::Error
-                    && message.text().contains("modified by another program")
+                    && message.text()
+                        == "groceries changed on disk; your last change was not applied"
             })
     );
 }

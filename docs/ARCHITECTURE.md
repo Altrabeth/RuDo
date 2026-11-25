@@ -155,7 +155,10 @@ keep the names above unless there is a reason to deviate.
   list becomes `Effect::ReloadList` (also for editors that save by renaming a temporary file),
   any other change of the tree one `Effect::Rescan`; hidden paths and non-`.md` files are
   ignored. RuDo's own writes are reported as well and change nothing: the workspace already
-  matches the disk and `App::reload_list` compares fingerprints. If the watcher cannot start
+  matches the disk and `App::reload_list` compares fingerprints. `App::rescan` scans the tree
+  again with `Workspace::rescan`, which keeps the document of every list whose fingerprint did
+  not change, so selections, folds and undo history stay keyed by path; changed lists are
+  reloaded and the state of removed lists is forgotten. If the watcher cannot start
   (for example the inotify limit), RuDo runs on and shows `live reload disabled: <reason>`.
 - Only `KeyEventKind::Press` and `Repeat` are handled; `Release` events (Windows, kitty
   keyboard protocol) are dropped at the boundary.
@@ -214,7 +217,9 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   decides between tab and spaces, the space width is the smallest step between a task and its
   parent; without indented tasks the configured `tasks.indent` is used.
 - `TaskId` is assigned when a document is parsed and survives edits, so the UI keeps the
-  selection on the same task while lines shift. Re-parsing (external reload) assigns new ids.
+  selection on the same task while lines shift. An external reload parses the file with
+  `TodoDocument::reparse`, whose ids continue after those of the previous version, so an id
+  held by an open inline editor or prompt never names a different task after a reload.
 - Fenced code blocks and front matter are tracked while parsing; task-like lines inside them
   stay `Raw`.
 - RuDo writes Dataview inline fields: `[due:: …]`, `[priority:: …]`, `[repeat:: …]`,

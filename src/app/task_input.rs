@@ -30,7 +30,11 @@ pub enum InlineEditKind {
 }
 
 /// Shown if the edited task was removed meanwhile, for example by a reload.
-const TASK_GONE: &str = "the edited task no longer exists";
+pub(super) const TASK_GONE: &str = "the edited task no longer exists";
+
+/// Shown if the list of a new task was removed or cannot be loaded any more, for example
+/// after a rescan.
+const LIST_GONE: &str = "the edited list no longer exists";
 
 /// What applying the text of the inline editor did to the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +45,8 @@ enum Applied {
     Unchanged,
     /// The edited task is not in the document any more.
     TaskGone,
+    /// The edited list is not in the workspace any more or cannot be loaded.
+    ListGone,
 }
 
 impl InlineEditKind {
@@ -156,7 +162,7 @@ impl App {
 
     /// Closes the inline editor and applies its text with one [`App::edit_list`] call, then
     /// selects the task it went into. Empty text changes nothing, and an error message is
-    /// shown if the edited task was removed meanwhile.
+    /// shown if the edited task or its list was removed meanwhile.
     pub(super) fn submit_inline_edit(&mut self) -> Vec<Effect> {
         let Some(edit) = self.close_inline_edit() else {
             return Vec::new();
@@ -166,18 +172,22 @@ impl App {
             return Vec::new();
         }
         let fallback_indent = self.config.tasks().indent();
-        let mut applied = Applied::Unchanged;
+        // `edit_list` only calls the edit for a loaded list.
+        let mut applied = Applied::ListGone;
         let effects = self.edit_list(&edit.list, |document| {
             applied = edit.kind.apply(document, text, fallback_indent);
             match applied {
                 Applied::Changed(_) => EditOutcome::Changed,
-                Applied::Unchanged | Applied::TaskGone => EditOutcome::Unchanged,
+                Applied::Unchanged | Applied::TaskGone | Applied::ListGone => {
+                    EditOutcome::Unchanged
+                }
             }
         });
         match applied {
             Applied::Changed(id) => self.select_task(id),
             Applied::Unchanged => {}
             Applied::TaskGone => self.show_message(StatusMessage::error(TASK_GONE)),
+            Applied::ListGone => self.show_message(StatusMessage::error(LIST_GONE)),
         }
         effects
     }

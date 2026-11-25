@@ -4,6 +4,8 @@
 use crate::app::effect::Effect;
 use crate::app::prompt::PromptKind;
 use crate::app::state::App;
+use crate::app::status::StatusMessage;
+use crate::app::task_input::TASK_GONE;
 use crate::markdown::document::TaskId;
 use crate::markdown::task_line::{FieldKey, InlineField, TaskLine};
 use crate::storage::workspace::ListPath;
@@ -44,7 +46,8 @@ impl App {
     }
 
     /// Sets `field` of `task` in the list at `list` to `value`, or removes it if `value` is
-    /// `None`, and refreshes the tasks pane.
+    /// `None`, and refreshes the tasks pane; shows an error message if the task was removed
+    /// meanwhile, for example by a reload while its prompt was open.
     ///
     /// `value` must come from a parsed type such as a date or a recurrence rule, whose text is
     /// always a valid inline field value.
@@ -55,11 +58,16 @@ impl App {
         field: FieldKey,
         value: Option<&str>,
     ) -> Vec<Effect> {
+        let mut task_found = false;
         let effects = self.edit_list(list, |document| {
+            task_found = document.depth(task).is_some();
             document
                 .set_field(task, field, value)
                 .expect("values of parsed dates and rules are valid inline field values")
         });
+        if !task_found {
+            self.show_message(StatusMessage::error(TASK_GONE));
+        }
         self.refresh_tasks();
         effects
     }

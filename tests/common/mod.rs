@@ -126,6 +126,11 @@ impl TestApp {
         fs::write(self.workspace_folder.path().join(path), content).unwrap();
     }
 
+    /// Deletes the file at `path` as another program would.
+    pub fn remove(&self, path: &str) {
+        fs::remove_file(self.workspace_folder.path().join(path)).unwrap();
+    }
+
     /// Reads the file at `path`, relative to the workspace root.
     pub fn read(&self, path: &str) -> String {
         fs::read_to_string(self.workspace_folder.path().join(path)).unwrap()

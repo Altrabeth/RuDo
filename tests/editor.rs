@@ -11,7 +11,7 @@ mod common;
 
 use std::num::NonZeroUsize;
 
-use rudo::app::Effect;
+use rudo::app::{Effect, StatusMessage};
 use rudo::config::keymap::key::KeyChord;
 
 use crate::common::TestApp;
@@ -87,7 +87,10 @@ fn list_changed_in_the_editor_is_reloaded_with_the_selection_on_its_line() {
 
     assert_eq!(system_under_test.document().to_string(), expected_document);
     assert_eq!(selected_task(&test_app), "Bake rye bread");
-    assert_eq!(test_app.app().status_message(), None);
+    assert_eq!(
+        test_app.app().status_message(),
+        Some(&StatusMessage::info("Groceries reloaded"))
+    );
 }
 
 #[test]

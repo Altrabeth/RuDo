@@ -96,7 +96,7 @@ fn multi_byte_text_is_edited_by_grapheme() {
 #[test]
 fn submit_after_the_task_disappeared_shows_an_error() {
     let mut test_app = groceries(GROCERIES);
-    // Parsing assigns ids in order, so only the id of the second task disappears.
+    // The reloaded document gives every task a new id, also the one with the edited text.
     let reloaded = "- [ ] Bake bread\n";
     let list = test_app.list_path("Groceries.md");
     test_app.press("j i").type_text(" now");

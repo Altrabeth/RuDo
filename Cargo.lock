@@ -1059,7 +1059,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rudo"
+name = "rudo-tui"
 version = "1.0.0"
 dependencies = [
  "anyhow",

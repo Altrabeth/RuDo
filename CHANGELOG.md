@@ -9,6 +9,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **crates.io.** RuDo is installed with `cargo install --locked rudo-tui`; the crate is named
+  `rudo-tui` because `rudo` is taken, the command and the library stay `rudo`.
+  `just publish-dry-run` checks the package before a release.
 - **Windows.** The configuration is read from `%APPDATA%\rudo\config.yaml`, the log goes to
   `%LOCALAPPDATA%\rudo\rudo.log` and the default workspace is `%USERPROFILE%\Documents\RuDo`;
   `XDG_*` variables are honoured there too. `notepad` is the last editor fallback.

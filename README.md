@@ -58,17 +58,26 @@ the same tasks from the terminal and from Obsidian at the same time.
 
 ## Installation
 
-RuDo is built from source. You need a Rust toolchain installed with
-[rustup](https://rustup.rs); the exact compiler version is pinned in `rust-toolchain.toml`
-and installed automatically.
+RuDo is published on [crates.io](https://crates.io/crates/rudo-tui) as `rudo-tui`; the
+command it installs is `rudo`. You need Rust 1.100 or newer, installed for example with
+[rustup](https://rustup.rs):
 
 ```sh
-git clone git@github.com:Altrabeth/RuDo.git
-cd RuDo
-cargo install --path . --locked   # or: just install
+cargo install --locked rudo-tui
 ```
 
-This installs the `rudo` binary into `~/.cargo/bin`.
+`--locked` builds with the dependency versions RuDo is tested with. This installs the `rudo`
+binary into `~/.cargo/bin`. The crate named `rudo` on crates.io is an unrelated tool with a
+command of the same name; if it is installed, cargo refuses to overwrite its binary until you
+remove it with `cargo uninstall rudo`.
+
+The development version is installed from the repository, or from a checkout, where the
+compiler version pinned in `rust-toolchain.toml` is installed automatically:
+
+```sh
+cargo install --locked --git https://github.com/Altrabeth/RuDo rudo-tui
+cargo install --locked --path .   # in a checkout, or: just install
+```
 
 ## Quick start
 
@@ -631,6 +640,7 @@ all recipes.
 | `just doc`           | build the API documentation with warnings denied               |
 | `just cov`           | test coverage (`just cov --open` for the HTML report)          |
 | `just deny`          | check dependencies for advisories and licenses                 |
+| `just publish-dry-run` | list the files of the crate and build it as crates.io would  |
 | `just check`         | everything that must pass before a commit                      |
 
 Development is test driven: write a failing test, make it pass, refactor. The architecture

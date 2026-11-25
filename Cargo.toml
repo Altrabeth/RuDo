@@ -1,11 +1,23 @@
 [package]
-name = "rudo"
+name = "rudo-tui"
 version = "1.0.0"
 edition = "2024"
 rust-version = "1.100.0"
 description = "A keyboard-driven terminal UI for todo lists stored as Markdown files"
 license = "GPL-3.0-or-later"
-publish = false
+repository = "https://github.com/Altrabeth/RuDo"
+readme = "README.md"
+keywords = ["todo", "tui", "markdown", "obsidian", "vim"]
+categories = ["command-line-utilities"]
+include = ["/src/**/*.rs", "/assets/", "/README.md", "/LICENSE", "/CHANGELOG.md"]
+
+# The name `rudo` on crates.io belongs to another project; the command and the library keep it
+[lib]
+name = "rudo"
+
+[[bin]]
+name = "rudo"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.105"

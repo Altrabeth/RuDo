@@ -94,5 +94,10 @@ cov *args:
 deny:
     cargo deny check
 
+# Package and build the crate as crates.io would; the real `cargo publish` stays manual
+publish-dry-run *args:
+    cargo package --list "$@"
+    cargo publish --dry-run --locked "$@"
+
 # Run every check required before committing
 check: (fmt "--check") lint test doc deny

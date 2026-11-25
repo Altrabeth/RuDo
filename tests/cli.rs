@@ -63,6 +63,17 @@ fn display(path: &Path) -> String {
 }
 
 #[test]
+fn version_names_the_command_rather_than_the_package() {
+    let sandbox = Sandbox::new();
+    let expected_stdout = concat!("rudo ", env!("CARGO_PKG_VERSION"), "\n");
+
+    let system_under_test = sandbox.run(&["--version"]);
+
+    assert!(system_under_test.status.success());
+    assert_eq!(text(&system_under_test.stdout), expected_stdout);
+}
+
+#[test]
 fn config_default_prints_the_default_configuration_verbatim() {
     let sandbox = Sandbox::new();
     let expected_stdout = DEFAULT_CONFIG_YAML;

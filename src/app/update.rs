@@ -99,7 +99,7 @@ impl App {
             Action::Rename => self.rename_selected_entry(),
             Action::Delete => match self.focus {
                 Focus::Lists => self.delete_selected_entry(),
-                Focus::Tasks => {}
+                Focus::Tasks => return self.delete_task(),
             },
             Action::ConfirmYes => return self.confirm(),
             Action::ConfirmNo => self.close_confirm(),

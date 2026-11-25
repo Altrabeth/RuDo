@@ -498,6 +498,16 @@ layout and the testing strategy, [`docs/QA.md`](docs/QA.md) for the manual check
 terminals before a release, and [`AGENTS.md`](AGENTS.md) for the coding rules every change
 must follow.
 
+## License
+
+RuDo is free software: you can redistribute it and modify it under the terms of the
+[GNU General Public License](LICENSE) as published by the Free Software Foundation, either
+version 3 of the License or (at your option) any later version. Anyone may use, study, change
+and share RuDo; software that is distributed on the basis of it must be released under the
+same license, with its source code.
+
+Copyright (C) 2026 the RuDo authors.
+
 ## Acknowledgements
 
 RuDo is inspired by [dooit](https://github.com/dooit-org/dooit) and

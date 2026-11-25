@@ -13,6 +13,8 @@ The first release. The [README](README.md) specifies the behaviour in detail.
 
 ### Added
 
+- **License.** RuDo is free software under the GNU General Public License, version 3 or
+  later (`GPL-3.0-or-later`); the full text is in `LICENSE`.
 - **Storage.** A workspace folder is shown as a tree of folders and lists; every `.md` file
   is a list and every Markdown checkbox a task. Files are loaded losslessly: front matter,
   headings, prose, code blocks, line endings and a byte order mark are kept, and only edited

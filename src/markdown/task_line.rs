@@ -19,6 +19,7 @@ use std::fmt::{self, Display, Formatter};
 use std::iter;
 use std::str::FromStr;
 
+use jiff::civil::Date;
 use strum::IntoEnumIterator;
 
 /// Number of columns between two tab stops when measuring indentation.
@@ -231,6 +232,8 @@ pub enum FieldKey {
     Repeat,
     /// `completion`: the date the task was completed.
     Completion,
+    /// `created`: the date the task was created.
+    Created,
     /// Any other key matching `[A-Za-z][A-Za-z0-9_-]*`.
     Other(String),
 }
@@ -244,6 +247,7 @@ impl FieldKey {
             Self::Priority => "priority",
             Self::Repeat => "repeat",
             Self::Completion => "completion",
+            Self::Created => "created",
             Self::Other(name) => name,
         }
     }
@@ -314,6 +318,20 @@ impl InlineField {
             key,
             value: value.trim().to_owned(),
         })
+    }
+
+    /// Creates a field whose value is `date` in ISO 8601 form (`YYYY-MM-DD`), such as a due,
+    /// completion or creation date. A date is always a valid value, so only `key` needs to be
+    /// valid, which every known key is.
+    pub(crate) fn with_date(key: FieldKey, date: Date) -> Self {
+        debug_assert!(
+            key.as_str().parse::<FieldKey>().as_ref() == Ok(&key),
+            "the key of a date field is valid"
+        );
+        Self {
+            key,
+            value: date.to_string(),
+        }
     }
 
     /// Returns the key.
@@ -558,6 +576,13 @@ impl TaskLine {
         self.fields.iter().find(|field| field.key() == key)
     }
 
+    /// Returns the creation date: the value of the first `created` field, or `None` if the task
+    /// has no such field or its value is not a `YYYY-MM-DD` date.
+    #[must_use]
+    pub fn created(&self) -> Option<Date> {
+        self.field(&FieldKey::Created)?.value().parse().ok()
+    }
+
     /// Returns whether the task was changed since it was parsed, in which case it renders
     /// canonically instead of as its source line.
     #[must_use]
@@ -665,6 +690,7 @@ impl Display for TaskLine {
 
 #[cfg(test)]
 mod tests {
+    use jiff::civil::date;
     use proptest::prelude::*;
     use rstest::rstest;
     use strum::IntoEnumIterator;
@@ -887,6 +913,7 @@ mod tests {
     #[case::priority("priority", FieldKey::Priority)]
     #[case::repeat("repeat", FieldKey::Repeat)]
     #[case::completion("completion", FieldKey::Completion)]
+    #[case::created("created", FieldKey::Created)]
     #[case::other("estimate", FieldKey::Other("estimate".to_owned()))]
     #[case::other_uppercase_known("Due", FieldKey::Other("Due".to_owned()))]
     #[case::digits_dash_underscore("a1-_b", FieldKey::Other("a1-_b".to_owned()))]
@@ -1180,6 +1207,34 @@ mod tests {
         assert!(system_under_test.is_modified());
     }
 
+    #[rstest]
+    #[case::date("- [ ] a [created:: 2026-11-25]", Some(date(2026, 11, 25)))]
+    #[case::first_of_two(
+        "- [ ] a [created:: 2026-01-02] [created:: 2026-03-04]",
+        Some(date(2026, 1, 2))
+    )]
+    #[case::padded_value("- [ ] a [created::  2026-11-25 ]", Some(date(2026, 11, 25)))]
+    #[case::no_date("- [ ] a [created:: yesterday]", None)]
+    #[case::impossible_date("- [ ] a [created:: 2026-02-30]", None)]
+    #[case::other_key("- [ ] a [Created:: 2026-11-25]", None)]
+    #[case::missing("- [ ] a [due:: 2026-11-25]", None)]
+    fn created_parses_the_creation_date(#[case] line: &str, #[case] expected: Option<Date>) {
+        let task = parse_task(line);
+
+        let system_under_test = task.created();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn date_field_renders_the_iso_date() {
+        let expected = "[created:: 0987-06-05]";
+
+        let system_under_test = InlineField::with_date(FieldKey::Created, date(987, 6, 5));
+
+        assert_eq!(system_under_test.to_string(), expected);
+    }
+
     #[test]
     fn remove_missing_field_keeps_task_unmodified() {
         let mut task = parse_task("- [ ] a [due:: 1]");
@@ -1286,6 +1341,21 @@ mod tests {
             let system_under_test = TaskLine::parse(&line).map(|task| task.to_string());
 
             prop_assert!(system_under_test.is_none_or(|rendered| rendered == line));
+        }
+
+        #[test]
+        fn creation_date_survives_rendering_and_parsing(
+            mut task in modified_task(),
+            year in 1_i16..=9999,
+            month in 1_i8..=12,
+            day in 1_i8..=28,
+        ) {
+            let created = date(year, month, day);
+            task.set_field(InlineField::with_date(FieldKey::Created, created));
+
+            let system_under_test = TaskLine::parse(&task.to_string());
+
+            prop_assert_eq!(system_under_test.and_then(|task| task.created()), Some(created));
         }
 
         #[test]

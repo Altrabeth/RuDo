@@ -27,11 +27,12 @@ impl App {
             .record_completion_date()
             .then_some(self.today);
         let occurrence = self.occurrence_on_completion(task);
+        let created = self.created_date();
         let fallback_indent = self.config.tasks().indent();
         let effects = self.edit_list(&list, |document| {
             let outcome = document.toggle_done(task, completion_date);
             if let Some(Ok(text)) = &occurrence {
-                insert_occurrence(document, task, text, fallback_indent);
+                insert_occurrence(document, task, text, created, fallback_indent);
             }
             outcome
         });

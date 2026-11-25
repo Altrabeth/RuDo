@@ -119,7 +119,8 @@ command is split); in the tasks pane at the line of the selected task. RuDo relo
 | `H`            | `toggle-completed`    | show or hide completed tasks                     |
 
 The task text is edited in its row; `enter` saves it, `esc` discards it, and empty text
-changes nothing. Deleting a task does not ask: `u` brings it back and `p` pastes it. Every
+changes nothing. A new task gets today's creation date (see
+[Task syntax](files-and-obsidian.md#task-syntax)), a pasted one keeps its fields. Deleting a task does not ask: `u` brings it back and `p` pastes it. Every
 action moves, deletes or copies a task together with its subtasks. Sorting is stable and
 only sorts the siblings that no heading or text separates from the selected task; priority
 sorts highest first, alphabetical sorting ignores case.

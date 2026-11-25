@@ -6,6 +6,8 @@
 //! one [`App::edit_list`] call, so it is saved once and undone in one step, and cancelling
 //! leaves the file as it was.
 
+use jiff::civil::Date;
+
 use crate::app::effect::Effect;
 use crate::app::state::{App, Mode};
 use crate::app::status::StatusMessage;
@@ -50,16 +52,18 @@ enum Applied {
 }
 
 impl InlineEditKind {
-    /// Applies `text` to `document` and returns what it did.
+    /// Applies `text` to `document` and returns what it did; a new task gets the creation
+    /// date `created`.
     fn apply(
         self,
         document: &mut TodoDocument,
         text: &str,
+        created: Option<Date>,
         fallback_indent: IndentStyle,
     ) -> Applied {
         match self {
             Self::New(position) => document
-                .insert_task(position, text, fallback_indent)
+                .insert_task(position, text, created, fallback_indent)
                 .map_or(Applied::Unchanged, Applied::Changed),
             // `set_description` reports a missing task as unchanged, so look it up first.
             Self::Existing(id) if document.depth(id).is_none() => Applied::TaskGone,
@@ -105,6 +109,12 @@ impl InlineEdit {
 }
 
 impl App {
+    /// Returns the creation date of a task created now: today, or `None` if
+    /// `tasks.created_date` is off.
+    pub(super) fn created_date(&self) -> Option<Date> {
+        self.config.tasks().created_date().then_some(self.today)
+    }
+
     /// Opens the inline editor for a new task at `position` relative to the selected task,
     /// or at the end of a list without tasks.
     ///
@@ -171,11 +181,12 @@ impl App {
         if text.trim().is_empty() {
             return Vec::new();
         }
+        let created = self.created_date();
         let fallback_indent = self.config.tasks().indent();
         // `edit_list` only calls the edit for a loaded list.
         let mut applied = Applied::ListGone;
         let effects = self.edit_list(&edit.list, |document| {
-            applied = edit.kind.apply(document, text, fallback_indent);
+            applied = edit.kind.apply(document, text, created, fallback_indent);
             match applied {
                 Applied::Changed(_) => EditOutcome::Changed,
                 Applied::Unchanged | Applied::TaskGone | Applied::ListGone => {
@@ -357,7 +368,7 @@ mod tests {
         };
 
         let system_under_test =
-            InlineEditKind::Existing(id).apply(&mut document, text, IndentStyle::Tab);
+            InlineEditKind::Existing(id).apply(&mut document, text, None, IndentStyle::Tab);
 
         assert_eq!(system_under_test, expected);
     }
@@ -369,7 +380,7 @@ mod tests {
         let _removed = document.remove_block(id);
 
         let system_under_test =
-            InlineEditKind::Existing(id).apply(&mut document, "b", IndentStyle::Tab);
+            InlineEditKind::Existing(id).apply(&mut document, "b", None, IndentStyle::Tab);
 
         assert_eq!(system_under_test, Applied::TaskGone);
     }

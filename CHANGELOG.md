@@ -14,6 +14,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   appears in Installed apps, where it is uninstalled. It is not signed, so SmartScreen asks
   to confirm (**More info**, **Run anyway**). The installation guide now also says that the
   PowerShell install script adds `rudo` to `PATH` and the zip archive does not.
+- **Creation dates.** Every task created in RuDo, including the next occurrence of a
+  recurring task, gets today's date as `[created:: YYYY-MM-DD]`, the creation date of the
+  Obsidian Tasks plugin. Pasted tasks keep their fields and get none. Turn it off with
+  `tasks.created_date: false`.
 
 ## [1.0.0] - 2026-11-25
 

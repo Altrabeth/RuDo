@@ -8,11 +8,13 @@
 mod common;
 
 use std::borrow::Cow;
+use std::path::Path;
 
 use insta::assert_snapshot;
 use rstest::rstest;
 use rudo::app::prompt::PromptOverlay;
 use rudo::app::{Mode, StatusMessage};
+use rudo::config::Config;
 use rudo::markdown::task_line::TaskStatus;
 use rudo::ui::popup::Prompt;
 use rudo::ui::text_input::TextInput;
@@ -128,18 +130,25 @@ fn rows_show_the_rule_before_priority_and_due_date() {
 #[rstest]
 #[case::after_the_due_date(
     "- [ ] Water plants #home [due:: 2026-03-10] [priority:: high] [repeat:: every week]\n",
-    "- [ ] Water plants #home [due:: 2026-03-17] [priority:: high] [repeat:: every week]\n\
+    "- [ ] Water plants #home [due:: 2026-03-17] [priority:: high] [repeat:: every week] \
+     [created:: 2026-03-14]\n\
      - [x] Water plants #home [due:: 2026-03-10] [priority:: high] [repeat:: every week] \
      [completion:: 2026-03-14]\n"
 )]
 #[case::after_today_without_a_due_date(
     "- [ ] Water plants [repeat:: every 2 days]\n",
-    "- [ ] Water plants [repeat:: every 2 days] [due:: 2026-03-16]\n\
+    "- [ ] Water plants [repeat:: every 2 days] [due:: 2026-03-16] [created:: 2026-03-14]\n\
      - [x] Water plants [repeat:: every 2 days] [completion:: 2026-03-14]\n"
+)]
+#[case::with_a_new_creation_date(
+    "- [ ] Trip [created:: 2026-01-05] [due:: 2026-03-14] [repeat:: every month]\n",
+    "- [ ] Trip [due:: 2026-04-14] [repeat:: every month] [created:: 2026-03-14]\n\
+     - [x] Trip [created:: 2026-01-05] [due:: 2026-03-14] [repeat:: every month] \
+     [completion:: 2026-03-14]\n"
 )]
 #[case::without_subtasks(
     "- [ ] Trip [due:: 2026-03-14] [repeat:: every month]\n\t- [ ] Pack\n",
-    "- [ ] Trip [due:: 2026-04-14] [repeat:: every month]\n\
+    "- [ ] Trip [due:: 2026-04-14] [repeat:: every month] [created:: 2026-03-14]\n\
      - [x] Trip [due:: 2026-03-14] [repeat:: every month] [completion:: 2026-03-14]\n\
      \t- [ ] Pack\n"
 )]
@@ -177,11 +186,30 @@ fn selection_stays_on_the_completed_task() {
 #[test]
 fn reopening_the_completed_task_keeps_the_new_occurrence() {
     let files = [("Home.md", "- [ ] Water plants [repeat:: every day]\n")];
-    let expected = "- [ ] Water plants [repeat:: every day] [due:: 2026-03-15]\n\
+    let expected = "- [ ] Water plants [repeat:: every day] [due:: 2026-03-15] \
+                    [created:: 2026-03-14]\n\
                     - [ ] Water plants [repeat:: every day]\n";
     let mut test_app = TestApp::new(&files);
 
     let system_under_test = test_app.press("tab x x");
+
+    assert_eq!(system_under_test.read("Home.md"), expected);
+}
+
+#[test]
+fn without_created_date_the_next_occurrence_has_none() {
+    let files = [(
+        "Home.md",
+        "- [ ] Water plants [created:: 2026-01-05] [repeat:: every day]\n",
+    )];
+    let config =
+        Config::from_yaml("tasks:\n  created_date: false\n", Path::new("config.yaml")).unwrap();
+    let expected = "- [ ] Water plants [repeat:: every day] [due:: 2026-03-15]\n\
+                    - [x] Water plants [created:: 2026-01-05] [repeat:: every day] \
+                    [completion:: 2026-03-14]\n";
+    let mut test_app = TestApp::with_config(&files, config);
+
+    let system_under_test = test_app.press("tab x");
 
     assert_eq!(system_under_test.read("Home.md"), expected);
 }

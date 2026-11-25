@@ -167,9 +167,7 @@ fn join_lines(text: &str) -> String {
 fn mark_done(task: &mut TaskLine, completion_date: Option<Date>) {
     task.set_status(TaskStatus::Done);
     if let Some(date) = completion_date {
-        let completion = InlineField::new(FieldKey::Completion, &date.to_string())
-            .expect("an ISO 8601 date is a valid field value");
-        task.set_field(completion);
+        task.set_field(InlineField::with_date(FieldKey::Completion, date));
     }
 }
 

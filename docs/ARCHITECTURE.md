@@ -314,7 +314,10 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
 - Fenced code blocks and front matter are tracked while parsing; task-like lines inside them
   stay `Raw`.
 - RuDo writes Dataview inline fields: `[due:: …]`, `[priority:: …]`, `[repeat:: …]`,
-  `[completion:: …]`. A re-rendered task is written as
+  `[completion:: …]`, `[created:: …]`. `TodoDocument::insert_task` is the only place that
+  creates a task, so it adds the creation date it is given (today, or none with
+  `tasks.created_date: false`); pasting goes through `insert_block` and never adds one.
+  `TaskLine::created` parses the field. A re-rendered task is written as
   `{indent}{marker} [{status}] {description}` followed by ` [key:: value]` for every field.
   Setting a field replaces the first one with its key in place (and drops duplicates) or
   appends it.

@@ -42,8 +42,8 @@ pub(super) fn recurrence_preview(text: &str) -> Result<Cow<'static, str>, Cow<'s
 /// `None` if it has no recurrence rule.
 ///
 /// The text keeps the description with its tags and every inline field except the completion
-/// date; the due date is the next occurrence after the old one, or after `today` if the task
-/// has no due date that parses.
+/// and creation dates, because the occurrence is a new task; the due date is the next
+/// occurrence after the old one, or after `today` if the task has no due date that parses.
 ///
 /// # Errors
 ///
@@ -67,15 +67,14 @@ fn occurrence_text(
         .field(&FieldKey::Due)
         .and_then(|due| due.value().parse::<Date>().ok())
         .unwrap_or(today);
-    let due = InlineField::new(FieldKey::Due, &rule.next_after(base)?.to_string())
-        .expect("an ISO date is a valid inline field value");
+    let due = InlineField::with_date(FieldKey::Due, rule.next_after(base)?);
     let mut text = task.description().to_owned();
     // The new due date comes last: setting the fields in order replaces an old due date in
     // its place, or appends the new one.
     for field in task
         .fields()
         .iter()
-        .filter(|field| *field.key() != FieldKey::Completion)
+        .filter(|field| !matches!(field.key(), FieldKey::Completion | FieldKey::Created))
         .chain([&due])
     {
         write!(text, " {field}").expect("writing to a String cannot fail");
@@ -84,15 +83,17 @@ fn occurrence_text(
 }
 
 /// Inserts the occurrence with `text` directly above `task`, which therefore moves down one
-/// row. The edit that completes `task` calls it, so that both are one undo step.
+/// row, with the creation date `created`. The edit that completes `task` calls it, so that
+/// both are one undo step.
 pub(super) fn insert_occurrence(
     document: &mut TodoDocument,
     task: TaskId,
     text: &str,
+    created: Option<Date>,
     fallback_indent: IndentStyle,
 ) {
     document
-        .insert_task(InsertPosition::Above(task), text, fallback_indent)
+        .insert_task(InsertPosition::Above(task), text, created, fallback_indent)
         .expect("the completed task is in the document");
 }
 
@@ -149,15 +150,16 @@ mod tests {
         TaskLine::parse(line).unwrap()
     }
 
-    /// Returns `line` followed by the occurrence that completing it inserts above it.
-    fn with_next_occurrence(line: &str) -> String {
+    /// Returns `line` followed by the occurrence that completing it inserts above it, created
+    /// on `created`.
+    fn with_next_occurrence(line: &str, created: Option<Date>) -> String {
         let mut document = TodoDocument::parse(&format!("{line}\n"));
         let node = document.tasks().next().unwrap();
         let (id, text) = (
             node.id(),
             next_occurrence(node.task(), TODAY).unwrap().unwrap(),
         );
-        insert_occurrence(&mut document, id, &text, IndentStyle::Tab);
+        insert_occurrence(&mut document, id, &text, created, IndentStyle::Tab);
         document.to_string()
     }
 
@@ -182,10 +184,26 @@ mod tests {
         "- [-] Run [completion:: 2026-11-20] [repeat:: every year] [due:: 2026-11-20]",
         "- [ ] Run [repeat:: every year] [due:: 2027-11-20]"
     )]
+    #[case::drops_the_creation_date(
+        "- [ ] Run [created:: 2026-01-02] [repeat:: every year] [due:: 2026-11-20]",
+        "- [ ] Run [repeat:: every year] [due:: 2027-11-20]"
+    )]
     fn next_occurrence_is_open_with_the_next_due_date(#[case] line: &str, #[case] expected: &str) {
         let expected = format!("{expected}\n{line}\n");
 
-        let system_under_test = with_next_occurrence(line);
+        let system_under_test = with_next_occurrence(line, None);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn next_occurrence_is_created_on_the_given_date() {
+        let line = "- [ ] Run [created:: 2026-01-02] [repeat:: every day]";
+        let created = date(2026, 11, 25);
+        let expected = "- [ ] Run [repeat:: every day] [due:: 2026-11-25] [created:: 2026-11-25]\n\
+                        - [ ] Run [created:: 2026-01-02] [repeat:: every day]\n";
+
+        let system_under_test = with_next_occurrence(line, Some(created));
 
         assert_eq!(system_under_test, expected);
     }

@@ -36,6 +36,8 @@ tasks:
   show_completed: false
   # Write `[completion:: YYYY-MM-DD]` when a task is marked done.
   record_completion_date: true
+  # Write `[created:: YYYY-MM-DD]` on every task created in RuDo.
+  created_date: true
   # Indentation for subtasks in files that have none yet: `tab` or 1 to 8 spaces.
   indent: 2
 

@@ -52,23 +52,28 @@ fn groceries() -> TestApp {
 #[rstest]
 #[case::below_the_whole_block(
     "o",
-    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n- [ ] Eggs\n- [ ] Bake bread\n"
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+     - [ ] Eggs [created:: 2026-03-14]\n- [ ] Bake bread\n"
 )]
 #[case::below_a_subtask(
     "j o",
-    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\t- [ ] Eggs\n- [ ] Bake bread\n"
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+     \t- [ ] Eggs [created:: 2026-03-14]\n- [ ] Bake bread\n"
 )]
 #[case::above(
     "G O",
-    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n- [ ] Eggs\n- [ ] Bake bread\n"
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+     - [ ] Eggs [created:: 2026-03-14]\n- [ ] Bake bread\n"
 )]
 #[case::subtask_after_the_last_subtask(
     "a",
-    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\t- [ ] Eggs\n- [ ] Bake bread\n"
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+     \t- [ ] Eggs [created:: 2026-03-14]\n- [ ] Bake bread\n"
 )]
 #[case::first_subtask_indented_by_a_tab(
     "G a",
-    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n- [ ] Bake bread\n\t- [ ] Eggs\n"
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+     - [ ] Bake bread\n\t- [ ] Eggs [created:: 2026-03-14]\n"
 )]
 fn submit_inserts_the_typed_task_and_saves_it(#[case] keys: &str, #[case] expected: &str) {
     let mut test_app = groceries();
@@ -126,13 +131,13 @@ fn document_is_not_changed_while_typing() {
 }
 
 #[rstest]
-#[case::empty_file_below("", "o", "- [ ] Eggs\n")]
-#[case::empty_file_above("", "O", "- [ ] Eggs\n")]
-#[case::empty_file_subtask("", "a", "- [ ] Eggs\n")]
+#[case::empty_file_below("", "o", "- [ ] Eggs [created:: 2026-03-14]\n")]
+#[case::empty_file_above("", "O", "- [ ] Eggs [created:: 2026-03-14]\n")]
+#[case::empty_file_subtask("", "a", "- [ ] Eggs [created:: 2026-03-14]\n")]
 #[case::only_prose(
     "# Notes\n\nNothing yet.\n",
     "a",
-    "# Notes\n\nNothing yet.\n- [ ] Eggs\n"
+    "# Notes\n\nNothing yet.\n- [ ] Eggs [created:: 2026-03-14]\n"
 )]
 fn list_without_tasks_gets_a_top_level_task_at_the_end(
     #[case] content: &str,
@@ -155,7 +160,8 @@ fn list_without_tasks_gets_a_top_level_task_at_the_end(
 #[test]
 fn typed_inline_fields_become_fields() {
     let mut test_app = groceries();
-    let expected_file = "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n- [ ] Eggs [due:: 2026-12-01]\n\
+    let expected_file = "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+         - [ ] Eggs [due:: 2026-12-01] [created:: 2026-03-14]\n\
          - [ ] Bake bread\n";
     test_app
         .press("o")
@@ -178,7 +184,7 @@ fn keys_bound_in_the_panes_are_typed_as_text() {
 
     let system_under_test = test_app.read("Groceries.md");
 
-    assert!(system_under_test.contains("- [ ] quiz? 2 jokes\n"));
+    assert!(system_under_test.contains("- [ ] quiz? 2 jokes [created:: 2026-03-14]\n"));
     assert!(!test_app.app().should_quit());
 }
 
@@ -192,7 +198,7 @@ fn pasted_text_goes_into_the_input() {
 
     let system_under_test = test_app.read("Groceries.md");
 
-    assert!(system_under_test.contains("- [ ] Eggs q\n"));
+    assert!(system_under_test.contains("- [ ] Eggs q [created:: 2026-03-14]\n"));
 }
 
 #[test]

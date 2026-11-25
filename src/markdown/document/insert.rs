@@ -8,8 +8,10 @@ use std::collections::HashSet;
 use std::iter;
 use std::ops::Range;
 
+use jiff::civil::Date;
+
 use crate::config::IndentStyle;
-use crate::markdown::task_line::{ListMarker, TaskLine, indentation_width};
+use crate::markdown::task_line::{FieldKey, InlineField, ListMarker, TaskLine, indentation_width};
 
 use super::{BLANKS, DocumentLine, LineKind, TaskId, TodoDocument};
 
@@ -64,6 +66,9 @@ impl TodoDocument {
     /// `position` and returns its id, or `None` if the task `position` refers to is not in this
     /// document.
     ///
+    /// With a `created` date the task gets the field `[created:: YYYY-MM-DD]` after the fields
+    /// of `description`, unless `description` already has a `created` field, which is kept.
+    ///
     /// The list marker is taken from the sibling the task is inserted next to: the following
     /// number below an ordered item, the same number above it, the same bullet otherwise, and
     /// `-` without a sibling. A first subtask is indented by one level of
@@ -76,27 +81,38 @@ impl TodoDocument {
     /// # Examples
     ///
     /// ```
+    /// use jiff::civil::date;
     /// use rudo::config::IndentStyle;
     /// use rudo::markdown::document::{InsertPosition, TodoDocument};
     ///
     /// let mut document = TodoDocument::parse("1. [ ] Wash\n");
     /// let wash = document.tasks().next().expect("a task").id();
-    /// document.insert_task(InsertPosition::Below(wash), "Dry", IndentStyle::Tab);
-    /// document.insert_task(InsertPosition::LastChild(wash), "Rinse", IndentStyle::Tab);
+    /// let today = date(2026, 11, 25);
+    /// document.insert_task(InsertPosition::Below(wash), "Dry", Some(today), IndentStyle::Tab);
+    /// document.insert_task(InsertPosition::LastChild(wash), "Rinse", None, IndentStyle::Tab);
     ///
-    /// assert_eq!(document.to_string(), "1. [ ] Wash\n\t- [ ] Rinse\n2. [ ] Dry\n");
+    /// assert_eq!(
+    ///     document.to_string(),
+    ///     "1. [ ] Wash\n\t- [ ] Rinse\n2. [ ] Dry [created:: 2026-11-25]\n"
+    /// );
     /// ```
     #[must_use = "the id is the only handle on the new task"]
     pub fn insert_task(
         &mut self,
         position: InsertPosition,
         description: &str,
+        created: Option<Date>,
         fallback_indent: IndentStyle,
     ) -> Option<TaskId> {
         let target = self.target(position, fallback_indent)?;
         let mut task = TaskLine::parse(&format!("{}{} [ ]", target.indent, target.marker))
             .expect("indentation, a list marker and an empty checkbox form a task line");
         task.set_description(description);
+        if let Some(date) = created
+            && task.field(&FieldKey::Created).is_none()
+        {
+            task.set_field(InlineField::with_date(FieldKey::Created, date));
+        }
         let id = self.allocate_task_id();
         self.insert_lines(target.line_index, iter::once(LineKind::Task(id, task)));
         Some(id)
@@ -461,6 +477,7 @@ fn indent_unit(style: IndentStyle) -> String {
 mod tests {
     use std::collections::HashSet;
 
+    use jiff::civil::date;
     use rstest::rstest;
 
     use super::*;
@@ -505,7 +522,9 @@ mod tests {
     fn insert_new(text: &str, position: fn(TaskId) -> InsertPosition, reference: &str) -> String {
         let mut document = TodoDocument::parse(text);
         let position = position(id_of(&document, reference));
-        document.insert_task(position, "new", spaces(3)).unwrap();
+        document
+            .insert_task(position, "new", None, spaces(3))
+            .unwrap();
         document.to_string()
     }
 
@@ -600,7 +619,7 @@ mod tests {
 
         assert!(
             system_under_test
-                .insert_task(InsertPosition::End, "new", spaces(3))
+                .insert_task(InsertPosition::End, "new", None, spaces(3))
                 .is_some()
         );
         assert_eq!(system_under_test.to_string(), expected);
@@ -643,12 +662,34 @@ mod tests {
             .insert_task(
                 InsertPosition::Above(id_of(&document, "b")),
                 "Buy [due:: 2026-12-01] milk",
+                None,
                 spaces(2),
             )
             .unwrap();
 
         assert!(!existing.contains(&system_under_test));
         assert_eq!(document.to_string(), expected);
+    }
+
+    #[rstest]
+    #[case::after_the_typed_fields(
+        "Buy [due:: 2026-12-01] milk",
+        "- [ ] Buy milk [due:: 2026-12-01] [created:: 2026-11-25]\n"
+    )]
+    #[case::not_over_a_typed_creation_date(
+        "Buy milk [created:: 2026-01-02] [due:: 2026-12-01]",
+        "- [ ] Buy milk [created:: 2026-01-02] [due:: 2026-12-01]\n"
+    )]
+    fn inserted_task_gets_the_creation_date(#[case] text: &str, #[case] expected: &str) {
+        let mut document = TodoDocument::parse("");
+        let created = date(2026, 11, 25);
+        let _id = document
+            .insert_task(InsertPosition::End, text, Some(created), spaces(2))
+            .unwrap();
+
+        let system_under_test = document.to_string();
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[rstest]
@@ -660,7 +701,7 @@ mod tests {
         let block = document.copy_block(id_of(&document, "a")).unwrap();
 
         let system_under_test = (
-            document.insert_task(position, "new", spaces(2)),
+            document.insert_task(position, "new", None, spaces(2)),
             document.insert_block(&block, position, spaces(2)),
         );
 

@@ -217,6 +217,7 @@ impl WorkspaceConfig {
 pub struct TasksConfig {
     show_completed: bool,
     record_completion_date: bool,
+    created_date: bool,
     indent: IndentStyle,
 }
 
@@ -225,6 +226,7 @@ impl Default for TasksConfig {
         Self {
             show_completed: true,
             record_completion_date: true,
+            created_date: true,
             indent: IndentStyle::Tab,
         }
     }
@@ -241,6 +243,12 @@ impl TasksConfig {
     #[must_use]
     pub const fn record_completion_date(&self) -> bool {
         self.record_completion_date
+    }
+
+    /// Returns whether a creation date is written on every task created in RuDo.
+    #[must_use]
+    pub const fn created_date(&self) -> bool {
+        self.created_date
     }
 
     /// Returns the indentation for subtasks in files that have none yet.
@@ -390,6 +398,7 @@ mod tests {
         let expected_tasks = TasksConfig {
             show_completed: true,
             record_completion_date: true,
+            created_date: true,
             indent: IndentStyle::Tab,
         };
 
@@ -449,7 +458,8 @@ mod tests {
     #[test]
     fn reads_every_setting() {
         let yaml = "workspace:\n  root: /srv/todo\n  show_hidden: true\n  bin: Bin\ntasks:\n  \
-                    show_completed: false\n  record_completion_date: false\n  indent: 2\n\
+                    show_completed: false\n  record_completion_date: false\n  \
+                    created_date: false\n  indent: 2\n\
                     editor: code --wait\n";
         let expected = Config {
             workspace: WorkspaceConfig {
@@ -460,6 +470,7 @@ mod tests {
             tasks: TasksConfig {
                 show_completed: false,
                 record_completion_date: false,
+                created_date: false,
                 indent: IndentStyle::Spaces(IndentWidth::new(2).unwrap()),
             },
             editor: Some("code --wait".to_owned()),
@@ -575,6 +586,7 @@ mod tests {
     #[case::number_for_boolean("tasks:\n  show_completed: 3\n", "2:19")]
     #[case::yes_for_boolean("tasks:\n  show_completed: yes\n", "2:19")]
     #[case::off_for_boolean("tasks:\n  record_completion_date: off\n", "2:27")]
+    #[case::string_for_boolean("tasks:\n  created_date: \"no\"\n", "2:17")]
     #[case::list_for_section("tasks: [true]\n", "1:8")]
     #[case::list_for_editor("editor: [nvim]\n", "1:9")]
     fn wrong_type_is_reported_with_location(#[case] yaml: &str, #[case] location: &str) {

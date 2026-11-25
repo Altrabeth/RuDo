@@ -17,7 +17,7 @@ Prices are *estimates*.
 ## Hardware
 
 - [ ] Buy screws for shelves
-- [ ] Buy nails
+- [ ] Buy nails [created:: 2026-03-14]
 
 ## Notes
 

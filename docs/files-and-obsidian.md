@@ -68,6 +68,7 @@ Things to pick up on Saturday.
 | `[priority:: high]`         | `highest`, `high`, `medium`, `low` or `lowest`               |
 | `[repeat:: every 2 weeks]`  | recurrence: `every [N] day(s)/week(s)/month(s)/year(s)`      |
 | `[completion:: YYYY-MM-DD]` | completion date, written when a task is marked done          |
+| `[created:: YYYY-MM-DD]`    | creation date, written when RuDo creates a task              |
 | `[anything:: value]`        | unknown fields are kept and written back unchanged           |
 
 `x` marks any task that is not done as done, also an in-progress or cancelled one, and
@@ -89,7 +90,8 @@ Priorities are shown at the right edge of the row: `!!!`, `!!` and `!` for highe
 
 Recurrence rules are set with `r` and shown before the priority. Completing a recurring task
 inserts its next occurrence above it: same text, tags, priority and fields, open, without a
-completion date, due one interval after the old due date (or after today if it had none).
+completion date, due one interval after the old due date (or after today if it had none),
+and created today like any new task (without a creation date if `tasks.created_date` is off).
 Months and years are added in calendar terms, so one month after January 31 is the end of
 February. Subtasks are not copied, and one undo removes the completion and the new
 occurrence. A rule RuDo does not support, such as `every weekday`, is shown as written;
@@ -102,6 +104,15 @@ become fields. A task RuDo changes is written as `{indent}{marker} [{status}] {d
 followed by ` [key:: value]` for every field in their original order; setting a field
 replaces it in place or appends it at the end. Pasted and moved tasks take over the
 indentation of their new place.
+
+Every task created in RuDo (`o`, `O` and `a` in the tasks pane, and the next occurrence of a
+recurring task) gets today's date as `[created:: YYYY-MM-DD]`, the creation date of the
+Obsidian Tasks plugin, unless `tasks.created_date` is off. It follows the fields typed into
+the text, so a due date set later comes after it: `- [ ] Buy milk [created:: 2026-11-25]
+[due:: 2026-11-27]`; a `created` field typed into the text is kept instead. Pasting is moving,
+not creating: pasted tasks keep their fields as they are and never get a creation date. Tasks
+without the field have no creation date; RuDo does not guess one from the file. The creation
+date is not shown in the tasks pane, and search and go to anything do not match it.
 
 Lines inside fenced code blocks and front matter are never treated as tasks. Line endings
 (LF or CRLF), a trailing newline and a byte order mark are preserved. Untouched lines are

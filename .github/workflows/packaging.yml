@@ -1,7 +1,8 @@
 name: Packaging
 
 # Builds the recipes of packaging/ that can be built before a release: the PKGBUILD from a
-# source archive of the commit, and the Nix flake. docs/PACKAGING.md describes the recipes.
+# source archive of the commit, the .deb and .rpm of Cargo.toml, and the Nix flake, and installs
+# the packages in containers of their distributions. docs/PACKAGING.md describes the recipes.
 on:
   push:
   pull_request:
@@ -40,6 +41,40 @@ jobs:
           useradd --create-home builder
           chown -R builder "$GITHUB_WORKSPACE"
           su builder -c 'just packaging-aur'
+
+      - run: scripts/package-smoke.sh target/packaging/aur/rudo-tui-[0-9]*.pkg.tar.zst
+
+  deb-rpm:
+    name: .deb and .rpm for ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          target: ${{ matrix.target }}
+
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just,cargo-deb@3.8.0,cargo-generate-rpm@0.21.1
+
+      # The binary that the release packs, from the musl archive that dist builds
+      - run: cargo build --locked --profile dist --target ${{ matrix.target }}
+
+      - run: just linux-packages ${{ matrix.target }} target/distrib
+
+      # Debian, Fedora and openSUSE Tumbleweed of the runner's architecture
+      - run: just package-smoke target/distrib
 
   nix:
     name: nix flake check and nix build

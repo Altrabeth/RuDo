@@ -92,6 +92,21 @@ blocked by Gatekeeper until you remove the quarantine attribute:
 xattr -d com.apple.quarantine ./rudo
 ```
 
+Every release also has `.deb` and `.rpm` packages for x86_64 and aarch64 (`amd64` and `arm64`
+for Debian) and an Arch package for x86_64, so that your package manager installs and removes
+RuDo. Download the one for your system from the
+[release page](https://github.com/Altrabeth/RuDo/releases/latest) and install it, here version
+1.0.0:
+
+```sh
+sudo apt install ./rudo-tui_1.0.0-1_amd64.deb                            # Debian, Ubuntu
+sudo dnf install ./rudo-tui-1.0.0-1.x86_64.rpm                           # Fedora, RHEL
+sudo zypper install --allow-unsigned-rpm ./rudo-tui-1.0.0-1.x86_64.rpm   # openSUSE
+sudo pacman -U ./rudo-tui-1.0.0-1-x86_64.pkg.tar.zst                     # Arch Linux
+```
+
+The `.deb` and `.rpm` packages hold the static binary, so they work on old releases too.
+
 On Arch Linux, install the AUR package `rudo-tui` (for example `paru -S rudo-tui`); with
 [Nix](https://nixos.org), run `nix run github:Altrabeth/RuDo`. The recipes for these, for Fedora
 Copr, openSUSE OBS, Gentoo GURU, winget and Chocolatey are kept in `packaging/` and `flake.nix`;

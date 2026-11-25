@@ -38,6 +38,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `rudo-tui-<version>-vendor.tar.xz` with the crates for offline builders, and
   `just packaging-update <version>` updates versions and checksums of the recipes.
   `docs/PACKAGING.md` explains them.
+- **Linux packages.** Every release carries `.deb` and `.rpm` packages for x86_64 and aarch64,
+  built from the static musl binary so that they install on old and new distributions
+  (`sudo apt install ./rudo-tui_<version>-1_amd64.deb`,
+  `sudo dnf install ./rudo-tui-<version>-1.x86_64.rpm`), and an Arch package built from the
+  PKGBUILD (`sudo pacman -U ./rudo-tui-<version>-1-x86_64.pkg.tar.zst`), each with its SHA-256
+  checksum. CI installs every package in a Debian, Fedora, openSUSE or Arch container.
 
 ### Fixed
 

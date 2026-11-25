@@ -1,0 +1,95 @@
+name: Build Linux packages
+
+# release.yml calls this workflow as a custom global artifacts job (`global-artifacts-jobs` in
+# dist-workspace.toml) once dist has built the archives. It packs the static musl binaries of
+# the release archives into .deb and .rpm packages for x86_64 and aarch64, builds the Arch
+# package from the PKGBUILD, installs every package in a container of its distribution, and
+# uploads them with their checksums as `artifacts-*`, which land in the GitHub release.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: the dist manifest of the plan job, which this job does not need
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deb-rpm:
+    name: build and test .deb and .rpm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the archives of build-local-artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: artifacts-build-local-*
+          path: archives
+          merge-multiple: true
+
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just,cargo-deb@3.8.0,cargo-generate-rpm@0.21.1
+
+      # The packages hold the very binary of the archive, at the path where cargo would build it.
+      # rustup on the runner installs the toolchain pinned in rust-toolchain.toml for cargo deb.
+      - name: Pack the musl binaries
+        run: |
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            archive="rudo-tui-$target.tar.xz"
+            (cd archives && sha256sum --check "$archive.sha256")
+            mkdir -p "target/$target/dist"
+            tar -xJf "archives/$archive" -C "target/$target/dist" --strip-components=1 \
+              "rudo-tui-$target/rudo"
+            just linux-packages "$target" distrib
+          done
+
+      # Runs the arm64 containers of the aarch64 packages
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - run: just package-smoke distrib
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifacts-build-linux-packages-deb-rpm
+          path: distrib/*
+
+  arch:
+    name: build and test the Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      # git first, so that the checkout is a repository that `git archive` can pack.
+      - run: pacman -Syu --noconfirm --needed git just
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the dependencies of the PKGBUILD
+        shell: bash
+        run: |
+          source packaging/aur/rudo-tui/PKGBUILD
+          pacman -S --noconfirm --needed "${depends[@]}" "${makedepends[@]}"
+
+      # makepkg refuses to run as root, and the tests of failed deletes need file permissions
+      # that root ignores.
+      - name: just package-arch distrib
+        run: |
+          useradd --create-home builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c 'just package-arch distrib'
+
+      - run: scripts/package-smoke.sh distrib/rudo-tui-*.pkg.tar.zst
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifacts-build-linux-packages-arch
+          path: distrib/*

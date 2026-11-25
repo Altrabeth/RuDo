@@ -2,12 +2,14 @@
 
 The recipes for the package managers that RuDo's maintainer submits to live in this repository,
 so that a submission after a release is a copy-and-submit step. Packagers of other systems are
-welcome to start from them. The GitHub release itself, with binaries, install scripts and the
-Homebrew formula, is described in [`RELEASING.md`](RELEASING.md).
+welcome to start from them. The GitHub release itself, with binaries, install scripts, the
+Homebrew formula and the `.deb`, `.rpm` and Arch packages that CI builds, is described in
+[`RELEASING.md`](RELEASING.md).
 
 | Channel                   | Recipe                                        | Built by CI                         |
 | ------------------------- | --------------------------------------------- | ----------------------------------- |
 | AUR and `makepkg`         | `packaging/aur/rudo-tui/PKGBUILD`, `.SRCINFO` | `makepkg` and `namcap` on Arch      |
+| `.deb` and `.rpm` release | `[package.metadata]` in `Cargo.toml`          | `cargo deb`, `cargo generate-rpm`   |
 | Nix                       | `flake.nix`, `flake.lock`                     | `nix flake check`, `nix run`        |
 | Fedora Copr, openSUSE OBS | `packaging/rpm/rudo-tui.spec`                 | no, try it in a container (below)   |
 | Gentoo GURU               | `packaging/gentoo/app-misc/rudo-tui/`         | no                                  |
@@ -76,10 +78,12 @@ cd packaging/aur/rudo-tui && makepkg -si
 
 `just packaging-aur` builds it from the current commit instead of a release: it packs the tree
 with `git archive` the way dist packs `source.tar.gz`, runs `makepkg --skipchecksums` on a copy
-in `target/packaging/aur/`, checks that `.SRCINFO` matches `makepkg --printsrcinfo` and lints the
+in `target/packaging/aur/` whose `pkgver` is the version of `Cargo.toml`, checks that `.SRCINFO` matches `makepkg --printsrcinfo` and lints the
 PKGBUILD and the package with `namcap` (the `-debug` package is left out, because namcap
 reports its build-id links into the main package). The `arch` job of
-`.github/workflows/packaging.yml` runs it in an `archlinux:base-devel` container on every push.
+`.github/workflows/packaging.yml` runs it in an `archlinux:base-devel` container on every push
+and installs the package with `scripts/package-smoke.sh`. The release attaches the package that
+`just package-arch` builds from the same PKGBUILD; there is no second Arch recipe.
 
 **Submitting.** Once: create an account on [aur.archlinux.org](https://aur.archlinux.org) with
 an SSH key. For every release:

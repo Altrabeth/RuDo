@@ -131,21 +131,71 @@ vendor-tarball out_dir="target/distrib":
     echo "$1/$archive"
 
 # Build and lint the Arch package of the current commit with makepkg and namcap
-packaging-aur:
+packaging-aur: _makepkg
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd packaging/aur/rudo-tui && makepkg --printsrcinfo | diff -u .SRCINFO -)
+    cd target/packaging/aur
+    # The -debug package is left out: namcap flags its build-id links into the main package
+    namcap PKGBUILD rudo-tui-[0-9]*.pkg.tar.zst | tee namcap.log
+    ! grep -q ' E: ' namcap.log
+
+# Build the Arch package of the current commit into out_dir, with its checksum
+package-arch out_dir="target/distrib": _makepkg
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "$1"
+    package="$(basename target/packaging/aur/rudo-tui-[0-9]*.pkg.tar.zst)"
+    cp "target/packaging/aur/$package" "$1/"
+    cd "$1"
+    sha256sum "$package" > "$package.sha256"
+    echo "$1/$package"
+
+# Run makepkg in target/packaging/aur on the PKGBUILD, set to the version of Cargo.toml, and a
+# source archive of the current commit packed like dist's source.tar.gz
+_makepkg:
     #!/usr/bin/env bash
     set -euo pipefail
     build="target/packaging/aur"
     rm -rf "$build"
     mkdir -p "$build"
-    cp packaging/aur/rudo-tui/PKGBUILD "$build/"
-    version="$(sed -n 's/^pkgver=//p' "$build/PKGBUILD")"
+    # The PKGBUILD names the last release until `just packaging-update`, a release the new one
+    version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+    sed "s/^pkgver=.*/pkgver=$version/" packaging/aur/rudo-tui/PKGBUILD > "$build/PKGBUILD"
     git archive --format=tar.gz --prefix="rudo-tui-$version/" HEAD > "$build/rudo-tui-$version.tar.gz"
     cd "$build"
-    makepkg --printsrcinfo | diff -u ../../../packaging/aur/rudo-tui/.SRCINFO -
     makepkg --force --cleanbuild --skipchecksums
-    # The -debug package is left out: namcap flags its build-id links into the main package
-    namcap PKGBUILD rudo-tui-[0-9]*.pkg.tar.zst | tee namcap.log
-    ! grep -q ' E: ' namcap.log
+
+# Pack target/<target>/dist/rudo, a static musl binary, into a .deb and an .rpm in out_dir, with
+# their checksums
+linux-packages target="x86_64-unknown-linux-musl" out_dir="target/distrib":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # A fresh folder per target, because cargo generate-rpm does not print what it wrote
+    staging="target/linux-packages/$1"
+    rm -rf "$staging"
+    mkdir -p "$staging" "$2"
+    # The binary stays as dist built it for the archives; stripping would need a cross strip
+    cargo deb --no-build --no-strip --target "$1" --profile dist --output "$staging" > /dev/null
+    cargo generate-rpm --target "$1" --profile dist --output "$staging"
+    cd "$staging"
+    for package in *; do
+        sha256sum "$package" > "$package.sha256"
+        mv "$package" "$package.sha256" "{{ absolute_path(out_dir) }}/"
+        echo "$2/$package"
+    done
+
+# Install every package in out_dir in a container of its distribution, run it and remove it
+package-smoke out_dir="target/distrib":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s nullglob
+    for package in "$1"/*.deb; do scripts/package-smoke.sh "$package" debian:stable; done
+    for package in "$1"/*.rpm; do
+        scripts/package-smoke.sh "$package" fedora:latest
+        scripts/package-smoke.sh "$package" opensuse/tumbleweed
+    done
+    for package in "$1"/*.pkg.tar.zst; do scripts/package-smoke.sh "$package" archlinux:latest; done
 
 # Set the version and checksums of every packaging recipe from a published GitHub release
 packaging-update version:

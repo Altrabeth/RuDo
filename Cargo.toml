@@ -30,6 +30,35 @@ pkg-fmt = "txz"
 pkg-fmt = "zip"
 bin-dir = "{ bin }{ binary-ext }"
 
+# `just linux-packages` packs the static musl binary of the `dist` profile into a .deb and an
+# .rpm; name, version, description and license come from [package]. docs/RELEASING.md explains it.
+[package.metadata.deb]
+maintainer = "Altrabeth <Altrabeth@users.noreply.github.com>"
+section = "utils"
+priority = "optional"
+# The binary is static, so it depends on nothing
+depends = ""
+# Other programs called rudo would install /usr/bin/rudo too
+conflicts = "rudo"
+extended-description = "The workspace is a folder, every Markdown file is a list and every checkbox a task, so the same tasks can be edited in RuDo and in Obsidian. The command is rudo."
+assets = [
+    ["target/release/rudo", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/rudo-tui/", "644"],
+    ["CHANGELOG.md", "usr/share/doc/rudo-tui/", "644"],
+    ["LICENSE", "usr/share/doc/rudo-tui/", "644"],
+]
+
+[package.metadata.generate-rpm]
+# The binary is static, so it requires nothing
+auto-req = "no"
+conflicts = { rudo = "*" }
+assets = [
+    { source = "target/release/rudo", dest = "/usr/bin/rudo", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/rudo-tui/README.md", mode = "644", doc = true },
+    { source = "CHANGELOG.md", dest = "/usr/share/doc/rudo-tui/CHANGELOG.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/licenses/rudo-tui/LICENSE", mode = "644" },
+]
+
 [dependencies]
 anyhow = "1.0.105"
 clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }

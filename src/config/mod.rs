@@ -734,12 +734,16 @@ mod tests {
     fn load_expands_tilde_in_root() {
         let directory = TempDir::new().unwrap();
         let path = write_file(&directory, "config.yaml", "workspace:\n  root: ~/todo\n");
-        let home = Path::new(HOME);
-        let expected = Path::new("/home/alice/todo");
+        // A real home directory is absolute, and `/home/alice` is not on Windows.
+        let home = directory.path().join("alice");
+        let expected = home.join("todo");
 
-        let system_under_test = Config::load(&path, home).unwrap();
+        let system_under_test = Config::load(&path, &home).unwrap();
 
-        assert_eq!(system_under_test.workspace().root(), Some(expected));
+        assert_eq!(
+            system_under_test.workspace().root(),
+            Some(expected.as_path())
+        );
     }
 
     #[test]

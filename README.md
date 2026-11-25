@@ -300,8 +300,8 @@ another program took the original path in the meantime, the undo fails with a me
 the entry stays in the bin; `u` tries again once the path is free.
 
 `e` opens the selected list in the editor from `editor`, `$VISUAL` or `$EDITOR` (in that
-order, else `vi`, or `notepad` on Windows); in the tasks pane at the line of the selected
-task. RuDo reloads the list when the editor exits.
+order, else `vi`, or `notepad` on Windows; see [Platforms](#platforms) for how the
+command is split); in the tasks pane at the line of the selected task. RuDo reloads the list when the editor exits.
 
 ### Moving around (lists pane, tasks pane and help screen)
 
@@ -635,15 +635,25 @@ to fix it.
 
 ## Platforms
 
-RuDo runs on Linux, macOS, Windows and FreeBSD (x86_64). The behaviour is the same everywhere
-except for these locations and the last editor fallback:
+RuDo runs on Linux, macOS, Windows and FreeBSD (x86_64); CI runs the test suite on all four.
+On Windows, use Windows Terminal or PowerShell in it; on macOS, Terminal or iTerm2. The
+behaviour is the same everywhere except for these locations, the last editor fallback and how
+the editor command is split into words:
 
-| What               | Linux, macOS and FreeBSD       | Windows                        |
-| ------------------ | ------------------------------ | ------------------------------ |
-| configuration file | `~/.config/rudo/config.yaml`   | `%APPDATA%\rudo\config.yaml`   |
-| default workspace  | `~/.local/share/rudo`          | `%USERPROFILE%\Documents\RuDo` |
-| log file           | `~/.local/state/rudo/rudo.log` | `%LOCALAPPDATA%\rudo\rudo.log` |
-| editor fallback    | `vi`                           | `notepad`                      |
+| What               | Linux, macOS and FreeBSD       | Windows                          |
+| ------------------ | ------------------------------ | -------------------------------- |
+| configuration file | `~/.config/rudo/config.yaml`   | `%APPDATA%\rudo\config.yaml`     |
+| default workspace  | `~/.local/share/rudo`          | `RuDo` in the `Documents` folder |
+| log file           | `~/.local/state/rudo/rudo.log` | `%LOCALAPPDATA%\rudo\rudo.log`   |
+| editor fallback    | `vi`                           | `notepad`                        |
+| editor command     | split like a POSIX shell       | split like a Windows program     |
+
+The `Documents` folder is the one Windows reports, so a folder moved to OneDrive or redirected
+elsewhere is followed; without one, RuDo uses `%USERPROFILE%\Documents`. On Windows a
+backslash in the editor command is part of the path, double quotes group words, and an
+unquoted program path with spaces is read up to its `.exe`, so both
+`C:\Program Files\Neovim\bin\nvim.exe` and `"C:\Program Files\Neovim\bin\nvim.exe" -u NONE`
+work. Elsewhere, quote or escape spaces as in a shell.
 
 On every platform, `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` replace these
 folders (with a `rudo` subfolder) when they hold an absolute path. If `%APPDATA%` or

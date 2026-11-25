@@ -5,9 +5,9 @@
 //! On Windows it uses `%APPDATA%`, `%LOCALAPPDATA%` and the `Documents` folder, unless the
 //! `XDG_*` variables are set.
 //!
-//! Resolution is split into pure functions that take the platform and the environment values
-//! as parameters ([`BaseDir::resolve`], [`expand_tilde`]) and thin wrappers that read the real
-//! process environment ([`BaseDir::app_dir`], [`home_dir`]).
+//! Resolution is split into pure functions that take the platform, the user's folders and the
+//! environment values as parameters ([`BaseDir::resolve`], [`expand_tilde`]) and thin wrappers
+//! that ask the real system ([`BaseDir::app_dir`], [`home_dir`]).
 //!
 //! Paths relative to the workspace root are shown and stored with `/` between their
 //! components on every platform ([`portable`]) and read with either separator
@@ -43,7 +43,7 @@ pub enum BaseDir {
     /// `%APPDATA%`).
     Config,
     /// User specific data, which holds the default workspace (`$XDG_DATA_HOME`, default
-    /// `~/.local/share`, on Windows the `Documents` folder).
+    /// `~/.local/share`, on Windows the `Documents` folder, wherever Windows keeps it).
     Data,
     /// User specific state such as logs (`$XDG_STATE_HOME`, default `~/.local/state`, on
     /// Windows `%LOCALAPPDATA%`).
@@ -62,8 +62,8 @@ impl BaseDir {
         }
     }
 
-    /// Resolves RuDo's folder in this base directory on `platform` from the home directory and
-    /// the environment, without reading the process environment.
+    /// Resolves RuDo's folder in this base directory on `platform` from the home directory,
+    /// the `Documents` folder and the environment, without asking the system.
     ///
     /// `environment` returns the value of an environment variable, `None` if it is unset. The
     /// XDG variable ([`BaseDir::env_var`]) wins on every platform when it holds an absolute
@@ -72,9 +72,12 @@ impl BaseDir {
     ///
     /// - Linux, macOS and other Unix systems: `~/.config/rudo`, `~/.local/share/rudo` and
     ///   `~/.local/state/rudo`;
-    /// - Windows: `%APPDATA%\rudo`, `~\Documents\RuDo` ([`WINDOWS_WORKSPACE_NAME`]) and
+    /// - Windows: `%APPDATA%\rudo`, `Documents\RuDo` ([`WINDOWS_WORKSPACE_NAME`]) and
     ///   `%LOCALAPPDATA%\rudo`, where a missing, empty or relative `%APPDATA%` or
     ///   `%LOCALAPPDATA%` falls back to `~\AppData\Roaming` or `~\AppData\Local`.
+    ///   `documents` is the `Documents` folder as Windows reports it (the Known Folder
+    ///   `FOLDERID_Documents`), which `OneDrive` or a redirection may have moved; if it is
+    ///   `None` or relative, `~\Documents` is used. The other platforms ignore it.
     ///
     /// # Examples
     ///
@@ -86,11 +89,11 @@ impl BaseDir {
     ///
     /// let home = Path::new("/home/alice");
     /// assert_eq!(
-    ///     BaseDir::State.resolve(Platform::Linux, home, |_| None),
+    ///     BaseDir::State.resolve(Platform::Linux, home, None, |_| None),
     ///     Path::new("/home/alice/.local/state/rudo"),
     /// );
     /// assert_eq!(
-    ///     BaseDir::Data.resolve(Platform::Windows, home, |_| None),
+    ///     BaseDir::Data.resolve(Platform::Windows, home, None, |_| None),
     ///     Path::new("/home/alice/Documents/RuDo"),
     /// );
     /// ```
@@ -99,10 +102,11 @@ impl BaseDir {
         self,
         platform: Platform,
         home: &Path,
+        documents: Option<&Path>,
         environment: impl Fn(&str) -> Option<OsString>,
     ) -> PathBuf {
         absolute(environment(self.env_var())).map_or_else(
-            || self.platform_default(platform, home, &environment),
+            || self.platform_default(platform, home, documents, &environment),
             |xdg_dir| xdg_dir.join(APP_DIR_NAME),
         )
     }
@@ -115,7 +119,12 @@ impl BaseDir {
     /// Returns [`PathsError::HomeNotFound`] if the home directory cannot be determined.
     pub fn app_dir(self) -> Result<PathBuf, PathsError> {
         let home = home_dir()?;
-        Ok(self.resolve(Platform::current(), &home, |name| env::var_os(name)))
+        let documents = documents_dir();
+        Ok(
+            self.resolve(Platform::current(), &home, documents.as_deref(), |name| {
+                env::var_os(name)
+            }),
+        )
     }
 
     /// Returns RuDo's folder of this base directory on `platform` when no XDG variable is set.
@@ -123,6 +132,7 @@ impl BaseDir {
         self,
         platform: Platform,
         home: &Path,
+        documents: Option<&Path>,
         environment: impl Fn(&str) -> Option<OsString>,
     ) -> PathBuf {
         match (platform, self) {
@@ -138,7 +148,10 @@ impl BaseDir {
             (Platform::Windows, Self::Config) => WindowsAppData::Roaming
                 .resolve(home, environment)
                 .join(APP_DIR_NAME),
-            (Platform::Windows, Self::Data) => below(home, &["Documents", WINDOWS_WORKSPACE_NAME]),
+            (Platform::Windows, Self::Data) => documents
+                .filter(|documents| documents.is_absolute())
+                .map_or_else(|| home.join("Documents"), Path::to_path_buf)
+                .join(WINDOWS_WORKSPACE_NAME),
             (Platform::Windows, Self::State) => WindowsAppData::Local
                 .resolve(home, environment)
                 .join(APP_DIR_NAME),
@@ -189,6 +202,20 @@ pub fn home_dir() -> Result<PathBuf, PathsError> {
     env::home_dir()
         .filter(|home| home.is_absolute())
         .ok_or(PathsError::HomeNotFound)
+}
+
+/// Returns the current user's `Documents` folder as Windows reports it (the Known Folder
+/// `FOLDERID_Documents`), which follows `OneDrive` and redirected folders, or `None` if Windows
+/// does not know it.
+#[cfg(windows)]
+fn documents_dir() -> Option<PathBuf> {
+    known_folders::get_known_folder_path(known_folders::KnownFolder::Documents)
+}
+
+/// Returns `None`: only Windows has a `Documents` folder that RuDo uses.
+#[cfg(not(windows))]
+const fn documents_dir() -> Option<PathBuf> {
+    None
 }
 
 /// Replaces a leading `~` in `path` with `home`.
@@ -335,7 +362,7 @@ mod tests {
         let home = home();
         let expected = below(&home, expected_below_home);
 
-        let system_under_test = base_dir.resolve(platform, &home, environment(&[]));
+        let system_under_test = base_dir.resolve(platform, &home, None, environment(&[]));
 
         assert_eq!(system_under_test, expected);
     }
@@ -355,7 +382,7 @@ mod tests {
                     ("APPDATA", app_data.clone()),
                     ("LOCALAPPDATA", app_data.clone()),
                 ];
-                let resolved = base_dir.resolve(platform, &home, environment(&variables));
+                let resolved = base_dir.resolve(platform, &home, None, environment(&variables));
                 (platform, base_dir, resolved)
             })
             .collect();
@@ -374,14 +401,14 @@ mod tests {
         let home = home();
         let expected: Vec<PathBuf> = Platform::iter()
             .flat_map(|platform| BaseDir::iter().map(move |base_dir| (platform, base_dir)))
-            .map(|(platform, base_dir)| base_dir.resolve(platform, &home, environment(&[])))
+            .map(|(platform, base_dir)| base_dir.resolve(platform, &home, None, environment(&[])))
             .collect();
 
         let system_under_test: Vec<PathBuf> = Platform::iter()
             .flat_map(|platform| BaseDir::iter().map(move |base_dir| (platform, base_dir)))
             .map(|(platform, base_dir)| {
                 let variables = [(base_dir.env_var(), OsString::from(xdg_value))];
-                base_dir.resolve(platform, &home, environment(&variables))
+                base_dir.resolve(platform, &home, None, environment(&variables))
             })
             .collect();
 
@@ -397,7 +424,8 @@ mod tests {
         let variables = [(variable, app_data.clone().into_os_string())];
         let expected = app_data.join("rudo");
 
-        let system_under_test = base_dir.resolve(Platform::Windows, &home, environment(&variables));
+        let system_under_test =
+            base_dir.resolve(Platform::Windows, &home, None, environment(&variables));
 
         assert_eq!(system_under_test, expected);
     }
@@ -421,7 +449,8 @@ mod tests {
             .collect();
         let expected = below(&home, &["AppData", expected_folder, "rudo"]);
 
-        let system_under_test = base_dir.resolve(Platform::Windows, &home, environment(&variables));
+        let system_under_test =
+            base_dir.resolve(Platform::Windows, &home, None, environment(&variables));
 
         assert_eq!(system_under_test, expected);
     }
@@ -439,8 +468,9 @@ mod tests {
         let system_under_test: Vec<[PathBuf; 2]> = Platform::iter()
             .filter(|platform| *platform != Platform::Windows)
             .map(|platform| {
-                [BaseDir::Config, BaseDir::State]
-                    .map(|base_dir| base_dir.resolve(platform, &home, environment(&variables)))
+                [BaseDir::Config, BaseDir::State].map(|base_dir| {
+                    base_dir.resolve(platform, &home, None, environment(&variables))
+                })
             })
             .collect();
 
@@ -449,6 +479,108 @@ mod tests {
                 .iter()
                 .all(|resolved| *resolved == expected)
         );
+    }
+
+    #[test]
+    fn windows_workspace_follows_a_moved_documents_folder() {
+        let home = home();
+        let documents = absolute_path(&["Users", "alice", "OneDrive", "Dokumente"]);
+        let expected = documents.join("RuDo");
+
+        let system_under_test =
+            BaseDir::Data.resolve(Platform::Windows, &home, Some(&documents), environment(&[]));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn windows_workspace_ignores_a_relative_documents_folder() {
+        let home = home();
+        let documents = Path::new("Documents");
+        let expected = below(&home, &["Documents", "RuDo"]);
+
+        let system_under_test =
+            BaseDir::Data.resolve(Platform::Windows, &home, Some(documents), environment(&[]));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn unix_platforms_ignore_the_documents_folder() {
+        let home = home();
+        let documents = absolute_path(&["Users", "alice", "Documents"]);
+        let expected: Vec<PathBuf> = Platform::iter()
+            .filter(|platform| *platform != Platform::Windows)
+            .map(|platform| BaseDir::Data.resolve(platform, &home, None, environment(&[])))
+            .collect();
+
+        let system_under_test: Vec<PathBuf> = Platform::iter()
+            .filter(|platform| *platform != Platform::Windows)
+            .map(|platform| {
+                BaseDir::Data.resolve(platform, &home, Some(&documents), environment(&[]))
+            })
+            .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn documents_dir_is_unknown_outside_windows() {
+        let system_under_test = documents_dir();
+
+        assert_eq!(system_under_test, None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn documents_dir_is_absolute_on_windows() {
+        let system_under_test = documents_dir().unwrap();
+
+        assert!(system_under_test.is_absolute());
+    }
+
+    /// The default workspace is in the `Documents` folder that Windows reports, unless the CI
+    /// runner sets `XDG_DATA_HOME`.
+    #[cfg(windows)]
+    #[test]
+    fn data_dir_is_in_the_documents_folder_on_windows() {
+        let expected = env::var_os("XDG_DATA_HOME").map_or_else(
+            || documents_dir().unwrap().join("RuDo"),
+            |xdg_dir| PathBuf::from(xdg_dir).join("rudo"),
+        );
+
+        let system_under_test = BaseDir::Data.app_dir().unwrap();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[cfg(windows)]
+    #[rstest]
+    #[case::config(BaseDir::Config, "APPDATA")]
+    #[case::state(BaseDir::State, "LOCALAPPDATA")]
+    fn app_dirs_are_in_app_data_on_windows(#[case] base_dir: BaseDir, #[case] variable: &str) {
+        let expected = env::var_os(base_dir.env_var())
+            .or_else(|| env::var_os(variable))
+            .map(|folder| PathBuf::from(folder).join("rudo"))
+            .unwrap();
+
+        let system_under_test = base_dir.app_dir().unwrap();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    /// On Windows `\` separates components too, so a path read from the system is shown with
+    /// `/` like every other.
+    #[cfg(windows)]
+    #[test]
+    fn portable_shows_backslashes_as_slashes_on_windows() {
+        let path = Path::new(r"Home\Garden\Seeds.md");
+        let expected = "Home/Garden/Seeds.md";
+
+        let system_under_test = portable(path).to_string();
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[rstest]

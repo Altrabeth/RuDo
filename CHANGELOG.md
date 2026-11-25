@@ -13,8 +13,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `rudo-tui` because `rudo` is taken, the command and the library stay `rudo`.
   `just publish-dry-run` checks the package before a release.
 - **Windows.** The configuration is read from `%APPDATA%\rudo\config.yaml`, the log goes to
-  `%LOCALAPPDATA%\rudo\rudo.log` and the default workspace is `%USERPROFILE%\Documents\RuDo`;
-  `XDG_*` variables are honoured there too. `notepad` is the last editor fallback.
+  `%LOCALAPPDATA%\rudo\rudo.log` and the default workspace is `RuDo` in the `Documents`
+  folder that Windows reports, also when OneDrive or a redirection moved it; `XDG_*`
+  variables are honoured there too. `notepad` is the last editor fallback, and the editor
+  command is split by Windows rules, so `C:\Program Files\Neovim\bin\nvim.exe` works with
+  or without quotes. Saving keeps the read-only attribute of a list and retries briefly while
+  another program holds it open.
 - **FreeBSD.** RuDo builds and passes its tests on FreeBSD (x86_64), with the folders and the
   `vi` fallback of Linux.
 - **Release binaries.** Every GitHub release has archives for Linux (x86_64 and aarch64, glibc
@@ -23,6 +27,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`brew install altrabeth/tap/rudo-tui`); `cargo binstall rudo-tui` downloads them. The static
   Linux binaries carry the time zone database, so they know the local day without
   `/usr/share/zoneinfo`. `docs/RELEASING.md` describes the release procedure.
+
+### Fixed
+
+- **macOS.** Live reload works in a workspace below a symbolic link, such as every temporary
+  folder; FSEvents reports the resolved paths, which RuDo used to drop.
 
 ### Changed
 

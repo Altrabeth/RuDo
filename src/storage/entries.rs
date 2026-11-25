@@ -610,6 +610,30 @@ mod tests {
         assert_eq!(entry_names(directory.path()), vec![expected]);
     }
 
+    /// macOS and Windows use case-insensitive file systems by default, where `groceries.md`
+    /// and `Groceries.md` name the same file, so the rename must not mistake the list for an
+    /// existing entry of the new name.
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn rename_changes_only_the_case_on_a_case_insensitive_file_system() {
+        let directory = TempDir::new().unwrap();
+        let source = directory.path().join("groceries.md");
+        fs::write(&source, "- [ ] Buy milk\n").unwrap();
+        let new_name = name("Groceries");
+        let expected_path = directory.path().join("Groceries.md");
+        let is_case_insensitive = expected_path.exists();
+
+        let system_under_test = rename(&source, &new_name).unwrap();
+
+        assert!(is_case_insensitive);
+        assert_eq!(system_under_test, expected_path);
+        assert_eq!(entry_names(directory.path()), vec!["Groceries.md"]);
+        assert_eq!(
+            fs::read_to_string(&expected_path).unwrap(),
+            "- [ ] Buy milk\n"
+        );
+    }
+
     #[test]
     fn rename_to_the_same_name_changes_nothing() {
         let directory = TempDir::new().unwrap();

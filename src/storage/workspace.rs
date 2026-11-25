@@ -1413,17 +1413,33 @@ mod tests {
     }
 
     #[test]
-    fn scan_sorts_folders_first_then_case_insensitively_with_exact_tie_break() {
+    fn scan_sorts_folders_first_then_case_insensitively() {
         let root = TempDir::new().unwrap();
-        for list in ["b.md", "a.md", "C.md", "A.md"] {
+        for list in ["b.md", "a.md", "C.md"] {
             write_file(root.path(), list, b"");
         }
         for folder in ["z", "Y"] {
             create_dir(root.path(), folder);
         }
-        let expected = ["Y/", "z/", "A.md", "a.md", "b.md", "C.md"]
+        let expected = ["Y/", "z/", "a.md", "b.md", "C.md"]
             .map(String::from)
             .to_vec();
+
+        let system_under_test = scan(&root);
+
+        assert_eq!(outline(system_under_test.entries()), expected);
+    }
+
+    // `A.md` and `a.md` are the same file on the case-insensitive file systems that macOS and
+    // Windows use by default; `compare_names` tests the tie-break on every platform.
+    #[cfg(not(any(windows, target_os = "macos")))]
+    #[test]
+    fn scan_breaks_case_insensitive_ties_by_exact_name() {
+        let root = TempDir::new().unwrap();
+        for list in ["b.md", "a.md", "A.md"] {
+            write_file(root.path(), list, b"");
+        }
+        let expected = ["A.md", "a.md", "b.md"].map(String::from).to_vec();
 
         let system_under_test = scan(&root);
 

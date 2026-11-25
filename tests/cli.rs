@@ -7,6 +7,7 @@ use std::process::{Command, Output, Stdio};
 
 use rstest::rstest;
 use rudo::config::DEFAULT_CONFIG_YAML;
+use rudo::paths::parse_portable;
 use tempfile::TempDir;
 
 /// Isolated home and XDG directories, so that no test reads or writes the user's files.
@@ -21,8 +22,10 @@ impl Sandbox {
         }
     }
 
+    /// Returns the path of `relative`, written with `/` or `\`, in the sandbox, joined with
+    /// the separator of the platform as the program joins its paths.
     fn path(&self, relative: &str) -> PathBuf {
-        self.directory.path().join(relative)
+        self.directory.path().join(parse_portable(relative))
     }
 
     fn config_dir(&self) -> PathBuf {

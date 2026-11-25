@@ -404,7 +404,7 @@ on Windows checkouts.
 - Platform differences are explicit: every function whose result differs between Linux,
   macOS and Windows takes a `platform::Platform` (and the environment values it needs) as a
   parameter, so that every variant is unit tested on every machine (`BaseDir::resolve`,
-  `choose_editor`). Only thin wrappers in the shell call `Platform::current()` or read the
+  `choose_editor`, `split_command_line`). Only thin wrappers in the shell call `Platform::current()` or read the
   environment (`BaseDir::app_dir`, the editor hand-over in `runtime::run`). Paths relative
   to the workspace root are displayed with `paths::portable`, so they show `/` everywhere;
   absolute paths of the operating system keep its own separator.

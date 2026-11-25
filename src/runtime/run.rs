@@ -148,14 +148,15 @@ fn edit(
 ) -> Result<InputThread, RuntimeError> {
     let visual = environment_variable("VISUAL");
     let editor = environment_variable("EDITOR");
+    let platform = Platform::current();
     let command_line = choose_editor(
-        Platform::current(),
+        platform,
         app.config().editor(),
         visual.as_deref(),
         editor.as_deref(),
     );
     let file = app.workspace().absolute_path(list);
-    let command = match EditorCommand::new(command_line, &file, line) {
+    let command = match EditorCommand::new(platform, command_line, &file, line) {
         Ok(command) => command,
         Err(error) => {
             app.editor_failed(&error);

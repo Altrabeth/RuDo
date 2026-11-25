@@ -157,6 +157,53 @@ RuDo in the system console and in a terminal emulator under X11 or Wayland.
 - [ ] The configuration, workspace and log folders are those of Linux in the README section
       "Platforms", and `e` opens `vi` with `VISUAL` and `EDITOR` unset.
 
+## Windows
+
+Run these items on Windows 11 when a release ships a Windows binary. CI runs the tests on
+Windows, but no smoke test: Python's `pty` module does not exist there, and driving ConPTY
+would need a third-party package, so the terminal is checked by hand. Prepare in PowerShell:
+
+```powershell
+just install
+Remove-Item -Recurse -Force $env:TEMP\rudo-qa -ErrorAction Ignore
+Copy-Item -Recurse demo $env:TEMP\rudo-qa
+rudo --root $env:TEMP\rudo-qa
+```
+
+- [ ] **Windows Terminal with PowerShell**: the items of [Terminals](#terminals) and
+      [Sizes and resizing](#sizes-and-resizing) pass; every key acts once (key releases are
+      ignored), also `j` held down.
+- [ ] The same in the classic console window (`conhost`) started from the Start menu.
+- [ ] Without `--root`, `rudo config path` shows `%APPDATA%\rudo\config.yaml`, the log is in
+      `%LOCALAPPDATA%\rudo\rudo.log`, and the workspace is `RuDo` in the `Documents` folder,
+      also when Explorer shows that folder in OneDrive.
+- [ ] With `VISUAL` and `EDITOR` unset, `e` opens the list in `notepad`; closing it brings
+      RuDo back with the changes.
+- [ ] With `$env:EDITOR = 'C:\Program Files\Neovim\bin\nvim.exe'` (unquoted, and again
+      with double quotes around the path), `e` on a task opens Neovim at its line.
+- [ ] Paths of entries in the bin (the `Bin` row of the lists pane) use `/`.
+- [ ] A list marked read-only in Explorer (Properties) can be changed in RuDo and is still
+      read-only afterwards.
+- [ ] **A vault synced with Linux** (Syncthing, git or a shared folder): lists with CRLF and LF
+      line endings keep theirs after a change, the bin restores entries deleted on the other
+      system, and a change on Linux appears in RuDo on Windows after the sync.
+- [ ] With the vault open in Obsidian on Windows, the items of
+      [Obsidian side by side](#obsidian-side-by-side) pass; no save fails while Obsidian has
+      the list open.
+
+## macOS
+
+Run these items on macOS when a release ships a macOS binary. CI runs the tests and the smoke
+test on macOS, but not the terminal emulators.
+
+- [ ] **Terminal** and **iTerm2**: the items of [Terminals](#terminals) and
+      [Sizes and resizing](#sizes-and-resizing) pass.
+- [ ] A list changed by another program (`echo '- [ ] New' >> /tmp/rudo-qa/Home.md`) shows
+      the new task in RuDo without a restart; `/tmp` is a symbolic link on macOS.
+- [ ] Renaming the list `Home` to `home` (only the case) works and keeps its tasks.
+- [ ] The configuration, workspace and log folders are those of Linux in the README section
+      "Platforms", and `e` opens `vi` with `VISUAL` and `EDITOR` unset.
+
 ## Result
 
 - Items that failed, with the issue opened for each:

@@ -217,8 +217,36 @@ mod tests {
         ));
     }
 
+    /// Returns a path below `directory` that cannot be inspected for another reason than its
+    /// absence: on Unix a folder below a file, which fails with "not a directory"; Windows
+    /// reports such a path as not found instead, but rejects a name with a wildcard.
+    fn inaccessible_path(directory: &Path) -> PathBuf {
+        if cfg!(windows) {
+            directory.join("lists*")
+        } else {
+            let file = directory.join("todo.md");
+            fs::write(&file, "").unwrap();
+            file.join("lists")
+        }
+    }
+
     #[test]
     fn inaccessible_explicit_root_is_an_error() {
+        let directory = TempDir::new().unwrap();
+        let path = inaccessible_path(directory.path());
+        let root = WorkspaceRoot::Explicit(path.clone());
+
+        let system_under_test = root.ensure_exists();
+
+        assert!(matches!(
+            system_under_test,
+            Err(RootError::Inaccessible { path: failed, .. }) if failed == path
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn explicit_root_below_a_file_is_not_found_on_windows() {
         let directory = TempDir::new().unwrap();
         let file = directory.path().join("todo.md");
         fs::write(&file, "").unwrap();
@@ -229,7 +257,7 @@ mod tests {
 
         assert!(matches!(
             system_under_test,
-            Err(RootError::Inaccessible { path: failed, .. }) if failed == path
+            Err(RootError::NotFound { path: missing }) if missing == path
         ));
     }
 

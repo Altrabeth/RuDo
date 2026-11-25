@@ -100,7 +100,7 @@ impl WorkspaceWatcher {
             path: root.to_path_buf(),
             source,
         };
-        let watched_root = root.to_path_buf();
+        let watched_root = WatchedRoot::new(root);
         let mut debouncer = new_debouncer(
             DEBOUNCE_TIMEOUT,
             None,
@@ -129,9 +129,39 @@ impl WorkspaceWatcher {
     }
 }
 
+/// The watched folder under the name it was given and under its canonical name.
+///
+/// `FSEvents` on macOS reports canonical paths, so a workspace below a symbolic link, as
+/// every temporary folder there is (`/var` links to `/private/var`), would otherwise report
+/// no change at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WatchedRoot {
+    path: PathBuf,
+    canonical: PathBuf,
+}
+
+impl WatchedRoot {
+    fn new(path: &Path) -> Self {
+        // A folder that cannot be resolved cannot be watched either, and watching it reports
+        // that error, so the name as given is good enough here.
+        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        Self {
+            path: path.to_path_buf(),
+            canonical,
+        }
+    }
+
+    /// Returns `path` relative to the watched folder under either of its names.
+    fn relative<'path>(&self, path: &'path Path) -> Option<&'path Path> {
+        path.strip_prefix(&self.path)
+            .or_else(|_| path.strip_prefix(&self.canonical))
+            .ok()
+    }
+}
+
 /// Turns the `events` of one batch into the changes of their paths below `root`, sorted and
 /// without duplicates, each with what is there now.
-fn changes(root: &Path, events: &[DebouncedEvent]) -> Vec<FsChange> {
+fn changes(root: &WatchedRoot, events: &[DebouncedEvent]) -> Vec<FsChange> {
     let mut paths: Vec<PathBuf> = events
         .iter()
         .flat_map(|event| changed_paths(root, event))
@@ -141,7 +171,7 @@ fn changes(root: &Path, events: &[DebouncedEvent]) -> Vec<FsChange> {
     paths
         .into_iter()
         .map(|path| {
-            let state = path_state(&root.join(&path));
+            let state = path_state(&root.path.join(&path));
             FsChange { path, state }
         })
         .collect()
@@ -150,13 +180,13 @@ fn changes(root: &Path, events: &[DebouncedEvent]) -> Vec<FsChange> {
 /// Returns the paths of `event` relative to `root`, plus the root itself (an empty path) if
 /// the operating system may have dropped events.
 fn changed_paths<'event>(
-    root: &'event Path,
+    root: &'event WatchedRoot,
     event: &'event Event,
 ) -> impl Iterator<Item = PathBuf> + 'event {
     event
         .paths
         .iter()
-        .filter_map(move |path| path.strip_prefix(root).ok().map(Path::to_path_buf))
+        .filter_map(move |path| root.relative(path).map(Path::to_path_buf))
         .chain(event.need_rescan().then(PathBuf::new))
 }
 
@@ -215,7 +245,7 @@ mod tests {
             FsChange::new("inbox.md", PathState::File),
         ];
 
-        let system_under_test = changes(root.path(), &events);
+        let system_under_test = changes(&WatchedRoot::new(root.path()), &events);
 
         assert_eq!(system_under_test, expected);
     }
@@ -229,9 +259,29 @@ mod tests {
             &[&other.path().join("inbox.md")],
         )];
 
-        let system_under_test = changes(root.path(), &events);
+        let system_under_test = changes(&WatchedRoot::new(root.path()), &events);
 
         assert_eq!(system_under_test, Vec::new());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn changes_below_the_canonical_name_of_a_linked_root_are_relative_to_the_root() {
+        let target = TempDir::new().unwrap();
+        let links = TempDir::new().unwrap();
+        let root = links.path().join("workspace");
+        std::os::unix::fs::symlink(target.path(), &root).unwrap();
+        fs::write(target.path().join("inbox.md"), "").unwrap();
+        let canonical_file = fs::canonicalize(target.path()).unwrap().join("inbox.md");
+        let events = [event(
+            EventKind::Create(CreateKind::Any),
+            &[&canonical_file],
+        )];
+        let expected = vec![FsChange::new("inbox.md", PathState::File)];
+
+        let system_under_test = changes(&WatchedRoot::new(&root), &events);
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[test]
@@ -243,7 +293,7 @@ mod tests {
         )];
         let expected = vec![FsChange::new("", PathState::Directory)];
 
-        let system_under_test = changes(root.path(), &events);
+        let system_under_test = changes(&WatchedRoot::new(root.path()), &events);
 
         assert_eq!(system_under_test, expected);
     }

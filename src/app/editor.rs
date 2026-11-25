@@ -126,17 +126,17 @@ pub struct EditorCommand {
 
 impl EditorCommand {
     /// Builds the command that opens `file` at the 1-based `line` with the editor
-    /// `command_line`, such as `nvim` or `code --wait`.
+    /// `command_line`, such as `nvim` or `code --wait`, on `platform`.
     ///
-    /// `command_line` is split into words like a POSIX shell does, so quotes and backslashes
-    /// work, but nothing is expanded. The arguments of `command_line` come first, then the
-    /// file: `+N file` for vi, vim, nvim, nano, emacs and kak, `file:N` for hx and micro and
-    /// just the file for every other editor or without a line.
+    /// `command_line` is split into words by the rules of `platform` ([`split_command_line`]),
+    /// but nothing is expanded. The arguments of `command_line` come first, then the file:
+    /// `+N file` for vi, vim, nvim, nano, emacs and kak, `file:N` for hx and micro and just the
+    /// file for every other editor or without a line.
     ///
     /// # Errors
     ///
-    /// Returns [`EditorError::Parse`] if `command_line` has an unmatched quote or ends with a
-    /// backslash, and [`EditorError::Empty`] if it has no words.
+    /// Returns [`EditorError::Parse`] if `command_line` cannot be split, and
+    /// [`EditorError::Empty`] if it has no words.
     ///
     /// # Examples
     ///
@@ -145,22 +145,21 @@ impl EditorCommand {
     /// use std::path::Path;
     ///
     /// use rudo::app::editor::{EditorCommand, EditorError};
+    /// use rudo::platform::Platform;
     ///
-    /// let command = EditorCommand::new("code --wait", Path::new("todo.md"), NonZeroUsize::new(3))?;
+    /// let file = Path::new("todo.md");
+    /// let command = EditorCommand::new(Platform::Linux, "code --wait", file, NonZeroUsize::new(3))?;
     /// assert_eq!(command.program(), "code");
     /// assert_eq!(command.arguments(), ["--wait", "todo.md"]);
     /// # Ok::<(), EditorError>(())
     /// ```
     pub fn new(
+        platform: Platform,
         command_line: &str,
         file: &Path,
         line: Option<NonZeroUsize>,
     ) -> Result<Self, EditorError> {
-        let words = shell_words::split(command_line).map_err(|source| EditorError::Parse {
-            command: command_line.to_owned(),
-            source,
-        })?;
-        let mut words = words.into_iter();
+        let mut words = split_command_line(platform, command_line)?.into_iter();
         let program = words.next().ok_or(EditorError::Empty)?;
         let mut arguments: Vec<OsString> = Vec::with_capacity(words.len() + 2);
         arguments.extend(words.map(OsString::from));
@@ -188,6 +187,153 @@ impl EditorCommand {
     #[must_use]
     pub fn arguments(&self) -> &[OsString] {
         &self.arguments
+    }
+}
+
+/// Splits the editor `command_line` into the program and its arguments by the rules of
+/// `platform`.
+///
+/// On Linux, macOS and other Unix systems the words are split as a POSIX shell does, so single
+/// and double quotes and backslashes work. On Windows they are split as the Microsoft C runtime
+/// splits a command line: double quotes group words, and a backslash is literal unless it comes
+/// before a double quote, so that `C:\Tools\nvim.exe` stays intact. Single quotes have no
+/// meaning there, and an unmatched double quote runs to the end. Because Windows paths often
+/// hold spaces, an unquoted program whose first word holds a folder is taken up to the first
+/// word that ends in `.exe`, so that `C:\Program Files\Neovim\bin\nvim.exe` needs no quotes.
+///
+/// # Errors
+///
+/// Returns [`EditorError::Parse`] if `command_line` has an unmatched quote or ends with a
+/// backslash on a Unix system. On Windows every command line can be split.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::app::editor::{EditorError, split_command_line};
+/// use rudo::platform::Platform;
+///
+/// let command_line = r"C:\Program Files\Neovim\bin\nvim.exe -u NONE";
+/// assert_eq!(
+///     split_command_line(Platform::Windows, command_line)?,
+///     [r"C:\Program Files\Neovim\bin\nvim.exe", "-u", "NONE"],
+/// );
+/// assert_eq!(split_command_line(Platform::Linux, r"my\ editor")?, ["my editor"]);
+/// # Ok::<(), EditorError>(())
+/// ```
+pub fn split_command_line(
+    platform: Platform,
+    command_line: &str,
+) -> Result<Vec<String>, EditorError> {
+    match platform {
+        Platform::Linux | Platform::MacOs | Platform::OtherUnix => shell_words::split(command_line)
+            .map_err(|source| EditorError::Parse {
+                command: command_line.to_owned(),
+                source,
+            }),
+        Platform::Windows => Ok(split_windows_command_line(command_line)),
+    }
+}
+
+/// Splits `command_line` by the rules of Windows, see [`split_command_line`].
+fn split_windows_command_line(command_line: &str) -> Vec<String> {
+    let command_line = command_line.trim_start_matches(WINDOWS_WHITESPACE);
+    let (program, rest) = unquoted_program_path(command_line)
+        .map_or((None, command_line), |(program, rest)| {
+            (Some(program), rest)
+        });
+    program
+        .map(str::to_owned)
+        .into_iter()
+        .chain(windows_words(rest))
+        .collect()
+}
+
+/// The characters that separate words on a Windows command line.
+const WINDOWS_WHITESPACE: [char; 2] = [' ', '\t'];
+
+/// Returns the unquoted program path with spaces at the start of `command_line`, up to and
+/// including the first word ending in `.exe`, and the rest of the line, or `None` if the first
+/// word holds no folder, is quoted or already ends in `.exe`.
+fn unquoted_program_path(command_line: &str) -> Option<(&str, &str)> {
+    let first_word = command_line
+        .split(WINDOWS_WHITESPACE)
+        .next()
+        .unwrap_or(command_line);
+    let has_folder = first_word.contains(['\\', '/']);
+    if !has_folder || first_word.contains('"') || ends_with_exe(first_word) {
+        return None;
+    }
+    let mut end = 0;
+    for word in command_line.split_inclusive(WINDOWS_WHITESPACE) {
+        end += word.len();
+        let word = word.trim_end_matches(WINDOWS_WHITESPACE);
+        if word.contains('"') {
+            return None;
+        }
+        if ends_with_exe(word) {
+            let (program, rest) = command_line.split_at(end);
+            return Some((program.trim_end_matches(WINDOWS_WHITESPACE), rest));
+        }
+    }
+    None
+}
+
+/// Whether `word` ends in `.exe`, in any case.
+fn ends_with_exe(word: &str) -> bool {
+    word.len() > EXE_EXTENSION.len()
+        && word
+            .get(word.len() - EXE_EXTENSION.len()..)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(EXE_EXTENSION))
+}
+
+/// Splits `text` into words as the Microsoft C runtime does: whitespace outside double quotes
+/// separates words, `2n` backslashes before a double quote become `n` backslashes and the quote
+/// opens or closes a quoted part, `2n + 1` backslashes before it become `n` backslashes and a
+/// literal quote, `""` inside a quoted part is a literal quote, and other backslashes are
+/// literal.
+fn windows_words(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word: Option<String> = None;
+    let mut quoted = false;
+    let mut backslashes = 0_usize;
+    let mut characters = text.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => {
+                backslashes += 1;
+                continue;
+            }
+            '"' => {
+                let current = word.get_or_insert_with(String::new);
+                current.extend(std::iter::repeat_n('\\', backslashes / 2));
+                let escaped = backslashes % 2 == 1;
+                if escaped || (quoted && characters.next_if_eq(&'"').is_some()) {
+                    current.push('"');
+                } else {
+                    quoted = !quoted;
+                }
+            }
+            ' ' | '\t' if !quoted => {
+                push_backslashes(&mut word, backslashes);
+                words.extend(word.take());
+            }
+            _ => {
+                push_backslashes(&mut word, backslashes);
+                word.get_or_insert_with(String::new).push(character);
+            }
+        }
+        backslashes = 0;
+    }
+    push_backslashes(&mut word, backslashes);
+    words.extend(word);
+    words
+}
+
+/// Appends `count` literal backslashes to `word`, starting it if needed.
+fn push_backslashes(word: &mut Option<String>, count: usize) {
+    if count > 0 {
+        word.get_or_insert_with(String::new)
+            .extend(std::iter::repeat_n('\\', count));
     }
 }
 
@@ -349,7 +495,8 @@ mod tests {
         let file = Path::new("/todo/plan.md");
         let line = line.and_then(NonZeroUsize::new);
 
-        let system_under_test = EditorCommand::new(command_line, file, line).unwrap();
+        let system_under_test =
+            EditorCommand::new(Platform::Linux, command_line, file, line).unwrap();
 
         assert_eq!(system_under_test.program(), expected_program);
         assert_eq!(system_under_test.arguments(), expected_arguments);
@@ -379,9 +526,15 @@ mod tests {
     fn command_without_words_is_an_error(#[case] command_line: &str) {
         let file = Path::new("/todo/plan.md");
 
-        let system_under_test = EditorCommand::new(command_line, file, None);
+        let system_under_test: Vec<Result<EditorCommand, EditorError>> = Platform::iter()
+            .map(|platform| EditorCommand::new(platform, command_line, file, None))
+            .collect();
 
-        assert!(matches!(system_under_test, Err(EditorError::Empty)));
+        assert!(
+            system_under_test
+                .iter()
+                .all(|command| matches!(command, Err(EditorError::Empty)))
+        );
     }
 
     #[test]
@@ -389,12 +542,105 @@ mod tests {
         let command_line = "'vim";
         let file = Path::new("/todo/plan.md");
 
-        let system_under_test = EditorCommand::new(command_line, file, None);
+        let system_under_test = EditorCommand::new(Platform::Linux, command_line, file, None);
 
         assert!(matches!(
             system_under_test,
             Err(EditorError::Parse { command, .. }) if command == command_line
         ));
+    }
+
+    #[rstest]
+    #[case::plain("nvim", &["nvim"])]
+    #[case::arguments("code --wait", &["code", "--wait"])]
+    #[case::program_path_with_backslashes(
+        r"C:\Tools\nvim.exe -u NONE",
+        &[r"C:\Tools\nvim.exe", "-u", "NONE"]
+    )]
+    #[case::unquoted_program_path_with_spaces(
+        r"C:\Program Files\Neovim\bin\nvim.exe",
+        &[r"C:\Program Files\Neovim\bin\nvim.exe"]
+    )]
+    #[case::unquoted_program_path_with_spaces_and_arguments(
+        r"C:\Program Files\Neovim\bin\NVIM.EXE  -u NONE",
+        &[r"C:\Program Files\Neovim\bin\NVIM.EXE", "-u", "NONE"]
+    )]
+    #[case::quoted_program_path(
+        r#""C:\Program Files\Neovim\bin\nvim.exe" -u NONE"#,
+        &[r"C:\Program Files\Neovim\bin\nvim.exe", "-u", "NONE"]
+    )]
+    #[case::forward_slashes("C:/Program Files/Helix/hx.exe", &["C:/Program Files/Helix/hx.exe"])]
+    #[case::unquoted_path_without_exe(r"C:\My Tools\vim", &[r"C:\My", r"Tools\vim"])]
+    #[case::exe_only_in_an_argument("nvim -u my.exe", &["nvim", "-u", "my.exe"])]
+    #[case::leading_whitespace("  \tnotepad  ", &["notepad"])]
+    #[case::quoted_part_inside_a_word(
+        r#"code --user-data-dir="C:\a b""#,
+        &["code", r"--user-data-dir=C:\a b"]
+    )]
+    #[case::escaped_quote(r#"edit \"quoted\""#, &["edit", r#""quoted""#])]
+    #[case::backslashes_before_a_quote(r#"edit "C:\dir\\" next"#, &["edit", r"C:\dir\", "next"])]
+    #[case::doubled_quote_inside_quotes(r#"edit "a""b""#, &["edit", r#"a"b"#])]
+    #[case::empty_quoted_argument(r#"edit """#, &["edit", ""])]
+    #[case::trailing_backslashes(r"edit C:\dir\", &["edit", r"C:\dir\"])]
+    #[case::single_quotes_are_literal("edit 'a b'", &["edit", "'a", "b'"])]
+    #[case::unmatched_quote_runs_to_the_end(r#"edit "a b"#, &["edit", "a b"])]
+    #[case::multi_byte(
+        r"C:\Programme\Éditeur Plus\ed.exe",
+        &[r"C:\Programme\Éditeur Plus\ed.exe"]
+    )]
+    #[case::empty("", &[])]
+    fn windows_command_lines_are_split_by_windows_rules(
+        #[case] command_line: &str,
+        #[case] expected: &[&str],
+    ) {
+        let system_under_test = split_command_line(Platform::Windows, command_line).unwrap();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::backslash_escapes(r"C:\Tools\nvim.exe", &["C:Toolsnvim.exe"])]
+    #[case::single_quotes("'/opt/my editor/vim' -u NONE", &["/opt/my editor/vim", "-u", "NONE"])]
+    #[case::escaped_space(r"my\ editor", &["my editor"])]
+    fn unix_command_lines_are_split_by_posix_shell_rules(
+        #[case] command_line: &str,
+        #[case] expected: &[&str],
+    ) {
+        let system_under_test: Vec<Vec<String>> = Platform::iter()
+            .filter(|platform| *platform != Platform::Windows)
+            .map(|platform| split_command_line(platform, command_line).unwrap())
+            .collect();
+
+        assert!(system_under_test.iter().all(|words| words == expected));
+    }
+
+    #[rstest]
+    #[case::unquoted(r"C:\Program Files\Neovim\bin\nvim.exe")]
+    #[case::quoted(r#""C:\Program Files\Neovim\bin\nvim.exe""#)]
+    fn windows_editor_path_with_spaces_opens_the_file_at_the_line(#[case] command_line: &str) {
+        let file = Path::new(r"C:\Users\alice\Documents\RuDo\plan.md");
+        let expected_program = r"C:\Program Files\Neovim\bin\nvim.exe";
+        let expected_arguments = ["+7", r"C:\Users\alice\Documents\RuDo\plan.md"];
+
+        let system_under_test =
+            EditorCommand::new(Platform::Windows, command_line, file, NonZeroUsize::new(7))
+                .unwrap();
+
+        assert_eq!(system_under_test.program(), expected_program);
+        assert_eq!(system_under_test.arguments(), expected_arguments);
+    }
+
+    /// Starts the fallback editor of Windows for real and stops it again, which shows that
+    /// `notepad` is found without a folder.
+    #[cfg(windows)]
+    #[test]
+    fn windows_fallback_editor_starts() {
+        let program = choose_editor(Platform::Windows, None, None, None);
+
+        let mut system_under_test = std::process::Command::new(program).spawn().unwrap();
+
+        system_under_test.kill().unwrap();
+        system_under_test.wait().unwrap();
     }
 
     #[test]

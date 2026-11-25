@@ -68,11 +68,13 @@ jobs:
 
       - run: just lint
 
-      # Runs even after failed lints, so that one run reports every failure of the platform.
+      # Runs even after failed lints, and `--no-fail-fast` runs every test binary after a
+      # failing one, so that one run reports every failure of the platform.
       - if: ${{ !cancelled() }}
-        run: just test
+        run: just test --no-fail-fast
 
-      # The smoke test needs a pseudo-terminal, which Windows does not offer to Python.
+      # The smoke test needs a pseudo-terminal, which Windows does not offer to Python: ConPTY
+      # would need a third-party package, so docs/QA.md checks the Windows terminal by hand.
       - if: ${{ !cancelled() && runner.os == 'macOS' }}
         run: just smoke
 

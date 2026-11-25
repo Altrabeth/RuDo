@@ -13,9 +13,11 @@ use rstest::rstest;
 /// Starts and ends a fenced code block.
 const FENCE: &str = "```";
 
-/// Folders that hold no documentation: build output, and hidden folders such as `.git`.
+/// Folders that hold no documentation of RuDo: build output, the crates `cargo vendor` copies
+/// for offline package builds (their Markdown files link to files that are not vendored), and
+/// hidden folders such as `.git`.
 fn is_skipped_folder(name: &str) -> bool {
-    name == "target" || name.starts_with('.')
+    matches!(name, "target" | "vendor") || name.starts_with('.')
 }
 
 /// Returns every Markdown file below `folder`, sorted, leaving out skipped folders.
@@ -153,6 +155,22 @@ fn every_relative_link_and_anchor_in_markdown_resolves() {
     let expected: Vec<String> = Vec::new();
 
     let system_under_test = broken_links(root);
+
+    assert_eq!(system_under_test, expected);
+}
+
+#[rstest]
+#[case::build_output("target", true)]
+#[case::vendored_crates("vendor", true)]
+#[case::hidden("git", false)]
+#[case::dot_folder(".git", true)]
+#[case::docs("docs", false)]
+#[case::packaging("packaging", false)]
+fn only_folders_without_documentation_of_rudo_are_skipped(
+    #[case] name: &str,
+    #[case] expected: bool,
+) {
+    let system_under_test = is_skipped_folder(name);
 
     assert_eq!(system_under_test, expected);
 }

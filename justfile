@@ -62,8 +62,8 @@ fmt *args:
 lint:
     cargo clippy --all-targets --all-features -- -D warnings
 
-# Lint for Windows and macOS from any machine; checking needs no linker or SDK of the target
-check-targets: (check-target "x86_64-pc-windows-msvc") (check-target "aarch64-apple-darwin")
+# Lint for Windows, macOS and FreeBSD from any machine; checking needs no linker or SDK of the target
+check-targets: (check-target "x86_64-pc-windows-msvc") (check-target "aarch64-apple-darwin") (check-target "x86_64-unknown-freebsd")
 
 # Lint all targets and features for one compilation target, installing it if needed
 check-target target:

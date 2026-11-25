@@ -601,10 +601,10 @@ to fix it.
 
 ## Platforms
 
-RuDo runs on Linux, macOS and Windows. The behaviour is the same everywhere except for these
-locations and the last editor fallback:
+RuDo runs on Linux, macOS, Windows and FreeBSD (x86_64). The behaviour is the same everywhere
+except for these locations and the last editor fallback:
 
-| What               | Linux and macOS                | Windows                        |
+| What               | Linux, macOS and FreeBSD       | Windows                        |
 | ------------------ | ------------------------------ | ------------------------------ |
 | configuration file | `~/.config/rudo/config.yaml`   | `%APPDATA%\rudo\config.yaml`   |
 | default workspace  | `~/.local/share/rudo`          | `%USERPROFILE%\Documents\RuDo` |
@@ -633,7 +633,7 @@ all recipes.
 | `just demo`          | run RuDo on a fresh copy of the sample workspace in `demo/`    |
 | `just fmt`           | format all code                                                |
 | `just lint`          | clippy with warnings denied                                    |
-| `just check-targets` | clippy for Windows and macOS from any system (installs the targets) |
+| `just check-targets` | clippy for Windows, macOS and FreeBSD from any system (installs the targets) |
 | `just test`          | run all tests including doctests                               |
 | `just smoke`         | run the binary in a pseudo-terminal through the quick start (needs `python3`) |
 | `just snap`          | review changed snapshots of the rendered interface             |
@@ -653,8 +653,8 @@ terminals before a release, and [`AGENTS.md`](AGENTS.md) for the coding rules ev
 must follow.
 
 CI runs `just check`, `just smoke` and the coverage on Linux for every push and pull request.
-The lints and tests on Windows and macOS run when the workflow is started by hand and on
-pushes to `main`. `.gitattributes` checks every text file out with LF line endings and the
+The lints and tests on Windows and macOS, and the tests in a FreeBSD virtual machine, run when
+the workflow is started by hand and on pushes to `main`. `.gitattributes` checks every text file out with LF line endings and the
 fixtures in `tests/fixtures/` byte for byte, so the byte-exact tests mean the same on Windows.
 
 ## License

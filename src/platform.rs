@@ -60,4 +60,12 @@ mod tests {
 
         assert_eq!(system_under_test, Platform::Windows);
     }
+
+    #[test]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    fn current_platform_is_other_unix_on_other_systems() {
+        let system_under_test = Platform::current();
+
+        assert_eq!(system_under_test, Platform::OtherUnix);
+    }
 }

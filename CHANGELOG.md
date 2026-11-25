@@ -15,6 +15,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Windows.** The configuration is read from `%APPDATA%\rudo\config.yaml`, the log goes to
   `%LOCALAPPDATA%\rudo\rudo.log` and the default workspace is `%USERPROFILE%\Documents\RuDo`;
   `XDG_*` variables are honoured there too. `notepad` is the last editor fallback.
+- **FreeBSD.** RuDo builds and passes its tests on FreeBSD (x86_64), with the folders and the
+  `vi` fallback of Linux.
 
 ### Changed
 

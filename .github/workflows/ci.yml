@@ -75,3 +75,39 @@ jobs:
       # The smoke test needs a pseudo-terminal, which Windows does not offer to Python.
       - if: ${{ !cancelled() && runner.os == 'macOS' }}
         run: just smoke
+
+  freebsd:
+    name: test on FreeBSD
+    # Same condition as the platforms job: a VM job takes several times as long as a native one.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The tests run as an unprivileged user, because root ignores the file permissions that
+      # the tests of failed deletes rely on. Only the tests run here; coverage stays on Linux.
+      - name: Test in a FreeBSD virtual machine
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1.6.0
+        with:
+          # notify watches with inotify when built natively on 14.5 or later and with kqueue
+          # otherwise, so 14.4 tests the kqueue watcher that a cross-compiled binary uses on
+          # every release.
+          release: "14.4"
+          copyback: false
+          prepare: |
+            pkg install -y curl
+            pw useradd -n tester -m -s /bin/sh
+            chown -R tester "$GITHUB_WORKSPACE"
+          # rustup installs the toolchain and components pinned in rust-toolchain.toml.
+          run: |
+            su -l tester -c "
+              set -eu
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+                | sh -s -- -y --profile minimal --default-toolchain none
+              . \"\$HOME/.cargo/env\"
+              cd '$GITHUB_WORKSPACE'
+              rustup toolchain install
+              cargo test --all-features
+            "

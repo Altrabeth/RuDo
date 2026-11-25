@@ -124,6 +124,20 @@ tail -f ~/.local/state/rudo/rudo.log   # in a second terminal
 - [ ] With `RUDO_LOG=debug` the log file receives log lines while you use RuDo, and nothing
       is written over the interface.
 
+## FreeBSD
+
+Run these items on FreeBSD (x86_64) when a release ships a FreeBSD binary; CI runs the tests
+in a FreeBSD virtual machine, but not the terminal. Install the toolchain with
+[rustup](https://rustup.rs) and `pkg install just`, follow the preparation above, and start
+RuDo in the system console and in a terminal emulator under X11 or Wayland.
+
+- [ ] The items of [Terminals](#terminals) pass in the system console and in a terminal
+      emulator.
+- [ ] A list changed by another program (`echo '- [ ] New' >> /tmp/rudo-qa/Home.md`) shows
+      the new task in RuDo without a restart.
+- [ ] The configuration, workspace and log folders are those of Linux in the README section
+      "Platforms", and `e` opens `vi` with `VISUAL` and `EDITOR` unset.
+
 ## Result
 
 - Items that failed, with the issue opened for each:

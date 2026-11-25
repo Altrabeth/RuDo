@@ -7,7 +7,7 @@ repository outside this project say so until the package is accepted there.
 | ------- | ------------------------------------------------------------------------------------- |
 | Linux   | [source](#from-source), [crates.io](#cratesio), [release binaries](#release-binaries-and-install-scripts), [Homebrew](#homebrew-and-cargo-binstall), [.deb, .rpm and Arch packages](#deb-rpm-and-arch-packages), [AUR](#aur), [Nix](#nix), [Docker](#docker) |
 | macOS   | [source](#from-source), [crates.io](#cratesio), [release binaries](#release-binaries-and-install-scripts), [Homebrew](#homebrew-and-cargo-binstall), [Nix](#nix) |
-| Windows | [source](#from-source), [crates.io](#cratesio), [release binaries](#release-binaries-and-install-scripts), [winget and Chocolatey](#winget-and-chocolatey) |
+| Windows | [source](#from-source), [crates.io](#cratesio), [release binaries](#release-binaries-and-install-scripts), [Windows installer (.msi)](#windows-installer-msi), [winget and Chocolatey](#winget-and-chocolatey) |
 | FreeBSD | [source](#from-source), [crates.io](#cratesio), [release binaries](#release-binaries-and-install-scripts) |
 
 ## From source
@@ -61,6 +61,12 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Altrabeth/RuDo/releases
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/Altrabeth/RuDo/releases/latest/download/rudo-tui-installer.ps1 | iex"
 ```
 
+On Windows, the PowerShell script installs `rudo.exe` into `%USERPROFILE%\.cargo\bin` and adds
+that folder to the `PATH` of your user; terminals opened afterwards find `rudo`. The Windows
+archive `rudo-tui-x86_64-pc-windows-msvc.zip` only holds `rudo.exe` and changes nothing: run it
+from where you unpacked it, or add that folder to `PATH` yourself. The
+[Windows installer](#windows-installer-msi) does it for you.
+
 The macOS binaries are not notarized, because RuDo has no Apple Developer account. Homebrew
 and the install script are not affected; a `rudo` unpacked from a downloaded archive is
 blocked by Gatekeeper until you remove the quarantine attribute:
@@ -68,6 +74,31 @@ blocked by Gatekeeper until you remove the quarantine attribute:
 ```sh
 xattr -d com.apple.quarantine ./rudo
 ```
+
+## Windows installer (.msi)
+
+Every release also has a Windows installer,
+[`rudo-tui-x86_64-pc-windows-msvc.msi`](https://github.com/Altrabeth/RuDo/releases/latest/download/rudo-tui-x86_64-pc-windows-msvc.msi).
+It installs for all users and asks for administrator rights: `rudo.exe` goes into
+`C:\Program Files\rudo-tui\bin`, which it adds to the system `PATH`, so that terminals opened
+afterwards find `rudo`. The license is installed as `C:\Program Files\rudo-tui\LICENSE`. The
+installer lets you choose another folder and leave `PATH` alone, and it can run silently:
+
+```powershell
+msiexec /i rudo-tui-x86_64-pc-windows-msvc.msi /qn
+```
+
+RuDo then appears in **Settings, Apps, Installed apps** as `rudo-tui` by Altrabeth, where it is
+uninstalled (or `msiexec /x rudo-tui-x86_64-pc-windows-msvc.msi /qn`). Installing a newer
+release replaces the old one, and an older release refuses to install over a newer one.
+
+The installer is not signed, because RuDo has no code signing certificate. Microsoft Defender
+SmartScreen therefore warns that it "prevented an unrecognized app from starting"; choose
+**More info**, then **Run anyway**.
+
+A pre-release such as `1.1.0-rc.1` installs as version `1.1.0.1`. Windows compares only the
+first three numbers, so the release `1.1.0` does not replace a pre-release of `1.1.0`, and
+neither does another pre-release of it: uninstall the pre-release first.
 
 ## Homebrew and cargo-binstall
 

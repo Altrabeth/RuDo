@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Windows installer.** Every release has `rudo-tui-x86_64-pc-windows-msvc.msi`, which
+  installs RuDo for all users into `C:\Program Files\rudo-tui`, adds `rudo` to `PATH` and
+  appears in Installed apps, where it is uninstalled. It is not signed, so SmartScreen asks
+  to confirm (**More info**, **Run anyway**). The installation guide now also says that the
+  PowerShell install script adds `rudo` to `PATH` and the zip archive does not.
+
 ## [1.0.0] - 2026-11-25
 
 The first release. The [documentation](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md) specifies the behaviour in detail.

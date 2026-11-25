@@ -78,6 +78,75 @@ jobs:
       - if: ${{ !cancelled() && runner.os == 'macOS' }}
         run: just smoke
 
+  msi:
+    name: build, install and uninstall the msi
+    # Same condition as the platforms job. The release builds the msi on windows-2022 (see
+    # `dist plan`), whose image has the WiX Toolset v3 that dist needs; this job uses the same
+    # runner so that it tests the same build.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+
+      # The installer of the dist version in dist-workspace.toml, as release.yml installs it
+      - run: irm https://github.com/axodotdev/cargo-dist/releases/download/v0.34.0/cargo-dist-installer.ps1 | iex
+
+      # Builds the zip and the msi into target/distrib, as the release job does
+      - run: dist build --artifacts=local --target=x86_64-pc-windows-msvc
+
+      - name: Install the msi
+        run: |
+          $msi = (Resolve-Path target/distrib/rudo-tui-x86_64-pc-windows-msvc.msi).Path
+          $process = Start-Process msiexec.exe -Wait -PassThru `
+            -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', 'msi-install.log'
+          if ($process.ExitCode -ne 0) {
+            Get-Content msi-install.log -Tail 100
+            throw "msiexec /i failed with exit code $($process.ExitCode)"
+          }
+
+      # The steps of a job inherit the PATH of the runner, so the PATH that a new shell of the
+      # user gets is read from the registry, where the msi wrote it.
+      - name: Run rudo through PATH and check the Installed apps entry
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' `
+            + [Environment]::GetEnvironmentVariable('Path', 'User')
+          $command = (Get-Command rudo).Source
+          $expected = Join-Path $env:ProgramFiles 'rudo-tui\bin\rudo.exe'
+          if ($command -ne $expected) { throw "rudo resolves to $command, not $expected" }
+          rudo --version
+          if ($LASTEXITCODE -ne 0) { throw "rudo --version failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path (Join-Path $env:ProgramFiles 'rudo-tui\LICENSE'))) {
+            throw 'the msi did not install LICENSE'
+          }
+          $entry = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' |
+            Where-Object DisplayName -eq 'rudo-tui'
+          $entry | Format-List DisplayName, DisplayVersion, Publisher, HelpLink, InstallLocation
+          if ($entry.Publisher -ne 'Altrabeth') { throw 'the Installed apps entry has no publisher' }
+
+      - name: Uninstall the msi
+        run: |
+          $msi = (Resolve-Path target/distrib/rudo-tui-x86_64-pc-windows-msvc.msi).Path
+          $process = Start-Process msiexec.exe -Wait -PassThru `
+            -ArgumentList '/x', "`"$msi`"", '/qn', '/l*v', 'msi-uninstall.log'
+          if ($process.ExitCode -ne 0) {
+            Get-Content msi-uninstall.log -Tail 100
+            throw "msiexec /x failed with exit code $($process.ExitCode)"
+          }
+          if (Test-Path (Join-Path $env:ProgramFiles 'rudo-tui')) {
+            throw 'the uninstall left the install folder behind'
+          }
+          $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          if ($machinePath -like '*rudo-tui*') { throw 'the uninstall left rudo-tui in PATH' }
+
   freebsd:
     name: test on FreeBSD
     # Same condition as the platforms job: a VM job takes several times as long as a native one.

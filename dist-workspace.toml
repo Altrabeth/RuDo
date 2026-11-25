@@ -8,7 +8,9 @@ members = ["cargo:."]
 # The dist version that CI uses (Cargo.toml SemVer syntax)
 cargo-dist-version = "0.34.0"
 ci = "github"
-installers = ["shell", "powershell", "homebrew"]
+# The msi installs per machine into Program Files and adds its bin folder to PATH; its settings,
+# including the GUIDs that must never change, are in [package.metadata.wix] of Cargo.toml
+installers = ["shell", "powershell", "homebrew", "msi"]
 # FreeBSD is not a dist target; the custom job below builds its archive
 targets = [
     "aarch64-apple-darwin",

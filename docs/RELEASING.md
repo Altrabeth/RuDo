@@ -67,7 +67,9 @@ A version with a pre-release suffix (`v1.1.0-rc.1`) becomes a GitHub pre-release
 update the Homebrew formula or push a Docker image. Its Linux packages carry the version in
 the syntax of their format, `1.1.0~rc.1` in the `.deb` and `.rpm` and `1.1.0rc1` in the Arch
 package, so that it sorts before `1.1.0` (see
-[`PACKAGING.md`](PACKAGING.md#versions-of-pre-releases)). If a build job fails, nothing is
+[`PACKAGING.md`](PACKAGING.md#versions-of-pre-releases)). Its Windows installer carries
+`1.1.0.1`, the number after the last dot of the suffix (see
+[Windows installer](#windows-installer)). If a build job fails, nothing is
 published: fix the cause, delete the tag locally and on GitHub, and tag again. If only
 `publish-homebrew-formula` fails, the release exists; fix the token and re-run the failed job.
 The same holds for `custom-publish-docker`.
@@ -87,7 +89,7 @@ building. On a tag it runs these jobs:
 | Job                         | What it does                                                           |
 | --------------------------- | ---------------------------------------------------------------------- |
 | `plan`                      | computes the release from the tag, `Cargo.toml` and the changelog      |
-| `build-local-artifacts`     | builds the `dist` profile on one runner per target, packs the archives |
+| `build-local-artifacts`     | builds the `dist` profile per target, packs the archives and the msi   |
 | `build-global-artifacts`    | install scripts, Homebrew formula, source archive and `sha256.sum`     |
 | `custom-build-freebsd`      | the FreeBSD archive (see below)                                        |
 | `custom-build-vendor-tarball` | the vendor archive of the crates for offline package builders        |
@@ -112,7 +114,8 @@ The release contains, for each target, `rudo-tui-<target>.tar.xz` (`.zip` for Wi
 | `x86_64-unknown-freebsd`     | FreeBSD 14.4 VM    | custom job, not in `sha256.sum`           |
 
 Besides the archives: `rudo-tui-installer.sh` and `rudo-tui-installer.ps1`, which install
-into `~/.cargo/bin`; `rudo-tui.rb`, the formula; `source.tar.gz`; `sha256.sum` with the
+into `~/.cargo/bin`; `rudo-tui-x86_64-pc-windows-msvc.msi`, the Windows installer described
+below; `rudo-tui.rb`, the formula; `source.tar.gz`; `sha256.sum` with the
 checksums of everything dist built; and `rudo-tui-X.Y.Z-vendor.tar.xz` with its `.sha256` file,
 the crates of `Cargo.lock` for the RPM spec, which builds without network; and the Linux
 packages described below.
@@ -125,6 +128,36 @@ The musl targets depend on jiff with `tzdb-bundle-always` (a target-specific dep
 `Cargo.toml`), because static binaries often run where `/usr/share/zoneinfo` is missing.
 `tests/time_zone.rs`, run by `just test-musl`, checks that the database is bundled, and
 [`docs/QA.md`](QA.md) checks the fallback of the released binary.
+
+## Windows installer
+
+dist builds `rudo-tui-x86_64-pc-windows-msvc.msi` in the Windows job of
+`build-local-artifacts` with the WiX Toolset v3 of the `windows-2022` runner, from
+`wix/main.wxs`. dist generates that file from `[package.metadata.wix]` and `[package]` of
+`Cargo.toml` (`authors` becomes the publisher): run `dist generate` after changing the name,
+description, authors or homepage, and never edit it by hand, or `dist plan` fails. The msi
+installs per machine into `C:\Program Files\rudo-tui`, puts `rudo.exe` into its `bin` folder,
+adds that folder to the system `PATH` and installs `LICENSE` next to it. It shows no license
+dialog: cargo-wix makes one only from MIT, Apache-2.0 or GPL-3.0, not from
+`GPL-3.0-or-later`, and the GPL needs no acceptance to run the program.
+
+**The `upgrade-guid` and `path-guid` in `[package.metadata.wix]` must never change** after
+v1.1.0, the first release with the msi. Windows identifies the product by the upgrade GUID,
+which lets a newer msi replace the installed one, and the `PATH` entry by the path GUID. New
+GUIDs would install a second copy next to the old one. `dist init` keeps existing GUIDs; do
+not delete them to regenerate the file.
+
+MSI versions are numeric. cargo-wix turns `1.1.0-rc.1` into `1.1.0.1`, but Windows Installer
+compares only the first three numbers. A release therefore replaces every earlier release and
+pre-release of a lower `X.Y.Z`, while `1.1.0` does not replace an installed `1.1.0-rc.N`; the
+pre-release has to be uninstalled first, as [`installation.md`](installation.md#windows-installer-msi)
+says. A pre-release suffix must end in a number after a dot (`rc.1`, not `rc1`), or the build
+of the msi fails.
+
+The msi is not signed, so SmartScreen warns on download and start. The `msi` job of `ci.yml`
+builds it with `dist build` on `windows-2022` (on `main` and when started by hand), installs it
+with `msiexec /i ... /qn`, runs `rudo --version` with the `PATH` of the registry, checks the
+Installed apps entry and uninstalls it with `msiexec /x ... /qn`.
 
 ## FreeBSD
 

@@ -85,8 +85,13 @@ brew install altrabeth/tap/rudo-tui
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/Altrabeth/RuDo/releases/latest/download/rudo-tui-installer.ps1 | iex"
 ```
 
-[`docs/installation.md`](docs/installation.md) describes the `.deb`, `.rpm` and Arch
-packages, Nix, Docker, building from source and the other methods.
+The install scripts put `rudo` into `~/.cargo/bin` and add it to `PATH`. On Windows, the
+installer `rudo-tui-x86_64-pc-windows-msvc.msi` of the
+[release](https://github.com/Altrabeth/RuDo/releases/latest) installs into Program Files and
+adds `rudo` to `PATH` too; the `.zip` archive does not.
+
+[`docs/installation.md`](docs/installation.md) describes the Windows installer, the `.deb`,
+`.rpm` and Arch packages, Nix, Docker, building from source and the other methods.
 
 ## Quick start
 

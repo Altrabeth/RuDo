@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.100.0"
 description = "A keyboard-driven terminal UI for todo lists stored as Markdown files"
 license = "GPL-3.0-or-later"
+authors = ["Altrabeth"]
 repository = "https://github.com/Altrabeth/RuDo"
 # The Homebrew formula that dist generates needs a homepage; cargo itself would not.
 homepage = "https://github.com/Altrabeth/RuDo"
@@ -60,6 +61,18 @@ assets = [
     { source = "CHANGELOG.md", dest = "/usr/share/doc/rudo-tui/CHANGELOG.md", mode = "644", doc = true },
     { source = "LICENSE", dest = "/usr/share/licenses/rudo-tui/LICENSE", mode = "644" },
 ]
+
+# The Windows installer that dist builds from wix/main.wxs (`dist generate` writes both); the
+# authors above are its publisher. NEVER change the two GUIDs after v1.1.0, the first release with
+# the msi: Windows recognises upgrades of the same application by `upgrade-guid` and the PATH entry
+# by `path-guid`, so new GUIDs would install a second copy next to the old one. The LICENSE file is
+# installed next to the bin folder; dist keeps `eula = false` because cargo-wix only turns MIT,
+# Apache-2.0 and GPL-3.0 (not GPL-3.0-or-later) into a license dialog.
+[package.metadata.wix]
+upgrade-guid = "E7A9FE1C-CDA7-4786-956C-7C9D4B748610"
+path-guid = "2CCFCB51-4E5B-48A8-95D5-771A5D5945B8"
+license = "LICENSE"
+eula = false
 
 [dependencies]
 anyhow = "1.0.105"

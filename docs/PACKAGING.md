@@ -10,6 +10,7 @@ Homebrew formula and the `.deb`, `.rpm` and Arch packages that CI builds, is des
 | ------------------------- | --------------------------------------------- | ----------------------------------- |
 | AUR and `makepkg`         | `packaging/aur/rudo-tui/PKGBUILD`, `.SRCINFO` | `makepkg` and `namcap` on Arch      |
 | `.deb` and `.rpm` release | `[package.metadata]` in `Cargo.toml`          | `cargo deb`, `cargo generate-rpm`   |
+| Windows `.msi` release    | `[package.metadata.wix]`, `wix/main.wxs`      | `dist build`, install and uninstall |
 | Nix                       | `flake.nix`, `flake.lock`                     | `nix flake check`, `nix run`        |
 | Fedora Copr, openSUSE OBS | `packaging/rpm/rudo-tui.spec`                 | no, try it in a container (below)   |
 | Gentoo GURU               | `packaging/gentoo/app-misc/rudo-tui/`         | no                                  |
@@ -33,7 +34,10 @@ Homebrew formula and the `.deb`, `.rpm` and Arch packages that CI builds, is des
   `cargo build --release` with `Cargo.lock` (`--frozen` or `--locked`) and run the tests, as an
   unprivileged user: root ignores the file permissions that the tests of failed deletes rely on.
 - The Windows packages download `rudo-tui-x86_64-pc-windows-msvc.zip`, which holds `rudo.exe`
-  without a folder; dist links the C runtime statically, so they need no redistributable.
+  without a folder; dist links the C runtime statically, so they need no redistributable. The
+  release also has an msi installer
+  ([`RELEASING.md`](RELEASING.md#windows-installer)); the packages keep the zip, because it
+  installs without administrator rights and leaves `PATH` to the package manager.
 
 ## Versions of pre-releases
 
@@ -227,7 +231,10 @@ pkgdev commit --signoff -m "app-misc/rudo-tui: add X.Y.Z, drop old" && pkgdev pu
 `packaging/winget/` holds the multi-file manifest (version, installer and en-US locale,
 schema 1.10.0) of the package `Altrabeth.RuDo`: a `zip` installer whose nested `portable`
 `rudo.exe` winget installs under the command alias `rudo`. `just packaging-update` writes the
-download link and the checksum in upper case, as winget writes them.
+download link and the checksum in upper case, as winget writes them. The manifest stays with
+the portable zip rather than the msi: winget then installs per user without administrator
+rights and adds the alias itself, and the msi, which installs per machine, remains a separate
+download.
 
 **For every release**, on Windows with a fork of
 [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs):

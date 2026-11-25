@@ -1,4 +1,5 @@
-//! Events from the terminal: an [`InputThread`] reads them and sends them over a channel, and
+//! Events from the terminal and the file system: an [`InputThread`] reads terminal events and
+//! the workspace watcher reports file system changes over the same channel, and
 //! [`next_batch`] collects them in batches, so the loop draws once per batch.
 
 use std::io;
@@ -12,13 +13,15 @@ use ratatui::crossterm::event::{self as terminal_event, KeyEventKind};
 use ratatui::layout::Size;
 
 use crate::config::keymap::key::KeyChord;
+use crate::storage::watch::FsChange;
 
 /// How long the input thread waits for terminal input before it checks whether it should stop.
 ///
 /// It bounds how long dropping an [`InputThread`] takes.
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-/// Something that happened in the terminal and that the application reacts to.
+/// Something that happened in the terminal or the workspace and that the application reacts
+/// to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Event {
@@ -28,6 +31,9 @@ pub enum Event {
     Resize(Size),
     /// Text was pasted with bracketed paste.
     Paste(String),
+    /// Another program, or RuDo itself, changed these paths of the workspace, reported by the
+    /// [`WorkspaceWatcher`](crate::storage::watch::WorkspaceWatcher).
+    FsChanged(Vec<FsChange>),
 }
 
 impl Event {

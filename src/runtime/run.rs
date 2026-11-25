@@ -5,7 +5,7 @@ use std::env::{self, VarError};
 use std::io;
 use std::num::NonZeroUsize;
 use std::process::Command;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
 
 use jiff::ZonedDateTime;
@@ -14,6 +14,7 @@ use crate::app::editor::{EditorCommand, EditorError, choose_editor};
 use crate::app::{App, Effect, execute};
 use crate::runtime::event::{Event, InputThread, next_batch};
 use crate::runtime::terminal::TerminalGuard;
+use crate::storage::watch::WorkspaceWatcher;
 use crate::storage::workspace::ListPath;
 
 /// How long the loop waits at most if the start of the next day cannot be computed.
@@ -48,7 +49,9 @@ pub enum RuntimeError {
 /// The terminal is restored when this function returns, also with an error or by a panic.
 /// Before every draw the loop passes the current time to [`App::tick`]; while it waits for
 /// input, it wakes up at [`App::next_deadline`] and at the start of the next day to update
-/// [`App::today`]. For [`Effect::OpenInEditor`] it hands the terminal to the editor.
+/// [`App::today`]. For [`Effect::OpenInEditor`] it hands the terminal to the editor. Changes
+/// to the workspace by other programs arrive as [`Event::FsChanged`]; if the workspace cannot
+/// be watched, RuDo runs without live reload and says so.
 ///
 /// # Errors
 ///
@@ -58,6 +61,7 @@ pub fn run(app: &mut App) -> Result<(), RuntimeError> {
     let mut terminal = TerminalGuard::init().map_err(RuntimeError::Setup)?;
     app.resize(terminal.size().map_err(RuntimeError::Setup)?);
     let (sender, receiver) = mpsc::channel();
+    let _watcher = watch(app, sender.clone());
     // Declared after the terminal so that it is dropped, and stops reading, first.
     let mut input = InputThread::spawn(sender).map_err(RuntimeError::SpawnInput)?;
     loop {
@@ -79,11 +83,23 @@ pub fn run(app: &mut App) -> Result<(), RuntimeError> {
     }
 }
 
+/// Starts watching the workspace of `app`, sending its changes to `sender`, or reports on
+/// `app` that live reload is disabled.
+fn watch(app: &mut App, sender: Sender<io::Result<Event>>) -> Option<WorkspaceWatcher> {
+    let started = WorkspaceWatcher::start(app.workspace().root(), move |changes| {
+        if sender.send(Ok(Event::FsChanged(changes))).is_err() {
+            tracing::debug!("event loop stopped, dropping file system changes");
+        }
+    });
+    started.inspect_err(|error| app.watch_failed(error)).ok()
+}
+
 /// Lets `app` handle `event` and returns the effects to perform.
 fn handle_event(app: &mut App, event: Event) -> Vec<Effect> {
     match event {
         Event::Key(chord) => app.handle_key(chord),
         Event::Paste(text) => app.handle_paste(&text),
+        Event::FsChanged(changes) => app.on_fs_changed(&changes),
         Event::Resize(size) => {
             app.resize(size);
             Vec::new()
@@ -104,7 +120,9 @@ fn perform(
         effect @ (Effect::Save(_)
         | Effect::CreateEntry { .. }
         | Effect::RenameEntry { .. }
-        | Effect::DeleteEntry { .. }) => {
+        | Effect::DeleteEntry { .. }
+        | Effect::ReloadList(_)
+        | Effect::Rescan) => {
             execute(app, effect);
             Ok(input)
         }

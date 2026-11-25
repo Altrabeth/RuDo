@@ -73,11 +73,11 @@ src/
     workspace.rs           scanning the workspace into a tree of folders and lists
     save.rs                atomic saving, external modification detection
     entries.rs             create, rename and delete lists and folders
-    watch.rs               file system watching
+    watch.rs               WorkspaceWatcher: debounced recursive watching, FsChange
   app/
     state.rs               App, Focus, Mode
     editor.rs              open-in-editor: choosing the editor, its command line with the line
-    reload.rs              App::reload_list: re-reading a list changed by another program
+    reload.rs              external changes: App::on_fs_changed, reload_list, rescan
     lists.rs               lists pane state: workspace tree navigation, active list
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
@@ -142,6 +142,16 @@ keep the names above unless there is a reason to deviate.
   again, spawns a new input thread on the same channel and calls `App::reload_list`, which
   replaces the document only if the file's fingerprint changed. Only the runtime reads
   `$VISUAL` and `$EDITOR`; choosing the editor and building its command line are pure.
+- `storage::watch::WorkspaceWatcher` watches the workspace recursively with
+  `notify-debouncer-full` (200 ms) and sends every batch as `Event::FsChanged(Vec<FsChange>)`
+  into the same channel. Each `FsChange` is a path relative to the root plus what is there
+  now (`PathState::File`, `Directory` or `Missing`), inspected on the watcher thread, so that
+  `App::on_fs_changed` can classify purely against the in-memory workspace: a file at a known
+  list becomes `Effect::ReloadList` (also for editors that save by renaming a temporary file),
+  any other change of the tree one `Effect::Rescan`; hidden paths and non-`.md` files are
+  ignored. RuDo's own writes are reported as well and change nothing: the workspace already
+  matches the disk and `App::reload_list` compares fingerprints. If the watcher cannot start
+  (for example the inotify limit), RuDo runs on and shows `live reload disabled: <reason>`.
 - Only `KeyEventKind::Press` and `Repeat` are handled; `Release` events (Windows, kitty
   keyboard protocol) are dropped at the boundary.
 - The runtime reports the terminal size with `App::resize` at start-up and on every resize

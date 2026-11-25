@@ -381,7 +381,8 @@ tail -f ~/.local/state/rudo/rudo.log
 ```
 
 On Linux, very large workspaces can exceed the inotify watch limit. RuDo then keeps working
-without live reload and shows a message; raise `fs.inotify.max_user_watches` to fix it.
+without live reload and shows `live reload disabled: ...`; raise `fs.inotify.max_user_watches`
+to fix it.
 
 ## Development
 

@@ -1,11 +1,108 @@
-//! Reloading a list whose file another program changed, such as an external editor.
+//! Following changes that other programs, such as an external editor, Obsidian or `git`,
+//! make to the workspace: deciding what a reported change means with [`App::on_fs_changed`],
+//! reloading a changed list and scanning the workspace again.
 
+use crate::app::effect::{Effect, error_report};
+use crate::app::history::History;
+use crate::app::lists::EntryChange;
 use crate::app::state::{App, Focus};
-use crate::app::tasks::list_items;
-use crate::storage::workspace::{List, ListPath, Reload};
+use crate::app::status::StatusMessage;
+use crate::app::tasks::{TasksPane, list_items};
+use crate::storage::watch::{FsChange, PathState, WatchError};
+use crate::storage::workspace::{
+    Entry, List, ListPath, Reload, Workspace, has_list_extension, is_hidden,
+};
 use crate::ui::outline::Outcome;
 
+/// What a single [`FsChange`] asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reaction<'workspace> {
+    /// The content of this known list changed.
+    Reload(&'workspace ListPath),
+    /// The tree of folders and lists changed.
+    Rescan,
+}
+
 impl App {
+    /// Decides what the changes reported by the file watcher mean for the workspace, without
+    /// touching the disk.
+    ///
+    /// A file at the path of a known list asks to reload it ([`Effect::ReloadList`]); this
+    /// covers editors that save by renaming a temporary file over the list. Anything else
+    /// that changes the tree asks for one [`Effect::Rescan`]: a new `.md` file or directory, a
+    /// removed list or folder, or a list and folder replacing each other. Hidden paths (any
+    /// component starting with `.`, including RuDo's own temporary files), files without the
+    /// `.md` extension, known folders that still exist and missing unknown paths are ignored.
+    /// RuDo's own saves and entry operations are reported too; they reload nothing, because
+    /// the workspace already matches the disk and [`App::reload_list`] compares fingerprints.
+    ///
+    /// Each list is reloaded at most once, in path order, before the rescan.
+    #[must_use]
+    pub fn on_fs_changed(&self, changes: &[FsChange]) -> Vec<Effect> {
+        let mut lists = Vec::new();
+        let mut rescan = false;
+        for change in changes {
+            match reaction(&self.workspace, change) {
+                Some(Reaction::Reload(list)) => lists.push(list),
+                Some(Reaction::Rescan) => rescan = true,
+                None => {}
+            }
+        }
+        lists.sort_unstable();
+        lists.dedup();
+        lists
+            .into_iter()
+            .cloned()
+            .map(Effect::ReloadList)
+            .chain(rescan.then_some(Effect::Rescan))
+            .collect()
+    }
+
+    /// Scans the workspace folder again after another program created, removed or renamed
+    /// lists or folders, and brings both panes in line with the new tree.
+    ///
+    /// This is the minimal version: every list is read again, the lists pane keeps its
+    /// selection and folds where the entries still exist, the active list stays open unless
+    /// it is gone, and the tasks pane and the undo history of every list start afresh because
+    /// re-parsing assigns new task ids. Keeping documents, task selections and folds by path, and handling
+    /// conflicts with unsaved state, follows in issue #69. A workspace folder that cannot be
+    /// read any more keeps the current tree and shows an error message.
+    pub fn rescan(&mut self) {
+        let root = self.workspace.root().to_path_buf();
+        let workspace = match Workspace::scan(root, self.workspace.default_indent()) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                let report = error_report(&error);
+                tracing::warn!(%report, "cannot scan the workspace again");
+                self.show_message(StatusMessage::error(report));
+                return;
+            }
+        };
+        tracing::info!("workspace changed on disk and was scanned again");
+        self.workspace = workspace;
+        self.tasks = TasksPane::default();
+        self.history = History::default();
+        match self.lists.active().cloned() {
+            Some(active) if self.workspace.list(&active).is_none() => {
+                self.apply_entry_change(EntryChange::Removed(active.as_path()));
+            }
+            Some(_) | None => self
+                .lists
+                .refresh(&self.workspace, self.viewport_height(Focus::Lists)),
+        }
+        self.refresh_tasks();
+    }
+
+    /// Reports that the workspace cannot be watched, so changes by other programs only show
+    /// up after the external editor exits or RuDo restarts; RuDo keeps running.
+    pub fn watch_failed(&mut self, error: &WatchError) {
+        let report = error_report(error);
+        tracing::warn!(%report, "live reload disabled");
+        self.show_message(StatusMessage::error(format!(
+            "live reload disabled: {report}"
+        )));
+    }
+
     /// Reads the list at `list` from disk again and replaces its document if the file changed
     /// since RuDo last loaded or saved it, judged by its fingerprint.
     ///
@@ -60,17 +157,225 @@ impl App {
     }
 }
 
+/// Returns what `change` asks for in `workspace`, or `None` if it does not matter.
+fn reaction<'workspace>(
+    workspace: &'workspace Workspace,
+    change: &FsChange,
+) -> Option<Reaction<'workspace>> {
+    let path = change.path();
+    if path
+        .components()
+        .any(|component| is_hidden(component.as_os_str()))
+    {
+        return None;
+    }
+    match (change.state(), workspace.entry(path)) {
+        (PathState::File, Some(Entry::List(list))) => Some(Reaction::Reload(list.path())),
+        (PathState::File, None) => has_list_extension(path).then_some(Reaction::Rescan),
+        (PathState::Directory, Some(Entry::Folder(_))) | (PathState::Missing, None) => None,
+        (PathState::File, Some(Entry::Folder(_)))
+        | (PathState::Directory, Some(Entry::List(_)) | None)
+        | (PathState::Missing, Some(_)) => Some(Reaction::Rescan),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
+    use rstest::rstest;
     use tempfile::TempDir;
 
     use super::*;
-    use crate::app::state::tests::{app_in, only_list_path};
+    use crate::app::effect::execute;
+    use crate::app::state::tests::{app_in, only_list_path, toggle_first_task};
     use crate::config::keymap::action::Action;
     use crate::markdown::document::TaskId;
-    use crate::storage::workspace::Entry;
+    use crate::storage::watch::WorkspaceWatcher;
+
+    /// What a change is expected to ask for in the workspace of [`classification_app`].
+    #[derive(Debug, Clone, Copy)]
+    enum Expected {
+        Nothing,
+        Reload(&'static str),
+        Rescan,
+    }
+
+    /// Starts an app on a workspace with `inbox.md` and `home/chores.md`.
+    fn classification_app(root: &Path) -> App {
+        fs::create_dir(root.join("home")).unwrap();
+        fs::write(root.join("home/chores.md"), "").unwrap();
+        fs::write(root.join("inbox.md"), "").unwrap();
+        app_in(root)
+    }
+
+    /// Returns the path of the list at `relative` in the workspace of `app`.
+    fn list_path(app: &App, relative: &str) -> ListPath {
+        match app.workspace().entry(Path::new(relative)) {
+            Some(Entry::List(list)) => list.path().clone(),
+            entry => panic!("expected a list at {relative}, got {entry:?}"),
+        }
+    }
+
+    #[rstest]
+    #[case::written_list("inbox.md", PathState::File, Expected::Reload("inbox.md"))]
+    #[case::nested_list("home/chores.md", PathState::File, Expected::Reload("home/chores.md"))]
+    #[case::new_list("new.md", PathState::File, Expected::Rescan)]
+    #[case::new_list_in_capitals("home/NEW.MD", PathState::File, Expected::Rescan)]
+    #[case::removed_list("inbox.md", PathState::Missing, Expected::Rescan)]
+    #[case::removed_folder("home", PathState::Missing, Expected::Rescan)]
+    #[case::new_folder("projects", PathState::Directory, Expected::Rescan)]
+    #[case::changed_folder("home", PathState::Directory, Expected::Nothing)]
+    #[case::folder_replaced_list("inbox.md", PathState::Directory, Expected::Rescan)]
+    #[case::file_replaced_folder("home", PathState::File, Expected::Rescan)]
+    #[case::workspace_folder("", PathState::Directory, Expected::Rescan)]
+    #[case::other_file("notes.txt", PathState::File, Expected::Nothing)]
+    #[case::file_without_extension("home/README", PathState::File, Expected::Nothing)]
+    #[case::removed_unknown_path("gone.md", PathState::Missing, Expected::Nothing)]
+    #[case::temporary_file(".tmpA1b2C3", PathState::File, Expected::Nothing)]
+    #[case::hidden_list(".draft.md", PathState::File, Expected::Nothing)]
+    #[case::hidden_folder(".obsidian", PathState::Directory, Expected::Nothing)]
+    #[case::inside_hidden_folder(".git/inbox.md", PathState::File, Expected::Nothing)]
+    #[case::hidden_folder_inside("home/.trash", PathState::Directory, Expected::Nothing)]
+    fn fs_changes_are_classified(
+        #[case] path: &str,
+        #[case] state: PathState,
+        #[case] expected: Expected,
+    ) {
+        let directory = TempDir::new().unwrap();
+        let app = classification_app(directory.path());
+        let changes = [FsChange::new(path, state)];
+        let expected = match expected {
+            Expected::Nothing => Vec::new(),
+            Expected::Reload(list) => vec![Effect::ReloadList(list_path(&app, list))],
+            Expected::Rescan => vec![Effect::Rescan],
+        };
+
+        let system_under_test = app.on_fs_changed(&changes);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn fs_changes_reload_each_list_once_in_path_order_before_one_rescan() {
+        let directory = TempDir::new().unwrap();
+        let app = classification_app(directory.path());
+        let changes = [
+            FsChange::new("new.md", PathState::File),
+            FsChange::new("inbox.md", PathState::File),
+            FsChange::new("projects", PathState::Directory),
+            FsChange::new("home/chores.md", PathState::File),
+            FsChange::new("inbox.md", PathState::File),
+        ];
+        let expected = vec![
+            Effect::ReloadList(list_path(&app, "home/chores.md")),
+            Effect::ReloadList(list_path(&app, "inbox.md")),
+            Effect::Rescan,
+        ];
+
+        let system_under_test = app.on_fs_changed(&changes);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn reload_after_rudos_own_save_keeps_the_document() {
+        let directory = TempDir::new().unwrap();
+        fs::write(directory.path().join("plan.md"), "- [ ] a\n- [ ] b\n").unwrap();
+        let mut app = app_in(directory.path());
+        let list = only_list_path(&app);
+        app.update_tasks(Action::MoveDown);
+        for effect in app.edit_list(&list, toggle_first_task) {
+            execute(&mut app, effect);
+        }
+        let expected_selection = app.task_outline().unwrap().selected().copied();
+        execute(&mut app, Effect::ReloadList(list));
+
+        let system_under_test = app.task_outline().unwrap().selected().copied();
+
+        assert_eq!(system_under_test, expected_selection);
+        assert_eq!(selected_description(&app).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn rescan_adds_new_entries_and_keeps_the_active_list() {
+        let directory = TempDir::new().unwrap();
+        fs::write(directory.path().join("plan.md"), "- [ ] a\n").unwrap();
+        let mut app = app_in(directory.path());
+        let list = only_list_path(&app);
+        fs::create_dir(directory.path().join("home")).unwrap();
+        fs::write(directory.path().join("home/chores.md"), "- [ ] sweep\n").unwrap();
+        execute(&mut app, Effect::Rescan);
+
+        let system_under_test = app.lists().active();
+
+        assert_eq!(system_under_test, Some(&list));
+        assert!(app.workspace().entry(Path::new("home/chores.md")).is_some());
+        assert_eq!(selected_description(&app).as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn rescan_closes_an_active_list_that_was_removed() {
+        let directory = TempDir::new().unwrap();
+        let file = directory.path().join("plan.md");
+        fs::write(&file, "- [ ] a\n").unwrap();
+        let mut app = app_in(directory.path());
+        fs::remove_file(&file).unwrap();
+        app.rescan();
+
+        let system_under_test = app.lists().active();
+
+        assert_eq!(system_under_test, None);
+        assert!(app.workspace().entries().is_empty());
+    }
+
+    #[test]
+    fn rescan_forgets_the_undo_history() {
+        let directory = TempDir::new().unwrap();
+        fs::write(directory.path().join("plan.md"), "- [ ] a\n").unwrap();
+        let mut app = app_in(directory.path());
+        let list = only_list_path(&app);
+        for effect in app.edit_list(&list, toggle_first_task) {
+            execute(&mut app, effect);
+        }
+        app.rescan();
+
+        let system_under_test = &app.history;
+
+        assert_eq!(system_under_test, &History::default());
+    }
+
+    #[test]
+    fn rescan_of_a_removed_workspace_folder_keeps_the_tree_and_shows_an_error() {
+        let directory = TempDir::new().unwrap();
+        let root = directory.path().join("todo");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("plan.md"), "").unwrap();
+        let mut app = app_in(&root);
+        fs::remove_dir_all(&root).unwrap();
+        let expected_prefix = format!("cannot read workspace folder {}: ", root.display());
+        app.rescan();
+
+        let system_under_test = app.status_message().unwrap();
+
+        assert!(system_under_test.text().starts_with(&expected_prefix));
+        assert_eq!(app.workspace().entries().len(), 1);
+    }
+
+    #[test]
+    fn watch_failure_disables_live_reload_with_a_message() {
+        let directory = TempDir::new().unwrap();
+        let missing = directory.path().join("missing");
+        let error = WorkspaceWatcher::start(&missing, |_| {}).unwrap_err();
+        let expected_prefix = format!("live reload disabled: cannot watch {}: ", missing.display());
+        let mut app = app_in(directory.path());
+        app.watch_failed(&error);
+
+        let system_under_test = app.status_message().unwrap();
+
+        assert!(system_under_test.text().starts_with(&expected_prefix));
+    }
 
     /// Returns the description of the task selected in the tasks pane of the active list.
     fn selected_description(app: &App) -> Option<String> {

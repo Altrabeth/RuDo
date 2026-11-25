@@ -3,7 +3,7 @@
 //! that decide what the panes show, such as filtering.
 //!
 //! Nothing in this module reads the terminal, the clock or the environment; only [`execute`]
-//! and [`App::reload_list`] touch the file system.
+//! and the reloads of [`App::reload_list`] and [`App::rescan`] touch the file system.
 
 pub mod confirm;
 pub mod editor;

@@ -59,6 +59,12 @@ pub enum Effect {
         /// The line of the selected task.
         line: Option<NonZeroUsize>,
     },
+    /// Read the list at this path from disk again, because another program changed its file;
+    /// see [`App::reload_list`].
+    ReloadList(ListPath),
+    /// Scan the workspace folder again, because another program created, removed or renamed
+    /// a list or folder; see [`App::rescan`].
+    Rescan,
 }
 
 /// Performs `effect` and reports its result to `app`.
@@ -75,6 +81,8 @@ pub fn execute(app: &mut App, effect: Effect) {
         Effect::OpenInEditor { list, .. } => {
             tracing::warn!(%list, "the editor can only be opened by the runtime");
         }
+        Effect::ReloadList(list) => app.reload_list(&list),
+        Effect::Rescan => app.rescan(),
     }
 }
 

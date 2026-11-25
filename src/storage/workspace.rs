@@ -104,6 +104,14 @@ impl Workspace {
         self.root.join(&path.0)
     }
 
+    /// Returns the folder or list at `path`, relative to the workspace root, or `None` if the
+    /// workspace has no entry there.
+    #[must_use]
+    pub fn entry(&self, path: &Path) -> Option<&Entry> {
+        let siblings = folder_entries(&self.entries, path.parent()?)?;
+        siblings.iter().find(|entry| entry.path() == path)
+    }
+
     /// Reads the list file at `path` again, as a scan would, and replaces its content if the
     /// file changed since RuDo last loaded or saved it, judged by its [`Fingerprint`].
     ///
@@ -551,11 +559,13 @@ fn read_folder(root: &Path, path: PathBuf, file_name: &OsStr) -> Option<PendingE
     }
 }
 
-fn is_hidden(file_name: &OsStr) -> bool {
+/// Returns whether `file_name` starts with `.`, which hides it from the workspace.
+pub(crate) fn is_hidden(file_name: &OsStr) -> bool {
     file_name.as_encoded_bytes().first() == Some(&b'.')
 }
 
-fn has_list_extension(path: &Path) -> bool {
+/// Returns whether `path` has the extension of list files.
+pub(crate) fn has_list_extension(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(LIST_EXTENSION))
 }
@@ -621,6 +631,26 @@ fn find_list<'workspace>(
             find_list(&folder.entries, path)
         }
         Entry::Folder(_) => None,
+    })
+}
+
+/// Returns the entries of the folder at `path`, or of the root if `path` is empty.
+fn folder_entries<'workspace>(
+    entries: &'workspace [Entry],
+    path: &Path,
+) -> Option<&'workspace [Entry]> {
+    if path.as_os_str().is_empty() {
+        return Some(entries);
+    }
+    entries.iter().find_map(|entry| match entry {
+        Entry::Folder(folder) if path.starts_with(&folder.path) => {
+            if folder.path == path {
+                Some(folder.entries.as_slice())
+            } else {
+                folder_entries(&folder.entries, path)
+            }
+        }
+        Entry::Folder(_) | Entry::List(_) => None,
     })
 }
 
@@ -956,6 +986,32 @@ mod tests {
         assert_eq!(
             system_under_test.list(&path).map(List::path),
             expected.then_some(&path)
+        );
+    }
+
+    #[rstest]
+    #[case::top_level_list("inbox.md", Some(EntryKind::List))]
+    #[case::nested_list("projects/work/today.md", Some(EntryKind::List))]
+    #[case::folder("projects/work", Some(EntryKind::Folder))]
+    #[case::missing("projects/missing.md", None)]
+    #[case::inside_a_list("inbox.md/today.md", None)]
+    #[case::root("", None)]
+    fn entry_finds_folders_and_lists_by_path(
+        #[case] relative: &str,
+        #[case] expected: Option<EntryKind>,
+    ) {
+        let root = TempDir::new().unwrap();
+        write_file(root.path(), "inbox.md", b"");
+        write_file(root.path(), "projects/work/today.md", b"");
+        let path = Path::new(relative);
+
+        let system_under_test = scan(&root);
+
+        assert_eq!(system_under_test.entry(path).map(Entry::kind), expected);
+        assert!(
+            system_under_test
+                .entry(path)
+                .is_none_or(|entry| entry.path() == path)
         );
     }
 

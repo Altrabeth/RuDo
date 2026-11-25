@@ -219,11 +219,11 @@ Vim users who expect `esc` to keep the typed text can bind `esc` to `submit` ins
 
 ## Picker (go to anything and folders)
 
-| Keys             | Action            | Description                                                      |
-| ---------------- | ----------------- | ---------------------------------------------------------------- |
-| `down`, `ctrl-n` | `picker-next`     | select the next match                                            |
-| `up`, `ctrl-p`   | `picker-previous` | select the previous match                                        |
-| `tab`            | `complete`        | complete the text to the selected match; again for the next one  |
+| Keys             | Action            | Description                                                          |
+| ---------------- | ----------------- | -------------------------------------------------------------------- |
+| `down`, `ctrl-n` | `picker-next`     | select the next match                                                |
+| `up`, `ctrl-p`   | `picker-previous` | select the previous match                                            |
+| `tab`            | `complete`        | complete the text or the word at the cursor; again for the next one  |
 
 Go to anything (`ctrl-p`, see [above](#everywhere-lists-and-tasks-pane)) uses the same picker
 for folders, lists and tasks. Wherever RuDo asks for a folder (`m`, and `R` in the bin for
@@ -237,6 +237,16 @@ selected folder into the input and, pressed again, the next one. `enter` takes t
 folder, or the typed path if nothing matches, which reports a folder that does not exist
 (create it with `O` first); `esc` cancels. The
 [editing keys](#help-screen-dialogs-and-text-input) work in the input.
+
+`complete` also works in the due date (`D`) and recurrence (`r`) prompts: `tab` completes
+the word before the cursor to a word the prompt understands (`fr` to `friday`, `ev` to
+`every`), ignoring case, and keeps the text after the cursor. If several words fit, the hint
+below the input lists them and each `tab` shows the next one, then the typed text again,
+while the preview shows the date or rule of the word shown; typing or moving the cursor accepts
+it. Without a fitting word nothing changes. The recurrence prompt offers only the words valid
+at their position: `every`, then a unit (`day`, `week`, `month`, `year`), or its plural after
+an interval (`every 2 w` to `every 2 weeks`). The prompts for names and the search ignore
+`tab`.
 
 ## Key notation
 

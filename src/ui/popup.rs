@@ -58,9 +58,10 @@ fn centered_rect_fitting(area: Rect, height: u16, content_width: u16) -> Rect {
 
 /// The state of an input popup: its title, the edited text and optional lines below it.
 ///
-/// The hint is fixed when the prompt opens, for example the accepted formats. The preview and
-/// the error change while the user types, for example the date a text will be parsed as, or
-/// why it cannot be submitted.
+/// The hint is set when the prompt opens, for example the accepted formats, and changes only
+/// while completing a word, to list the candidates. The preview and the error change while
+/// the user types, for example the date a text will be parsed as, or why it cannot be
+/// submitted.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Prompt {
     title: Cow<'static, str>,
@@ -88,6 +89,11 @@ impl Prompt {
     pub fn with_hint(mut self, hint: impl Into<Cow<'static, str>>) -> Self {
         self.hint = Some(hint.into());
         self
+    }
+
+    /// Shows `hint` below the input instead of the current hint.
+    pub fn set_hint(&mut self, hint: impl Into<Cow<'static, str>>) {
+        self.hint = Some(hint.into());
     }
 
     /// Returns the edited text and cursor.
@@ -406,6 +412,19 @@ mod tests {
             let mut prompt = prompt_with_all_lines();
             prompt.set_preview(None);
             prompt.set_error(None);
+            prompt
+        };
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn prompt_set_hint_replaces_the_hint() {
+        let expected = prompt().with_hint("today, tomorrow");
+
+        let system_under_test = {
+            let mut prompt = prompt().with_hint("enter save");
+            prompt.set_hint("today, tomorrow");
             prompt
         };
 

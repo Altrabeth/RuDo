@@ -197,7 +197,8 @@ pub enum Action {
     PickerNext,
     /// Select the previous candidate of a picker.
     PickerPrevious,
-    /// Complete the typed text to the selected candidate.
+    /// Complete the typed text to the selected candidate of a picker, or the word before the
+    /// cursor to a word that a date or recurrence prompt understands.
     Complete,
 }
 
@@ -326,7 +327,7 @@ impl Action {
             Self::Cancel => "discard the text, or end the selection",
             Self::PickerNext => "select the next match",
             Self::PickerPrevious => "select the previous match",
-            Self::Complete => "complete the text to the selected match; again for the next one",
+            Self::Complete => "complete the text or the word at the cursor; again for the next one",
         }
     }
 
@@ -458,9 +459,9 @@ impl Action {
             Self::EmptyBin | Self::CloseBin => BIN,
             Self::CloseHelp => HELP,
             Self::ConfirmYes | Self::ConfirmNo => DIALOG,
-            Self::Submit => INPUT_AND_PICKER,
+            Self::Submit | Self::Complete => INPUT_AND_PICKER,
             Self::Cancel => INPUT_PICKER_AND_VISUAL,
-            Self::PickerNext | Self::PickerPrevious | Self::Complete => PICKER,
+            Self::PickerNext | Self::PickerPrevious => PICKER,
         }
     }
 
@@ -662,7 +663,8 @@ mod tests {
     #[case::help(Action::CloseHelp, &[Context::Help])]
     #[case::dialog(Action::ConfirmYes, &[Context::Dialog])]
     #[case::input(Action::Submit, &[Context::Input, Context::Picker])]
-    #[case::picker(Action::Complete, &[Context::Picker])]
+    #[case::complete(Action::Complete, &[Context::Input, Context::Picker])]
+    #[case::picker(Action::PickerNext, &[Context::Picker])]
     #[case::visual_mode(
         Action::VisualMode,
         &[Context::Lists, Context::Tasks, Context::Visual, Context::Bin, Context::BinVisual]

@@ -142,7 +142,7 @@ impl App {
             Action::GoTo => self.open_go_to(),
             Action::PickerNext => self.update_picker(PickerCommand::SelectNext),
             Action::PickerPrevious => self.update_picker(PickerCommand::SelectPrevious),
-            Action::Complete => self.update_picker(PickerCommand::Complete),
+            Action::Complete => self.complete(),
         }
         Vec::new()
     }
@@ -166,6 +166,16 @@ impl App {
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_) => {}
+        }
+    }
+
+    /// Completes the word before the cursor of an open prompt, or the text of an open picker;
+    /// other text inputs have nothing to complete from.
+    fn complete(&mut self) {
+        if let Mode::Prompt(prompt) = &mut self.mode {
+            prompt.complete(self.today);
+        } else {
+            self.update_picker(PickerCommand::Complete);
         }
     }
 

@@ -234,6 +234,21 @@ impl TextInput {
         self.replace(self.cursor..self.cursor, &text);
     }
 
+    /// Replaces the bytes in `range` of the text with `replacement` and moves the cursor
+    /// behind it, as completing the word before the cursor does.
+    ///
+    /// Line breaks and other control characters become spaces, as with
+    /// [`insert_str`](Self::insert_str).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `range` does not lie within the text or does not start and end on character
+    /// boundaries, as [`String::replace_range`] does.
+    pub fn replace_range(&mut self, range: Range<usize>, replacement: &str) {
+        let replacement = to_single_line(replacement);
+        self.replace(range, &replacement);
+    }
+
     /// Handles a key press that no action is bound to: one of the [`EDITING_KEYS`] applies its
     /// command, a character without modifiers is inserted, and every other chord is ignored.
     pub fn press(&mut self, chord: KeyChord) -> TextChange {
@@ -459,7 +474,8 @@ fn to_single_line(text: &str) -> Cow<'_, str> {
     Cow::Owned(single_line)
 }
 
-fn is_whitespace(grapheme: &str) -> bool {
+/// Returns whether a grapheme cluster separates words: it consists of whitespace only.
+pub(crate) fn is_whitespace(grapheme: &str) -> bool {
     grapheme.chars().all(char::is_whitespace)
 }
 
@@ -623,6 +639,24 @@ mod tests {
         #[case] expected: &str,
     ) {
         let system_under_test = edit(before, |text_input| text_input.insert_str(text));
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::word_before_the_cursor("due fr| x", 4..6, "friday", "due friday| x")]
+    #[case::longer_word("today|", 0..5, "To", "To|")]
+    #[case::multi_byte("\u{e9}|", 0..2, "tue", "tue|")]
+    #[case::line_break("a|", 1..1, "b\nc", "ab c|")]
+    fn replace_range_puts_the_cursor_behind_the_replacement(
+        #[case] before: &str,
+        #[case] range: Range<usize>,
+        #[case] replacement: &str,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = edit(before, |text_input| {
+            text_input.replace_range(range, replacement);
+        });
 
         assert_eq!(system_under_test, expected);
     }

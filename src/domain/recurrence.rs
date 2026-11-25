@@ -4,7 +4,8 @@
 //! recurrence syntax that repeats in fixed calendar steps: `every [N] day(s)`, `week(s)`,
 //! `month(s)` or `year(s)`. Rules are parsed case-insensitively with any whitespace between
 //! the words, and are written back in the canonical form produced by [`Recurrence`]'s
-//! `Display`.
+//! `Display`. [`keywords_after`] lists the words the parser understands at each position of
+//! a rule, for completion.
 //!
 //! Adding months or years clamps the day to the end of the target month, so January 31 plus
 //! one month is February 28 (or 29). Because every occurrence is computed from the previous
@@ -58,7 +59,7 @@ pub enum RecurrenceUnit {
 }
 
 impl RecurrenceUnit {
-    /// Returns the singular English name; the plural appends an `s`.
+    /// Returns the singular English name.
     const fn singular(self) -> &'static str {
         match self {
             Self::Day => "day",
@@ -68,10 +69,21 @@ impl RecurrenceUnit {
         }
     }
 
+    /// Returns the plural English name.
+    const fn plural(self) -> &'static str {
+        match self {
+            Self::Day => "days",
+            Self::Week => "weeks",
+            Self::Month => "months",
+            Self::Year => "years",
+        }
+    }
+
     /// Parses the singular or plural name of a unit, ignoring ASCII case.
     fn from_word(word: &str) -> Option<Self> {
-        let singular = word.strip_suffix(['s', 'S']).unwrap_or(word);
-        Self::iter().find(|unit| unit.singular().eq_ignore_ascii_case(singular))
+        Self::iter().find(|unit| {
+            word.eq_ignore_ascii_case(unit.singular()) || word.eq_ignore_ascii_case(unit.plural())
+        })
     }
 
     /// Returns a span of `count` of this unit.
@@ -132,10 +144,9 @@ impl Recurrence {
 
 impl fmt::Display for Recurrence {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let unit = self.unit.singular();
         match self.interval.get() {
-            1 => write!(formatter, "{EVERY} {unit}"),
-            interval => write!(formatter, "{EVERY} {interval} {unit}s"),
+            1 => write!(formatter, "{EVERY} {}", self.unit.singular()),
+            interval => write!(formatter, "{EVERY} {interval} {}", self.unit.plural()),
         }
     }
 }
@@ -153,7 +164,7 @@ impl FromStr for Recurrence {
             return Err(RecurrenceError::MissingEvery);
         }
         let mut word = words.next().ok_or(RecurrenceError::Unsupported)?;
-        let interval = if word.starts_with(|first: char| first.is_ascii_digit()) {
+        let interval = if is_interval(word) {
             let interval = parse_interval(word)?;
             word = words.next().ok_or(RecurrenceError::Unsupported)?;
             interval
@@ -166,6 +177,67 @@ impl FromStr for Recurrence {
         }
         Ok(Self::new(interval, unit))
     }
+}
+
+/// Returns whether `word` is meant as the interval of a rule: it starts with a digit.
+fn is_interval(word: &str) -> bool {
+    word.starts_with(|first: char| first.is_ascii_digit())
+}
+
+/// The kind of word a rule continues with after some words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NextWord {
+    /// The word `every` that starts every rule.
+    Every,
+    /// An interval or the singular name of a unit, after `every`.
+    SingularUnit,
+    /// The plural name of a unit, after `every` and an interval.
+    PluralUnit,
+    /// Nothing: the rule is complete or not supported.
+    Nothing,
+}
+
+impl NextWord {
+    /// Returns what follows the whitespace separated `words` of a rule.
+    fn after<'a>(mut words: impl Iterator<Item = &'a str>) -> Self {
+        let is_every = |word: &str| word.eq_ignore_ascii_case(EVERY);
+        match (words.next(), words.next(), words.next()) {
+            (None, _, _) => Self::Every,
+            (Some(first), None, _) if is_every(first) => Self::SingularUnit,
+            (Some(first), Some(second), None) if is_every(first) && is_interval(second) => {
+                Self::PluralUnit
+            }
+            (Some(_), _, _) => Self::Nothing,
+        }
+    }
+}
+
+/// Returns the words of the recurrence grammar that can follow `preceding`, the beginning of
+/// a rule up to the word being typed: `every` first, then the singular names of the units, or
+/// their plural names after an interval.
+///
+/// Only words that keep the rule supported are offered, so completing every word builds a
+/// rule that parses. Intervals are numbers and therefore never offered.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::domain::recurrence::keywords_after;
+///
+/// assert_eq!(keywords_after("").collect::<Vec<_>>(), ["every"]);
+/// assert_eq!(keywords_after("every ").collect::<Vec<_>>(), ["day", "week", "month", "year"]);
+/// assert_eq!(keywords_after("Every 2 ").next(), Some("days"));
+/// assert_eq!(keywords_after("every week ").next(), None);
+/// ```
+pub fn keywords_after(preceding: &str) -> impl Iterator<Item = &'static str> + use<> {
+    let next_word = NextWord::after(preceding.split_whitespace());
+    let every = (next_word == NextWord::Every).then_some(EVERY);
+    let units = RecurrenceUnit::iter().filter_map(move |unit| match next_word {
+        NextWord::SingularUnit => Some(unit.singular()),
+        NextWord::PluralUnit => Some(unit.plural()),
+        NextWord::Every | NextWord::Nothing => None,
+    });
+    every.into_iter().chain(units)
 }
 
 /// Parses the interval of a rule from a word that starts with a digit.
@@ -360,6 +432,52 @@ mod tests {
             system_under_test,
             Err(RecurrenceError::DateOutOfRange(_))
         ));
+    }
+
+    #[rstest]
+    #[case::start("", &["every"])]
+    #[case::blank("  ", &["every"])]
+    #[case::after_every("every ", &["day", "week", "month", "year"])]
+    #[case::after_every_any_case("EVERY\t", &["day", "week", "month", "year"])]
+    #[case::after_an_interval("every 2 ", &["days", "weeks", "months", "years"])]
+    #[case::after_an_invalid_interval("every 0 ", &["days", "weeks", "months", "years"])]
+    #[case::after_a_unit("every week ", &[])]
+    #[case::after_a_complete_rule("every 2 weeks ", &[])]
+    #[case::after_another_word("weekly ", &[])]
+    fn keywords_after_offers_the_words_valid_at_the_position(
+        #[case] preceding: &str,
+        #[case] expected: &[&str],
+    ) {
+        let system_under_test: Vec<&str> = keywords_after(preceding).collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    /// Builds every rule whose words are all offered by [`keywords_after`], with the interval
+    /// `2` where the grammar allows one.
+    fn rules_from_keywords() -> Vec<String> {
+        keywords_after("")
+            .flat_map(|every| {
+                let singular =
+                    keywords_after(&format!("{every} ")).map(move |unit| format!("{every} {unit}"));
+                let plural = keywords_after(&format!("{every} 2 "))
+                    .map(move |unit| format!("{every} 2 {unit}"));
+                singular.chain(plural)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_rule_built_from_the_keywords_parses() {
+        let rules = rules_from_keywords();
+
+        let system_under_test: Vec<&String> = rules
+            .iter()
+            .filter(|rule| rule.parse::<Recurrence>().is_err())
+            .collect();
+
+        assert_eq!(rules.len(), 8);
+        assert_eq!(system_under_test, Vec::<&String>::new());
     }
 
     proptest! {

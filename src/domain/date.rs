@@ -1,8 +1,8 @@
 //! Due date expressions and their display relative to today.
 //!
-//! [`parse_due`] turns what the user types into a [`Date`], [`DueClass`] buckets a due date by
-//! urgency and [`RelativeDue`] displays it relative to today. Today is always a parameter, so
-//! every function here is pure.
+//! [`parse_due`] turns what the user types into a [`Date`], [`due_keywords`] lists the words it
+//! understands, [`DueClass`] buckets a due date by urgency and [`RelativeDue`] displays it
+//! relative to today. Today is always a parameter, so every function here is pure.
 
 use std::fmt;
 
@@ -12,13 +12,14 @@ use jiff::civil::{Date, Weekday};
 /// The largest number of days until a due date that still counts as [`DueClass::Soon`].
 const SOON_DAYS: i32 = 7;
 
-/// Keywords and the number of days they lie after today.
-const DAY_KEYWORDS: [(&str, i8); 5] = [
-    ("today", 0),
-    ("tod", 0),
-    ("tomorrow", 1),
-    ("tom", 1),
-    ("yesterday", -1),
+/// The keyword that clears the due date.
+const NONE: &str = "none";
+
+/// Keywords, their abbreviation and the number of days they lie after today.
+const DAY_KEYWORDS: [(&str, Option<&str>, i8); 3] = [
+    ("today", Some("tod"), 0),
+    ("tomorrow", Some("tom"), 1),
+    ("yesterday", None, -1),
 ];
 
 /// Abbreviated and full weekday names.
@@ -90,10 +91,32 @@ pub enum DateExprError {
 /// ```
 pub fn parse_due(input: &str, today: Date) -> Result<Option<Date>, DateExprError> {
     let expression = input.trim();
-    if expression.is_empty() || expression.eq_ignore_ascii_case("none") {
+    if expression.is_empty() || expression.eq_ignore_ascii_case(NONE) {
         return Ok(None);
     }
     resolve(expression, today).map(Some)
+}
+
+/// Returns the words of the due date expressions that [`parse_due`] understands, in full:
+/// `today`, `tomorrow`, `yesterday`, `none` and the weekdays from `monday` to `sunday`.
+///
+/// Abbreviations such as `tod` and `fri` are left out, since completing a word to its
+/// abbreviation would not help. Every word is an expression on its own.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::domain::date::due_keywords;
+///
+/// let words: Vec<&str> = due_keywords().filter(|word| word.starts_with('t')).collect();
+/// assert_eq!(words, ["today", "tomorrow", "tuesday", "thursday"]);
+/// ```
+pub fn due_keywords() -> impl Iterator<Item = &'static str> {
+    DAY_KEYWORDS
+        .iter()
+        .map(|&(keyword, _, _)| keyword)
+        .chain([NONE])
+        .chain(WEEKDAY_NAMES.iter().map(|&(_, full_name, _)| full_name))
 }
 
 /// Resolves a trimmed, non-empty expression that does not clear the date.
@@ -130,8 +153,12 @@ fn resolve(expression: &str, today: Date) -> Result<Date, DateExprError> {
 fn day_keyword(expression: &str) -> Option<i8> {
     DAY_KEYWORDS
         .iter()
-        .find(|(keyword, _)| expression.eq_ignore_ascii_case(keyword))
-        .map(|&(_, days)| days)
+        .find(|(keyword, abbreviation, _)| {
+            expression.eq_ignore_ascii_case(keyword)
+                || abbreviation
+                    .is_some_and(|abbreviation| expression.eq_ignore_ascii_case(abbreviation))
+        })
+        .map(|&(_, _, days)| days)
 }
 
 /// Returns the weekday an abbreviated or full weekday name refers to.
@@ -468,6 +495,40 @@ mod tests {
         let system_under_test = RelativeDue::new(due, TODAY);
 
         assert_eq!(system_under_test.to_string(), expected);
+    }
+
+    #[test]
+    fn due_keywords_are_the_full_words_in_grammar_order() {
+        let expected = [
+            "today",
+            "tomorrow",
+            "yesterday",
+            "none",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ];
+
+        let system_under_test: Vec<&str> = due_keywords().collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn every_due_keyword_parses() {
+        let keywords: Vec<&str> = due_keywords().collect();
+
+        let system_under_test: Vec<&str> = keywords
+            .iter()
+            .copied()
+            .filter(|keyword| parse_due(keyword, TODAY).is_err())
+            .collect();
+
+        assert_eq!(system_under_test, Vec::<&str>::new());
     }
 
     fn four_digit_year_date() -> impl Strategy<Value = Date> {

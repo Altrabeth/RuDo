@@ -18,6 +18,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recurring task, gets today's date as `[created:: YYYY-MM-DD]`, the creation date of the
   Obsidian Tasks plugin. Pasted tasks keep their fields and get none. Turn it off with
   `tasks.created_date: false`.
+- **Completion in the due date and recurrence prompts.** `tab` (`complete`, now also bound in
+  text input) completes the word before the cursor from the words the prompt understands:
+  `fr` to `friday` in the due date prompt (`D`), `ev` to `every` and `every 2 w` to
+  `every 2 weeks` in the recurrence prompt (`r`). Ambiguous words cycle through the
+  candidates, which the hint lists, and back to the typed text; the preview follows. The
+  prompts for names and the search ignore `tab`.
 
 ## [1.0.0] - 2026-11-25
 

@@ -65,8 +65,9 @@ src/
       resolver.rs          KeyResolver: multi-key sequence state machine
   domain/
     mod.rs                 module tree; nothing here reads the clock
-    date.rs                due date expressions, DueClass and relative formatting
-    recurrence.rs          recurrence rules and next occurrence
+    date.rs                due date expressions and their keywords, DueClass and relative
+                           formatting
+    recurrence.rs          recurrence rules, the keywords valid at each position, next occurrence
     priority.rs            Priority levels and stepping through them
     tags.rs                Obsidian tag recognition
   markdown/
@@ -107,7 +108,9 @@ src/
                            jumping to the chosen one
     search.rs              pane search (Mode::Search): PaneFilter per pane and per list
     help.rs                help screen state (Mode::Help): scrolling and filter input
-    prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
+    prompt.rs              input prompt state (Mode::Prompt): PromptKind, completion, validation
+                           on submit
+    completion.rs          tab completion of the word before the cursor from a vocabulary
     confirm.rs             confirmation dialog state (Mode::Confirm): ConfirmKind
     visual.rs              visual mode (Mode::Visual): resolving and acting on the selection
     lists.rs               lists pane state: workspace tree navigation, active list
@@ -181,10 +184,20 @@ src/
   `InlineEdit(InlineEdit)` (a row of the tasks pane), `Search(Focus)` (the search prompt in
   the bottom bar) and `Visual` (a selection of several rows of the focused pane or of the bin
   view). `Prompt`, `InlineEdit`, `Search` and the open help filter resolve keys in
-  `Context::Input`, `FolderPicker` and `GoTo` in `Context::Picker` (`submit` and `cancel` as
-  in `Input`, plus `picker-next`, `picker-previous` and `complete`), `Visual` in
+  `Context::Input` (`submit`, `cancel` and `complete`), `FolderPicker` and `GoTo` in
+  `Context::Picker` (the same, plus `picker-next` and `picker-previous`), `Visual` in
   `Context::Visual`, or in `Context::BinVisual` while the bin view is open, so that
   `restore-from-bin` resolves on a selection in the bin but not on one in the panes.
+- Tab completion in prompts (`app::completion::Completion`) is a pure function of the text,
+  the cursor and a vocabulary: it completes the whitespace separated word before the cursor
+  from the words that start with it, ignoring ASCII case, and each `cycle` returns the byte
+  range that the next candidate (after the last one the typed word) replaces. The vocabulary
+  is a closure that receives the text before the word, so that a grammar offers only the
+  words valid at that position. The grammars own their words: `domain::date::due_keywords`
+  and `domain::recurrence::keywords_after` read the same tables and enums as the parsers, and
+  tests parse every word they offer. `PromptKind` picks the vocabulary of a prompt (names
+  have none); the `PromptOverlay` keeps the `Completion` until the next key press or paste,
+  and shows its candidates as the hint meanwhile.
 - A picker (`app::picker::Picker<C>`) is generic over its candidates (`PickerCandidate`: the
   text shown, matched and completed to, where its name starts, and optionally its theme slot,
   a label before it and a location after it). `PickerPrompt<C>` adds the error of a refused

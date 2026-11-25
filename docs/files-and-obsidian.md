@@ -79,9 +79,11 @@ subtasks or parents.
 Due dates are set with `D`. The prompt accepts `YYYY-MM-DD`, `today` (`tod`), `tomorrow`
 (`tom`), `yesterday`, `+3d`, `+2w`, `+1m`, `+1y` (the `+` is optional) and weekday names
 (`fri`, `friday`: the next such day after today), and previews the date while you type; an
-empty input or `none` removes the due date. The tasks pane shows `today`, `tomorrow`,
-`in 3d` for the next seven days, `2d overdue`, and the date itself (`Dec 24`, or `2027-01-05`
-in another year) further ahead. A completed task shows an overdue date as written.
+empty input or `none` removes the due date. `tab` completes these words (`fr` to `friday`, see
+[completion](keybindings.md#picker-go-to-anything-and-folders)), in the recurrence prompt too.
+The tasks pane shows `today`, `tomorrow`, `in 3d` for the next seven days, `2d overdue`, and
+the date itself (`Dec 24`, or `2027-01-05` in another year) further ahead. A completed task
+shows an overdue date as written.
 
 A task without a priority has normal priority, between medium and low. `+` and `-` step
 through `lowest`, `low`, normal, `medium`, `high` and `highest`; normal removes the field.

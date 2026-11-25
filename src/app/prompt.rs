@@ -9,12 +9,14 @@ use std::path::{Path, PathBuf};
 
 use jiff::civil::Date;
 
+use crate::app::completion::Completion;
 use crate::app::effect::Effect;
 use crate::app::state::{App, Mode};
 use crate::app::task_due::{DUE_DATE_HINT, due_preview, parse_due_text};
 use crate::app::task_recurrence::{RECURRENCE_HINT, parse_recurrence_text, recurrence_preview};
 use crate::config::keymap::key::KeyChord;
-use crate::domain::recurrence::Recurrence;
+use crate::domain::date::due_keywords;
+use crate::domain::recurrence::{Recurrence, keywords_after};
 use crate::markdown::document::TaskId;
 use crate::paths::portable;
 use crate::storage::entries::EntryName;
@@ -106,6 +108,16 @@ impl PromptKind {
         }
     }
 
+    /// Starts completing the word before `cursor` in `text` from the words of the grammar the
+    /// prompt parses; prompts for names have no vocabulary and complete nothing.
+    fn completion(&self, text: &str, cursor: usize) -> Option<Completion> {
+        match self {
+            Self::NewList { .. } | Self::NewFolder { .. } | Self::Rename { .. } => None,
+            Self::DueDate { .. } => Completion::new(text, cursor, |_| due_keywords()),
+            Self::Recurrence { .. } => Completion::new(text, cursor, keywords_after),
+        }
+    }
+
     /// Parses `text` relative to `today` and returns what the prompt asks for.
     fn submit(&self, text: &str, today: Date) -> Result<Submission, Cow<'static, str>> {
         let name = || EntryName::try_from(text).map_err(|error| error.to_string());
@@ -167,18 +179,25 @@ fn location_hint(parent: &Path) -> Cow<'static, str> {
     }
 }
 
-/// An open prompt: what it asks for and the popup with the typed text and its error.
+/// An open prompt: what it asks for, the popup with the typed text and its error, and the
+/// word being completed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PromptOverlay {
     kind: PromptKind,
     prompt: Prompt,
+    /// The word being completed, until the next key press or paste.
+    completion: Option<Completion>,
 }
 
 impl PromptOverlay {
     /// Opens a prompt for `kind` that edits `input`, with its preview relative to `today`.
     fn open(kind: PromptKind, input: TextInput, today: Date) -> Self {
         let prompt = Prompt::new(kind.title(), input).with_hint(kind.hint());
-        let mut overlay = Self { kind, prompt };
+        let mut overlay = Self {
+            kind,
+            prompt,
+            completion: None,
+        };
         overlay.refresh(today);
         overlay
     }
@@ -190,18 +209,50 @@ impl PromptOverlay {
     }
 
     /// Edits the text with a key press that no action is bound to; a change recomputes the
-    /// preview relative to `today` and replaces the error.
+    /// preview relative to `today` and replaces the error. Any key press ends completing.
     pub(super) fn press(&mut self, chord: KeyChord, today: Date) {
+        self.end_completion();
         match self.prompt.input_mut().press(chord) {
             TextChange::Changed => self.refresh(today),
             TextChange::Unchanged => {}
         }
     }
 
-    /// Inserts pasted text and recomputes the preview relative to `today`.
+    /// Inserts pasted text, ends completing and recomputes the preview relative to `today`.
     pub(super) fn paste(&mut self, text: &str, today: Date) {
+        self.end_completion();
         self.prompt.input_mut().insert_str(text);
         self.refresh(today);
+    }
+
+    /// Completes the word before the cursor to the first word of the prompt's grammar that
+    /// starts with it, or, while completing, to the next one and after the last one back to
+    /// the typed word. The hint lists the candidates and the preview follows the text,
+    /// relative to `today`. Without a matching word nothing changes.
+    pub(super) fn complete(&mut self, today: Date) {
+        if self.completion.is_none() {
+            let input = self.prompt.input();
+            let Some(completion) = self.kind.completion(input.value(), input.cursor()) else {
+                return;
+            };
+            self.prompt.set_hint(completion.candidates().join(", "));
+            self.completion = Some(completion);
+        }
+        let Some(completion) = &mut self.completion else {
+            return;
+        };
+        let replaced = completion.cycle();
+        self.prompt
+            .input_mut()
+            .replace_range(replaced, completion.word());
+        self.refresh(today);
+    }
+
+    /// Stops completing and shows the hint of the prompt again.
+    fn end_completion(&mut self) {
+        if self.completion.take().is_some() {
+            self.prompt.set_hint(self.kind.hint());
+        }
     }
 
     /// Shows the preview of the current text relative to `today`, or why it is invalid.
@@ -277,6 +328,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use jiff::civil::date;
     use rstest::rstest;
     use tempfile::TempDir;
@@ -440,6 +493,96 @@ mod tests {
         let system_under_test = prompt_of(&app).prompt().error();
 
         assert_eq!(system_under_test, Some("the name is empty"));
+    }
+
+    /// Opens the prompt that `action` opens on the only task of a list, types `text` and
+    /// presses `tab` `completions` times; today is Saturday, March 14 2026.
+    fn completed_prompt(action: Action, text: &str, completions: usize) -> (TempDir, App) {
+        let directory = TempDir::new().unwrap();
+        fs::write(directory.path().join("Due.md"), "- [ ] Pay rent\n").unwrap();
+        let mut app = app_in(directory.path());
+        let _effects = app.update(action);
+        let _effects = app.handle_paste(text);
+        for _ in 0..completions {
+            let _effects = app.update(Action::Complete);
+        }
+        (directory, app)
+    }
+
+    #[rstest]
+    #[case::due_date_unique(Action::SetDueDate, "fr", 1, "friday")]
+    #[case::due_date_cycles(Action::SetDueDate, "t", 3, "tuesday")]
+    #[case::due_date_back_to_the_typed_word(Action::SetDueDate, "T", 5, "T")]
+    #[case::due_date_no_match(Action::SetDueDate, "+3", 1, "+3")]
+    #[case::recurrence_every(Action::SetRecurrence, "ev", 1, "every")]
+    #[case::recurrence_unit(Action::SetRecurrence, "every w", 1, "every week")]
+    #[case::recurrence_plural_unit(Action::SetRecurrence, "every 2 m", 1, "every 2 months")]
+    #[case::recurrence_nothing_after_a_rule(Action::SetRecurrence, "every day d", 1, "every day d")]
+    #[case::name_has_no_vocabulary(Action::NewList, "to", 1, "to")]
+    fn complete_replaces_the_word_from_the_grammar_of_the_prompt(
+        #[case] action: Action,
+        #[case] text: &str,
+        #[case] completions: usize,
+        #[case] expected: &str,
+    ) {
+        let (_directory, app) = completed_prompt(action, text, completions);
+
+        let system_under_test = prompt_of(&app).prompt().input().value();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn completing_lists_the_candidates_and_previews_the_current_one() {
+        let mut expected = Prompt::new("Due date", TextInput::with_value("tomorrow"))
+            .with_hint("today, tomorrow, tuesday, thursday");
+        expected.set_preview(Some(Cow::Borrowed("Sun 2026-03-15, tomorrow")));
+        let (_directory, app) = completed_prompt(Action::SetDueDate, "t", 2);
+
+        let system_under_test = prompt_of(&app).prompt();
+
+        assert_eq!(system_under_test, &expected);
+    }
+
+    #[test]
+    fn no_match_keeps_the_hint_and_the_error() {
+        let mut expected =
+            Prompt::new("Due date", TextInput::with_value("x")).with_hint(DUE_DATE_HINT);
+        expected.set_error(Some(Cow::Borrowed("unknown date expression `x`")));
+        let (_directory, app) = completed_prompt(Action::SetDueDate, "x", 1);
+
+        let system_under_test = prompt_of(&app).prompt();
+
+        assert_eq!(system_under_test, &expected);
+    }
+
+    #[test]
+    fn typing_ends_completing_and_shows_the_hint_again() {
+        let mut expected =
+            Prompt::new("Due date", TextInput::with_value("friday ")).with_hint(DUE_DATE_HINT);
+        expected.set_preview(Some(Cow::Borrowed("Fri 2026-03-20, in 6d")));
+        let (_directory, mut app) = completed_prompt(Action::SetDueDate, "fr", 1);
+        let _effects = app.handle_key("space".parse().unwrap());
+
+        let system_under_test = prompt_of(&app).prompt();
+
+        assert_eq!(system_under_test, &expected);
+    }
+
+    #[rstest]
+    #[case::inside_the_word("left", "fridayy")]
+    #[case::at_the_start("home", "todayfriday")]
+    fn completing_after_moving_the_cursor_starts_again_at_the_cursor(
+        #[case] key: &str,
+        #[case] expected: &str,
+    ) {
+        let (_directory, mut app) = completed_prompt(Action::SetDueDate, "fr", 1);
+        let _effects = app.handle_key(key.parse().unwrap());
+        let _effects = app.update(Action::Complete);
+
+        let system_under_test = prompt_of(&app).prompt().input().value();
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[test]

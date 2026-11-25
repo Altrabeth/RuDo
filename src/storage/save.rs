@@ -149,7 +149,10 @@ fn replace_atomically(target: &Path, content: &[u8], permissions: Permissions) -
     temporary.as_file().sync_all()?;
     temporary.as_file().set_permissions(permissions)?;
     temporary.persist(target).map_err(|error| error.error)?;
-    sync_directory(directory)
+    // Windows cannot open a directory for flushing; its rename is durable once it returns.
+    #[cfg(unix)]
+    sync_directory(directory)?;
+    Ok(())
 }
 
 /// Flushes the directory entry written by a rename, so that it survives a crash.
@@ -158,16 +161,11 @@ fn sync_directory(directory: &Path) -> io::Result<()> {
     File::open(directory)?.sync_all()
 }
 
-/// Windows cannot open a directory for flushing; its rename is durable once it returns.
-#[cfg(not(unix))]
-fn sync_directory(_directory: &Path) -> io::Result<()> {
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
 
+    #[cfg(unix)]
     use rstest::rstest;
     use tempfile::TempDir;
 

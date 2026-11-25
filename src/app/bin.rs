@@ -361,6 +361,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    #[cfg(unix)]
     use crate::app::status::Severity;
     use crate::config::IndentStyle;
     use crate::storage::bin::{BinPath, empty_bin};

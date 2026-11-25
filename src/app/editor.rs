@@ -57,6 +57,11 @@ const fn fallback_editor(platform: Platform) -> &'static str {
     }
 }
 
+/// Editors that take the line as `+N file`.
+const PLUS_ARGUMENT_EDITORS: [&str; 6] = ["vi", "vim", "nvim", "nano", "emacs", "kak"];
+/// Editors that take the line as `file:N`.
+const FILE_SUFFIX_EDITORS: [&str; 2] = ["hx", "micro"];
+
 /// How an editor is told the line to open a file at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LineSyntax {
@@ -69,18 +74,45 @@ enum LineSyntax {
 }
 
 impl LineSyntax {
-    /// Returns the line syntax of the editor `program`, recognised by its file name, so that
-    /// `/usr/bin/nvim` is treated like `nvim`.
+    /// Returns the line syntax of the editor `program`, recognised by its name, so that
+    /// `/usr/bin/nvim` and `C:/Neovim/bin/nvim.exe` are treated like `nvim`.
+    ///
+    /// Names are compared ignoring ASCII case, as Windows does for file names.
     fn of(program: &str) -> Self {
-        let name = Path::new(program)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(program);
-        match name {
-            "vi" | "vim" | "nvim" | "nano" | "emacs" | "kak" => Self::PlusArgument,
-            "hx" | "micro" => Self::FileSuffix,
-            _ => Self::Unknown,
+        let name = program_name(program);
+        let is_one_of = |editors: &[&str]| {
+            editors
+                .iter()
+                .any(|editor| editor.eq_ignore_ascii_case(name))
+        };
+        if is_one_of(&PLUS_ARGUMENT_EDITORS) {
+            Self::PlusArgument
+        } else if is_one_of(&FILE_SUFFIX_EDITORS) {
+            Self::FileSuffix
+        } else {
+            Self::Unknown
         }
+    }
+}
+
+/// The extension of programs on Windows, left out when an editor is recognised by its name.
+const EXE_EXTENSION: &str = ".exe";
+
+/// Returns the name of `program` without its folder and without a Windows `.exe` extension
+/// (in any case), so that `/usr/bin/nvim` and `C:\Neovim\bin\nvim.exe` are both `nvim`.
+///
+/// Both separators count on every system: the command comes from the configuration or an
+/// environment variable, which may have been written for another system.
+fn program_name(program: &str) -> &str {
+    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    let split = name.len().saturating_sub(EXE_EXTENSION.len());
+    match (name.get(..split), name.get(split..)) {
+        (Some(stem), Some(extension))
+            if !stem.is_empty() && extension.eq_ignore_ascii_case(EXE_EXTENSION) =>
+        {
+            stem
+        }
+        _ => name,
     }
 }
 
@@ -306,6 +338,8 @@ mod tests {
     )]
     #[case::program_name_only_by_basename("vimlike", Some(2), "vimlike", &["/todo/plan.md"])]
     #[case::notepad("notepad", Some(7), "notepad", &["/todo/plan.md"])]
+    #[case::windows_exe("C:/Neovim/bin/nvim.exe", Some(7), "C:/Neovim/bin/nvim.exe", &["+7", "/todo/plan.md"])]
+    #[case::exe_in_upper_case("HX.EXE", Some(7), "HX.EXE", &["/todo/plan.md:7"])]
     fn command_opens_the_file_at_the_line(
         #[case] command_line: &str,
         #[case] line: Option<usize>,
@@ -319,6 +353,24 @@ mod tests {
 
         assert_eq!(system_under_test.program(), expected_program);
         assert_eq!(system_under_test.arguments(), expected_arguments);
+    }
+
+    #[rstest]
+    #[case::plain("nvim", "nvim")]
+    #[case::unix_path("/usr/bin/nvim", "nvim")]
+    #[case::windows_path(r"C:\Neovim\bin\nvim.exe", "nvim")]
+    #[case::mixed_separators(r"C:/Tools\hx.exe", "hx")]
+    #[case::upper_case_extension("NANO.EXE", "NANO")]
+    #[case::only_the_extension(".exe", ".exe")]
+    #[case::extension_not_at_the_end("vim.exe.bak", "vim.exe.bak")]
+    #[case::multibyte_name("éditeur.exe", "éditeur")]
+    fn program_name_drops_the_folder_and_the_exe_extension(
+        #[case] program: &str,
+        #[case] expected: &str,
+    ) {
+        let system_under_test = program_name(program);
+
+        assert_eq!(system_under_test, expected);
     }
 
     #[rstest]

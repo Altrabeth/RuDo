@@ -2,9 +2,13 @@
 # Distributed under the terms of the GNU General Public License v2
 
 # Ebuild for Gentoo GURU. `just packaging-update <version>` renames it after a release and
-# rewrites CRATES and RUST_MIN_VER; docs/PACKAGING.md explains the recipe.
+# rewrites MY_PV, CRATES and RUST_MIN_VER; docs/PACKAGING.md explains the recipe.
 
 EAPI=8
+
+# The release version, and PV its Gentoo form (1.0.0-rc.1 is 1.0.0_rc1)
+MY_PV="1.0.0"
+MY_P="${PN}-${MY_PV}"
 
 CRATES="
 	aho-corasick@1.1.5
@@ -190,9 +194,10 @@ inherit cargo
 DESCRIPTION="A keyboard-driven terminal UI for todo lists stored as Markdown files"
 HOMEPAGE="https://github.com/Altrabeth/RuDo"
 SRC_URI="
-	https://github.com/Altrabeth/RuDo/releases/download/v${PV}/source.tar.gz -> ${P}.tar.gz
+	https://github.com/Altrabeth/RuDo/releases/download/v${MY_PV}/source.tar.gz -> ${MY_P}.tar.gz
 	${CARGO_CRATE_URIS}
 "
+S="${WORKDIR}/${MY_P}"
 
 LICENSE="GPL-3+"
 # Dependent crate licenses

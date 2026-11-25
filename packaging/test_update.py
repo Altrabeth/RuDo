@@ -1,6 +1,9 @@
 """Tests of packaging/update.py. Run with `just test-packaging`."""
 
+import contextlib
+import dataclasses
 import datetime
+import io
 import shutil
 import tempfile
 import unittest
@@ -16,6 +19,7 @@ RELEASE = update.Release(
     crates=["anyhow@1.0.105", "clap@4.6.9"],
     date=datetime.date(2027, 3, 4),
 )
+PRE_RELEASE = dataclasses.replace(RELEASE, version="1.2.3-rc.1")
 
 
 class SetFieldTest(unittest.TestCase):
@@ -95,12 +99,116 @@ class MinimumRustVersionTest(unittest.TestCase):
         self.assertEqual(system_under_test, expected)
 
 
+class PackageVersionTest(unittest.TestCase):
+    def test_keeps_a_release_version_in_every_format(self):
+        version = "1.2.3"
+
+        system_under_test = {
+            package_format: update.package_version(version, package_format)
+            for package_format in update.PackageFormat
+        }
+
+        self.assertEqual(system_under_test, dict.fromkeys(update.PackageFormat, version))
+
+    def test_maps_a_pre_release_to_the_syntax_of_each_format(self):
+        version = "1.0.0-rc.1"
+        expected = {
+            update.PackageFormat.DEBIAN: "1.0.0~rc.1",
+            update.PackageFormat.RPM: "1.0.0~rc.1",
+            update.PackageFormat.ARCH: "1.0.0rc1",
+            update.PackageFormat.GENTOO: "1.0.0_rc1",
+        }
+
+        system_under_test = {
+            package_format: update.package_version(version, package_format)
+            for package_format in update.PackageFormat
+        }
+
+        self.assertEqual(system_under_test, expected)
+
+    def test_maps_hyphens_inside_the_pre_release_to_dots(self):
+        version = "1.0.0-beta-2.x-y"
+        expected = {
+            update.PackageFormat.DEBIAN: "1.0.0~beta.2.x.y",
+            update.PackageFormat.RPM: "1.0.0~beta.2.x.y",
+            update.PackageFormat.ARCH: "1.0.0beta2.x.y",
+        }
+
+        system_under_test = {
+            package_format: update.package_version(version, package_format)
+            for package_format in expected
+        }
+
+        self.assertEqual(system_under_test, expected)
+
+    def test_maps_a_pre_release_without_number_for_gentoo(self):
+        version = "2.0.0-alpha"
+        expected = "2.0.0_alpha"
+
+        system_under_test = update.package_version(version, update.PackageFormat.GENTOO)
+
+        self.assertEqual(system_under_test, expected)
+
+    def test_rejects_a_pre_release_without_a_gentoo_suffix(self):
+        version = "1.0.0-nightly.1"
+
+        system_under_test = lambda: update.package_version(version, update.PackageFormat.GENTOO)
+
+        self.assertRaisesRegex(update.UpdateError, "gentoo", system_under_test)
+
+    def test_rejects_a_numeric_pre_release_for_arch(self):
+        version = "1.0.0-1"
+
+        system_under_test = lambda: update.package_version(version, update.PackageFormat.ARCH)
+
+        self.assertRaisesRegex(update.UpdateError, "arch", system_under_test)
+
+    def test_rejects_text_that_is_not_a_version(self):
+        version = "1.0"
+
+        system_under_test = lambda: update.package_version(version, update.PackageFormat.RPM)
+
+        self.assertRaisesRegex(update.UpdateError, "not a version", system_under_test)
+
+
+class MainTest(unittest.TestCase):
+    def test_prints_the_package_version_of_a_format(self):
+        arguments = ["package-version", "rpm", "1.0.0-rc.1"]
+        expected = (0, "1.0.0~rc.1\n")
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output):
+            system_under_test = update.main(arguments)
+
+        self.assertEqual((system_under_test, output.getvalue()), expected)
+
+    def test_rejects_an_unknown_package_format(self):
+        arguments = ["package-version", "msi", "1.0.0"]
+        expected = (1, "error: unknown package format 'msi'\n")
+        error = io.StringIO()
+
+        with contextlib.redirect_stderr(error):
+            system_under_test = update.main(arguments)
+
+        self.assertEqual((system_under_test, error.getvalue()), expected)
+
+
 class UpdatePkgbuildTest(unittest.TestCase):
     def test_sets_version_release_and_checksum(self):
-        text = "pkgver=1.0.0\npkgrel=3\nsha256sums=('" + "0" * 64 + "')\n"
-        expected = "pkgver=1.2.3\npkgrel=1\nsha256sums=('" + "a" * 64 + "')\n"
+        text = "_pkgver=1.0.0\npkgver=1.0.0\npkgrel=3\nsha256sums=('" + "0" * 64 + "')\n"
+        expected = "_pkgver=1.2.3\npkgver=1.2.3\npkgrel=1\nsha256sums=('" + "a" * 64 + "')\n"
 
         system_under_test = update.update_pkgbuild(text, RELEASE)
+
+        self.assertEqual(system_under_test, expected)
+
+    def test_sets_the_arch_version_of_a_pre_release_next_to_the_release_version(self):
+        text = "_pkgver=1.0.0\npkgver=1.0.0\npkgrel=3\nsha256sums=('" + "0" * 64 + "')\n"
+        expected = (
+            "_pkgver=1.2.3-rc.1\npkgver=1.2.3rc1\npkgrel=1\nsha256sums=('" + "a" * 64 + "')\n"
+        )
+
+        system_under_test = update.update_pkgbuild(text, PRE_RELEASE)
 
         self.assertEqual(system_under_test, expected)
 
@@ -123,16 +231,36 @@ class UpdateSrcinfoTest(unittest.TestCase):
 
         self.assertEqual(system_under_test, expected)
 
+    def test_keeps_the_release_version_in_the_source_of_a_pre_release(self):
+        text = (
+            "pkgbase = rudo-tui\n\tpkgver = 1.0.0\n\tpkgrel = 2\n"
+            "\tsource = rudo-tui-1.0.0.tar.gz::https://example.invalid/source.tar.gz\n"
+            "\tsha256sums = SKIP\n"
+        )
+        expected = (
+            "pkgbase = rudo-tui\n\tpkgver = 1.2.3rc1\n\tpkgrel = 1\n"
+            "\tsource = rudo-tui-1.2.3-rc.1.tar.gz::"
+            "https://github.com/Altrabeth/RuDo/releases/download/v1.2.3-rc.1/source.tar.gz\n"
+            f"\tsha256sums = {'a' * 64}\n"
+        )
+
+        system_under_test = update.update_srcinfo(text, PRE_RELEASE)
+
+        self.assertEqual(system_under_test, expected)
+
+
+SPEC = (
+    "%global upstream_version 1.0.0\nVersion:        1.0.0\nRelease:        4%{?dist}\n"
+    "BuildRequires:  cargo >= 1.100\nBuildRequires:  rust >= 1.100\n"
+    "%changelog\n* Wed Nov 25 2026 A Packager <a@example.org> - 1.0.0-1\n- First\n"
+)
+
 
 class UpdateRpmSpecTest(unittest.TestCase):
     def test_sets_version_and_rust_and_adds_a_changelog_entry_by_the_last_author(self):
-        text = (
-            "Version:        1.0.0\nRelease:        4%{?dist}\n"
-            "BuildRequires:  cargo >= 1.100\nBuildRequires:  rust >= 1.100\n"
-            "%changelog\n* Wed Nov 25 2026 A Packager <a@example.org> - 1.0.0-1\n- First\n"
-        )
+        text = SPEC
         expected = (
-            "Version:        1.2.3\nRelease:        1%{?dist}\n"
+            "%global upstream_version 1.2.3\nVersion:        1.2.3\nRelease:        1%{?dist}\n"
             "BuildRequires:  cargo >= 1.101\nBuildRequires:  rust >= 1.101\n"
             "%changelog\n* Thu Mar 04 2027 A Packager <a@example.org> - 1.2.3-1\n"
             "- Update to 1.2.3\n\n"
@@ -143,10 +271,25 @@ class UpdateRpmSpecTest(unittest.TestCase):
 
         self.assertEqual(system_under_test, expected)
 
+    def test_sets_the_rpm_version_of_a_pre_release_next_to_the_release_version(self):
+        text = SPEC
+        expected = (
+            "%global upstream_version 1.2.3-rc.1\nVersion:        1.2.3~rc.1\n"
+            "Release:        1%{?dist}\n"
+            "BuildRequires:  cargo >= 1.101\nBuildRequires:  rust >= 1.101\n"
+            "%changelog\n* Thu Mar 04 2027 A Packager <a@example.org> - 1.2.3~rc.1-1\n"
+            "- Update to 1.2.3-rc.1\n\n"
+            "* Wed Nov 25 2026 A Packager <a@example.org> - 1.0.0-1\n- First\n"
+        )
+
+        system_under_test = update.update_rpm_spec(text, PRE_RELEASE)
+
+        self.assertEqual(system_under_test, expected)
+
     def test_rejects_a_spec_without_changelog_entry(self):
         text = (
-            "Version: 1.0.0\nRelease: 1\nBuildRequires: cargo >= 1.100\n"
-            "BuildRequires: rust >= 1.100\n%changelog\n"
+            "%global upstream_version 1.0.0\nVersion: 1.0.0\nRelease: 1\n"
+            "BuildRequires: cargo >= 1.100\nBuildRequires: rust >= 1.100\n%changelog\n"
         )
 
         system_under_test = lambda: update.update_rpm_spec(text, RELEASE)
@@ -155,18 +298,21 @@ class UpdateRpmSpecTest(unittest.TestCase):
 
 
 class UpdateEbuildTest(unittest.TestCase):
-    def test_replaces_the_crate_list_and_the_minimum_rust(self):
-        text = 'CRATES="\n\told@0.1.0\n"\nRUST_MIN_VER="1.100.0"\ninherit cargo\n'
+    def test_replaces_the_release_version_the_crate_list_and_the_minimum_rust(self):
+        text = (
+            'MY_PV="1.0.0"\nCRATES="\n\told@0.1.0\n"\nRUST_MIN_VER="1.100.0"\ninherit cargo\n'
+        )
         expected = (
-            'CRATES="\n\tanyhow@1.0.105\n\tclap@4.6.9\n"\nRUST_MIN_VER="1.101.0"\ninherit cargo\n'
+            'MY_PV="1.2.3-rc.1"\nCRATES="\n\tanyhow@1.0.105\n\tclap@4.6.9\n"\n'
+            'RUST_MIN_VER="1.101.0"\ninherit cargo\n'
         )
 
-        system_under_test = update.update_ebuild(text, RELEASE)
+        system_under_test = update.update_ebuild(text, PRE_RELEASE)
 
         self.assertEqual(system_under_test, expected)
 
     def test_rejects_an_ebuild_without_crate_list(self):
-        text = 'RUST_MIN_VER="1.100.0"\ninherit cargo\n'
+        text = 'MY_PV="1.0.0"\nRUST_MIN_VER="1.100.0"\ninherit cargo\n'
 
         system_under_test = lambda: update.update_ebuild(text, RELEASE)
 
@@ -271,6 +417,29 @@ class ApplyReleaseTest(unittest.TestCase):
         for path, line in expected_lines.items():
             self.assertIn(line, system_under_test[path], path)
         self.assertEqual(len(list(ebuild.parent.glob("*.ebuild"))), 1)
+
+    def test_writes_the_package_versions_of_a_pre_release_and_its_tag_in_the_links(self):
+        ebuild = self.root / update.EBUILD_DIRECTORY / "rudo-tui-1.2.3_rc1.ebuild"
+        expected_lines = {
+            self.root / update.PKGBUILD: ["_pkgver=1.2.3-rc.1", "pkgver=1.2.3rc1"],
+            self.root / update.SRCINFO: ["\tpkgver = 1.2.3rc1"],
+            self.root / update.RPM_SPEC: [
+                "%global upstream_version 1.2.3-rc.1",
+                "Version:        1.2.3~rc.1",
+            ],
+            ebuild: ['MY_PV="1.2.3-rc.1"'],
+            self.root / update.WINGET_DIRECTORY / "Altrabeth.RuDo.yaml": [
+                "PackageVersion: 1.2.3-rc.1"
+            ],
+            self.root / update.NUSPEC: ["    <version>1.2.3-rc.1</version>"],
+        }
+
+        update.apply_release(self.root, PRE_RELEASE)
+        system_under_test = {path: path.read_text().splitlines() for path in expected_lines}
+
+        for path, lines in expected_lines.items():
+            for line in lines:
+                self.assertIn(line, system_under_test[path], path)
 
 
 class ReadReleaseTest(unittest.TestCase):

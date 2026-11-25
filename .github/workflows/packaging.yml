@@ -2,7 +2,8 @@ name: Packaging
 
 # Builds the recipes of packaging/ that can be built before a release: the PKGBUILD from a
 # source archive of the commit, the .deb and .rpm of Cargo.toml, and the Nix flake, and installs
-# the packages in containers of their distributions. docs/PACKAGING.md describes the recipes.
+# the packages in containers of their distributions, and checks that the package versions of
+# pre-releases sort before their release. docs/PACKAGING.md describes the recipes.
 on:
   push:
   pull_request:
@@ -21,8 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     steps:
-      # git first, so that the checkout is a repository that `git archive` can pack.
-      - run: pacman -Syu --noconfirm --needed git just namcap
+      # git first, so that the checkout is a repository that `git archive` can pack; Python maps
+      # the version to pkgver.
+      - run: pacman -Syu --noconfirm --needed git just namcap python
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,6 +77,21 @@ jobs:
 
       # Debian, Fedora and openSUSE Tumbleweed of the runner's architecture
       - run: just package-smoke target/distrib
+
+  version-order:
+    name: pre-release versions sort before the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just
+
+      # dpkg, rpm and vercmp in containers of Debian, Fedora and Arch Linux
+      - run: just package-version-order
 
   nix:
     name: nix flake check and nix build

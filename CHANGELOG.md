@@ -44,7 +44,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`sudo apt install ./rudo-tui_<version>-1_amd64.deb`,
   `sudo dnf install ./rudo-tui-<version>-1.x86_64.rpm`), and an Arch package built from the
   PKGBUILD (`sudo pacman -U ./rudo-tui-<version>-1-x86_64.pkg.tar.zst`), each with its SHA-256
-  checksum. CI installs every package in a Debian, Fedora, openSUSE or Arch container.
+  checksum. CI installs every package in a Debian, Fedora, openSUSE or Arch container. A
+  pre-release such as `1.0.0-rc.1` becomes `1.0.0~rc.1` in the `.deb` and `.rpm` and `1.0.0rc1`
+  in the Arch package, so that it sorts before its release.
 - **Fuzzy folder picker.** Moving lists and folders (`m`) and restoring entries of the bin
   whose original folder is unknown (`R`) ask for the folder with a picker like fzf instead of
   a text prompt: the matching folders are listed while you type, the best match first with

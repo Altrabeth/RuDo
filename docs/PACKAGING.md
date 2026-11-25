@@ -35,6 +35,35 @@ Homebrew formula and the `.deb`, `.rpm` and Arch packages that CI builds, is des
 - The Windows packages download `rudo-tui-x86_64-pc-windows-msvc.zip`, which holds `rudo.exe`
   without a folder; dist links the C runtime statically, so they need no redistributable.
 
+## Versions of pre-releases
+
+A pre-release such as `1.0.0-rc.1` must sort before its release `1.0.0`, but the package formats
+reject the hyphen or read it as the separator of the package revision. So every package carries
+the version in the syntax of its format, which one function computes: `package_version` in
+`packaging/update.py`. `python3 packaging/update.py package-version FORMAT VERSION` prints it for
+the recipes of the justfile, and `just packaging-update` writes it into the recipes.
+
+| Format              | `1.0.0-rc.1` becomes | Where                                                  |
+| ------------------- | -------------------- | ------------------------------------------------------ |
+| Debian (`deb`)      | `1.0.0~rc.1`         | `cargo deb --deb-version` in `just linux-packages`     |
+| RPM (`rpm`)         | `1.0.0~rc.1`         | `cargo generate-rpm --set-metadata`, `Version` of spec |
+| Arch Linux (`arch`) | `1.0.0rc1`           | `pkgver` of the PKGBUILD and `.SRCINFO`                |
+| Gentoo (`gentoo`)   | `1.0.0_rc1`          | the name of the ebuild                                 |
+
+A `~` sorts before anything in Debian and RPM; an alphabetic part after the release sorts before
+it in `vercmp`; Gentoo has the suffixes `_alpha`, `_beta`, `_pre` and `_rc`. Further hyphens of
+the pre-release become dots. A release version is the same in every format. The script refuses a
+pre-release that Arch cannot sort (one that starts with a digit) or Gentoo cannot express (one
+other than `alpha`, `beta`, `pre` or `rc` with an optional number).
+
+Download links, archive names and the folder in the source archive keep the version of the tag:
+the PKGBUILD holds it in `_pkgver`, the spec in `%{upstream_version}`, the ebuild in `MY_PV`.
+winget and Chocolatey (2.0 and newer) accept SemVer versions, so their manifests carry the
+version unchanged. `just package-version-order` maps a list of ascending versions and checks in
+Debian, Fedora and Arch containers that `dpkg --compare-versions`, `rpm.vercmp` and `vercmp`
+keep their order; the `version-order` job of `.github/workflows/packaging.yml` runs it on every
+push.
+
 ## After a release
 
 When the release workflow has published `vX.Y.Z`, in a checkout whose `Cargo.toml` and
@@ -49,7 +78,8 @@ git diff
 archive from the release and sets the version, the checksums and the release links in the
 PKGBUILD, `.SRCINFO`, the RPM spec, the winget manifests and the Chocolatey package. It adds a
 changelog entry to the spec under the name of the last one, renames the ebuild to the new
-version and writes its `CRATES` from `Cargo.lock`, and copies `rust-version` into the spec and
+version (in its Gentoo form) and writes its `CRATES` from `Cargo.lock`, and copies
+`rust-version` into the spec and
 the ebuild. `flake.nix` reads the version from `Cargo.toml` and needs nothing. The script stops
 without changing anything if `Cargo.toml` of the checkout has another version. Commit the
 result (`chore(packaging): update the recipes to X.Y.Z`), merge it into `main` like any change,
@@ -78,7 +108,8 @@ cd packaging/aur/rudo-tui && makepkg -si
 
 `just packaging-aur` builds it from the current commit instead of a release: it packs the tree
 with `git archive` the way dist packs `source.tar.gz`, runs `makepkg --skipchecksums` on a copy
-in `target/packaging/aur/` whose `pkgver` is the version of `Cargo.toml`, checks that `.SRCINFO` matches `makepkg --printsrcinfo` and lints the
+in `target/packaging/aur/` whose `_pkgver` is the version of `Cargo.toml` and `pkgver` its
+Arch form, checks that `.SRCINFO` matches `makepkg --printsrcinfo` and lints the
 PKGBUILD and the package with `namcap` (the `-debug` package is left out, because namcap
 reports its build-id links into the main package). The `arch` job of
 `.github/workflows/packaging.yml` runs it in an `archlinux:base-devel` container on every push

@@ -64,10 +64,13 @@ write access to it.
    [`docs/PACKAGING.md`](PACKAGING.md).
 
 A version with a pre-release suffix (`v1.1.0-rc.1`) becomes a GitHub pre-release and does not
-update the Homebrew formula or push a Docker image. If a build job fails, nothing is published: fix the cause,
-delete the tag locally and on GitHub, and tag again. If only `publish-homebrew-formula`
-fails, the release exists; fix the token and re-run the failed job. The same holds for
-`custom-publish-docker`.
+update the Homebrew formula or push a Docker image. Its Linux packages carry the version in
+the syntax of their format, `1.1.0~rc.1` in the `.deb` and `.rpm` and `1.1.0rc1` in the Arch
+package, so that it sorts before `1.1.0` (see
+[`PACKAGING.md`](PACKAGING.md#versions-of-pre-releases)). If a build job fails, nothing is
+published: fix the cause, delete the tag locally and on GitHub, and tag again. If only
+`publish-homebrew-formula` fails, the release exists; fix the token and re-run the failed job.
+The same holds for `custom-publish-docker`.
 
 ## What runs automatically
 

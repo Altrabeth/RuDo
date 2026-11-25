@@ -6,11 +6,16 @@ release: the checksums come from the `.sha256` files of the release, the crate l
 ebuild and the minimum Rust version from `Cargo.lock` and `Cargo.toml` of the checkout.
 `flake.nix` reads the version from `Cargo.toml` itself and needs no update.
 
+With `package-version`, it prints the version of a package of FORMAT (deb, rpm, arch or
+gentoo) for VERSION instead, which the recipes of the justfile use for the packages they build.
+
 Usage: packaging/update.py VERSION   (or: just packaging-update VERSION)
+       packaging/update.py package-version FORMAT VERSION
 """
 
 import dataclasses
 import datetime
+import enum
 import re
 import sys
 import tomllib
@@ -23,6 +28,8 @@ SOURCE_ARCHIVE = "source.tar.gz"
 WINDOWS_ARCHIVE = "rudo-tui-x86_64-pc-windows-msvc.zip"
 VERSION_PATTERN = re.compile(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?")
 SHA256_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
+# Gentoo knows only these pre-release suffixes, each with an optional number
+GENTOO_PRE_RELEASE_PATTERN = re.compile(r"(alpha|beta|pre|rc)(?:\.?(\d+))?")
 
 PKGBUILD = Path("packaging/aur/rudo-tui/PKGBUILD")
 SRCINFO = Path("packaging/aur/rudo-tui/.SRCINFO")
@@ -35,6 +42,15 @@ CHOCOLATEY_INSTALL = Path("packaging/chocolatey/tools/chocolateyinstall.ps1")
 
 class UpdateError(Exception):
     """A recipe or a release does not look as this script expects."""
+
+
+class PackageFormat(enum.Enum):
+    """A package format without SemVer pre-releases, with its name on the command line."""
+
+    DEBIAN = "deb"
+    RPM = "rpm"
+    ARCH = "arch"
+    GENTOO = "gentoo"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -82,16 +98,49 @@ def minimum_rust_version(cargo_toml: str) -> str:
     return ".".join((rust_version.split(".") + ["0", "0"])[:3])
 
 
+def package_version(version: str, package_format: PackageFormat) -> str:
+    """Returns the version of a package of `package_format` for the Cargo `version`.
+
+    A release version is the same in every format. A pre-release (`1.0.0-rc.1`) must sort before
+    its release, but every format reads the hyphen differently or rejects it: Debian and RPM put
+    a `~`, which sorts before anything, in its place (`1.0.0~rc.1`); Arch appends the pre-release
+    without separator, as an alphabetic part after the release sorts before it (`1.0.0rc1`);
+    Gentoo has its own suffixes (`1.0.0_rc1`). Further hyphens become dots, the only separator all
+    of them accept.
+    """
+    if not VERSION_PATTERN.fullmatch(version):
+        raise UpdateError(f"not a version: {version!r}")
+    release, _, pre_release = version.partition("-")
+    if not pre_release:
+        return version
+    pre_release = pre_release.replace("-", ".")
+    match package_format:
+        case PackageFormat.DEBIAN | PackageFormat.RPM:
+            return f"{release}~{pre_release}"
+        case PackageFormat.ARCH:
+            if not pre_release[0].isalpha():
+                raise UpdateError(f"arch needs a pre-release starting with a letter: {version!r}")
+            return release + re.sub(r"(?<=[A-Za-z])\.(?=\d)", "", pre_release)
+        case PackageFormat.GENTOO:
+            suffix = GENTOO_PRE_RELEASE_PATTERN.fullmatch(pre_release)
+            if suffix is None:
+                raise UpdateError(f"gentoo knows only alpha, beta, pre and rc: {version!r}")
+            return f"{release}_{suffix.group(1)}{suffix.group(2) or ''}"
+
+
 def update_pkgbuild(text: str, release: Release) -> str:
-    """Sets the version, resets the release number and sets the source checksum."""
-    text = set_field(text, r"^(pkgver=).*$", release.version)
+    """Sets the version and its Arch form, resets the release number and sets the checksum."""
+    text = set_field(text, r"^(_pkgver=).*$", release.version)
+    text = set_field(text, r"^(pkgver=).*$", package_version(release.version, PackageFormat.ARCH))
     text = set_field(text, r"^(pkgrel=).*$", "1")
     return set_field(text, r"^(sha256sums=\(').*('\))$", release.source_sha256 + "')")
 
 
 def update_srcinfo(text: str, release: Release) -> str:
     """Updates `.SRCINFO` as `makepkg --printsrcinfo` would print the updated PKGBUILD."""
-    text = set_field(text, r"^(\tpkgver = ).*$", release.version)
+    text = set_field(
+        text, r"^(\tpkgver = ).*$", package_version(release.version, PackageFormat.ARCH)
+    )
     text = set_field(text, r"^(\tpkgrel = ).*$", "1")
     text = set_field(
         text,
@@ -105,7 +154,9 @@ def update_srcinfo(text: str, release: Release) -> str:
 def update_rpm_spec(text: str, release: Release) -> str:
     """Sets the version and the minimum Rust, and adds a changelog entry by the last author."""
     rust = ".".join(release.rust_version.split(".")[:2])
-    text = set_field(text, r"^(Version:\s+).*$", release.version)
+    rpm_version = package_version(release.version, PackageFormat.RPM)
+    text = set_field(text, r"^(%global upstream_version ).*$", release.version)
+    text = set_field(text, r"^(Version:\s+).*$", rpm_version)
     text = set_field(text, r"^(Release:\s+).*$", "1%{?dist}")
     text = set_field(text, r"^(BuildRequires:\s+cargo >= ).*$", rust)
     text = set_field(text, r"^(BuildRequires:\s+rust >= ).*$", rust)
@@ -113,15 +164,16 @@ def update_rpm_spec(text: str, release: Release) -> str:
     if last_entry is None:
         raise UpdateError("the spec has no %changelog entry to take the author from")
     entry = (
-        f"* {release.date:%a %b %d %Y} {last_entry.group(1)} - {release.version}-1\n"
+        f"* {release.date:%a %b %d %Y} {last_entry.group(1)} - {rpm_version}-1\n"
         f"- Update to {release.version}\n\n"
     )
     return text.replace("%changelog\n", "%changelog\n" + entry, 1)
 
 
 def update_ebuild(text: str, release: Release) -> str:
-    """Replaces the crate list and the minimum Rust version of the ebuild."""
+    """Sets the release version and replaces the crate list and the minimum Rust version."""
     crates = "".join(f"\t{crate}\n" for crate in release.crates)
+    text = set_field(text, r'^(MY_PV=").*$', release.version + '"')
     text = set_field(text, r'^(RUST_MIN_VER=").*$', release.rust_version + '"')
     return set_field(text, r'^(CRATES=")\n(?:\t.*\n)*(?=^"$)', "\n" + crates)
 
@@ -167,7 +219,8 @@ def apply_release(root: Path, release: Release) -> None:
     if len(ebuilds) != 1:
         raise UpdateError(f"expected one ebuild in {EBUILD_DIRECTORY}, found {len(ebuilds)}")
     rewrite(ebuilds[0], update_ebuild, release)
-    ebuilds[0].rename(ebuilds[0].with_name(f"rudo-tui-{release.version}.ebuild"))
+    gentoo_version = package_version(release.version, PackageFormat.GENTOO)
+    ebuilds[0].rename(ebuilds[0].with_name(f"rudo-tui-{gentoo_version}.ebuild"))
 
 
 def download_sha256(version: str, name: str) -> str:
@@ -195,12 +248,24 @@ def read_release(root: Path, version: str) -> Release:
     )
 
 
-def main(arguments: list[str]) -> int:
-    if len(arguments) != 1:
-        print(__doc__, file=sys.stderr)
-        return 2
+def parse_package_format(name: str) -> PackageFormat:
+    """Returns the package format called `name` on the command line."""
     try:
-        apply_release(REPOSITORY_ROOT, read_release(REPOSITORY_ROOT, arguments[0]))
+        return PackageFormat(name)
+    except ValueError:
+        raise UpdateError(f"unknown package format {name!r}") from None
+
+
+def main(arguments: list[str]) -> int:
+    try:
+        match arguments:
+            case ["package-version", package_format, version]:
+                print(package_version(version, parse_package_format(package_format)))
+            case [version]:
+                apply_release(REPOSITORY_ROOT, read_release(REPOSITORY_ROOT, version))
+            case _:
+                print(__doc__, file=sys.stderr)
+                return 2
     except (UpdateError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

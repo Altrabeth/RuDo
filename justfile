@@ -165,7 +165,9 @@ _makepkg:
     mkdir -p "$build"
     # The PKGBUILD names the last release until `just packaging-update`, a release the new one
     version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
-    sed "s/^pkgver=.*/pkgver=$version/" packaging/aur/rudo-tui/PKGBUILD > "$build/PKGBUILD"
+    pkgver="$(python3 packaging/update.py package-version arch "$version")"
+    sed -e "s/^_pkgver=.*/_pkgver=$version/" -e "s/^pkgver=.*/pkgver=$pkgver/" \
+        packaging/aur/rudo-tui/PKGBUILD > "$build/PKGBUILD"
     git archive --format=tar.gz --prefix="rudo-tui-$version/" HEAD > "$build/rudo-tui-$version.tar.gz"
     cd "$build"
     makepkg --force --cleanbuild --skipchecksums
@@ -179,9 +181,15 @@ linux-packages target="x86_64-unknown-linux-musl" out_dir="target/distrib":
     staging="target/linux-packages/$1"
     rm -rf "$staging"
     mkdir -p "$staging" "$2"
+    # Both formats read the hyphen of a pre-release differently; --deb-version includes the revision
+    version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+    deb_version="$(python3 packaging/update.py package-version deb "$version")-1"
+    rpm_version="$(python3 packaging/update.py package-version rpm "$version")"
     # The binary stays as dist built it for the archives; stripping would need a cross strip
-    cargo deb --no-build --no-strip --target "$1" --profile dist --output "$staging" > /dev/null
-    cargo generate-rpm --target "$1" --profile dist --output "$staging"
+    cargo deb --no-build --no-strip --target "$1" --profile dist --deb-version "$deb_version" \
+        --output "$staging" > /dev/null
+    cargo generate-rpm --target "$1" --profile dist --set-metadata "version = \"$rpm_version\"" \
+        --output "$staging"
     cd "$staging"
     for package in *; do
         sha256sum "$package" > "$package.sha256"
@@ -200,6 +208,12 @@ package-smoke out_dir="target/distrib":
         scripts/package-smoke.sh "$package" opensuse/tumbleweed
     done
     for package in "$1"/*.pkg.tar.zst; do scripts/package-smoke.sh "$package" archlinux:latest; done
+
+# Check in containers that dpkg, rpm and vercmp sort the package versions of pre-releases first
+package-version-order:
+    scripts/package-version-order.sh deb debian:stable
+    scripts/package-version-order.sh rpm fedora:latest
+    scripts/package-version-order.sh arch archlinux:latest
 
 # Set the version and checksums of every packaging recipe from a published GitHub release
 packaging-update version:

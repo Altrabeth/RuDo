@@ -1,9 +1,11 @@
 # Maintainer: Altrabeth <Altrabeth@users.noreply.github.com>
 #
 # Builds RuDo from the source archive of the GitHub release. `just packaging-update <version>`
-# sets pkgver and the checksum after a release; docs/PACKAGING.md explains the recipe.
+# sets the version and the checksum after a release; docs/PACKAGING.md explains the recipe.
 
 pkgname=rudo-tui
+# The release version, and pkgver its Arch form without hyphen (1.0.0-rc.1 is 1.0.0rc1)
+_pkgver=1.0.0
 pkgver=1.0.0
 pkgrel=1
 pkgdesc='A keyboard-driven terminal UI for todo lists stored as Markdown files'
@@ -14,17 +16,17 @@ depends=('glibc' 'libgcc')
 makedepends=('cargo')
 # The AUR packages `rudo` and `rudo-bin` are unrelated programs that install a `rudo` command too
 conflicts=('rudo' 'rudo-bin')
-source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/source.tar.gz")
+source=("$pkgname-$_pkgver.tar.gz::$url/releases/download/v$_pkgver/source.tar.gz")
 sha256sums=('0000000000000000000000000000000000000000000000000000000000000000')
 
 prepare() {
-    cd "$pkgname-$pkgver"
+    cd "$pkgname-$_pkgver"
     export RUSTUP_TOOLCHAIN=stable
     cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
 }
 
 build() {
-    cd "$pkgname-$pkgver"
+    cd "$pkgname-$_pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
     # Keeps the debug information of makepkg's RUSTFLAGS, which cargo strips by default
@@ -33,14 +35,14 @@ build() {
 }
 
 check() {
-    cd "$pkgname-$pkgver"
+    cd "$pkgname-$_pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
     cargo test --frozen
 }
 
 package() {
-    cd "$pkgname-$pkgver"
+    cd "$pkgname-$_pkgver"
     install -Dm0755 -t "$pkgdir/usr/bin/" target/release/rudo
     install -Dm0644 -t "$pkgdir/usr/share/doc/$pkgname/" README.md CHANGELOG.md
     install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE

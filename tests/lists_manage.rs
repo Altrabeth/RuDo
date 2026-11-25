@@ -207,13 +207,7 @@ fn rename_to_an_existing_name_becomes_an_error_message() {
         .press("r ctrl-u")
         .type_text("Groceries")
         .press("enter");
-    let file = test_app
-        .app()
-        .workspace()
-        .root()
-        .join("Home")
-        .join("Groceries.md");
-    let expected = StatusMessage::error(format!("{} already exists", file.display()));
+    let expected = StatusMessage::error("Home/Groceries.md already exists");
     let expected_key = list_key(&test_app, "Home/Chores.md");
 
     let system_under_test = test_app.app();

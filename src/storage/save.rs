@@ -6,9 +6,13 @@
 //! either the old or the new file, never a mix. The temporary file's name starts with `.tmp`,
 //! so the workspace scanner and the watcher ignore it as a hidden file.
 //!
-//! Windows refuses the rename for a moment while another program, such as a virus scanner or
-//! a search indexer, holds the list open without allowing it to be deleted; the rename is then
-//! retried a few times before the save fails.
+//! The rename is [`fs::rename`], which on Windows replaces a list that another program holds
+//! open as long as that program allows deleting it, as Rust, Node.js (and so Obsidian) and most
+//! editors do. Windows refuses the rename while a program holds the list open without allowing
+//! that, as virus scanners and search indexers do for a moment; the rename is then retried a
+//! few times. If it is still refused, the save fails with [`SaveError::Locked`] and the list
+//! keeps its content: writing into the open file instead would not be atomic, so a crash could
+//! leave half a list.
 
 use std::fs::{self, File, Permissions};
 use std::io::{self, Read, Write};
@@ -19,6 +23,7 @@ use std::time::Duration;
 use tempfile::NamedTempFile;
 
 use crate::markdown::document::TodoDocument;
+use crate::paths::{portable, strip_root};
 use crate::platform::Platform;
 use crate::storage::fingerprint::Fingerprint;
 
@@ -29,23 +34,26 @@ const RENAME_ATTEMPTS: usize = 5;
 const RENAME_RETRY_DELAY: Duration = Duration::from_millis(20);
 
 /// Errors that occur while saving a list file.
+///
+/// Their messages show the path with `/` between the components, as the interface shows paths;
+/// [`SaveError::relative_to`] makes it relative to the workspace root.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SaveError {
     /// The file was deleted since it was loaded.
-    #[error("list file {} no longer exists", path.display())]
+    #[error("list file {} no longer exists", portable(path))]
     Missing {
         /// File that was to be saved.
         path: PathBuf,
     },
     /// Another program changed the file since it was loaded; it was left untouched.
-    #[error("list file {} was modified by another program", path.display())]
+    #[error("list file {} was modified by another program", portable(path))]
     ModifiedExternally {
         /// File that was to be saved.
         path: PathBuf,
     },
     /// The current content of the file could not be read.
-    #[error("cannot read list file {}", path.display())]
+    #[error("cannot read list file {}", portable(path))]
     Read {
         /// File that could not be read.
         path: PathBuf,
@@ -54,7 +62,7 @@ pub enum SaveError {
         source: io::Error,
     },
     /// The new content could not be written.
-    #[error("cannot write list file {}", path.display())]
+    #[error("cannot write list file {}", portable(path))]
     Write {
         /// File that could not be written.
         path: PathBuf,
@@ -62,6 +70,63 @@ pub enum SaveError {
         #[source]
         source: io::Error,
     },
+    /// Another program holds the file open without allowing it to be replaced, which only
+    /// Windows refuses; the file was left untouched.
+    #[error(
+        "list file {} is open in another program that blocks replacing it",
+        portable(path)
+    )]
+    Locked {
+        /// File that could not be replaced.
+        path: PathBuf,
+        /// Underlying I/O error of the last refused rename.
+        #[source]
+        source: io::Error,
+    },
+}
+
+/// Why new content could not replace a list file.
+#[derive(Debug)]
+enum ReplaceError {
+    /// The temporary file could not be written or renamed.
+    Write(io::Error),
+    /// The rename was still refused after [`RENAME_ATTEMPTS`] attempts.
+    Locked(io::Error),
+}
+
+impl From<io::Error> for ReplaceError {
+    fn from(error: io::Error) -> Self {
+        Self::Write(error)
+    }
+}
+
+impl SaveError {
+    /// Returns the error with its path relative to the workspace `root`, so that the message
+    /// names the list as the lists pane does; a path outside the root, such as the target of a
+    /// symlink, is kept.
+    #[must_use]
+    pub fn relative_to(self, root: &Path) -> Self {
+        match self {
+            Self::Missing { path } => Self::Missing {
+                path: strip_root(path, root),
+            },
+            Self::ModifiedExternally { path } => Self::ModifiedExternally {
+                path: strip_root(path, root),
+            },
+            Self::Read { path, source } => Self::Read {
+                path: strip_root(path, root),
+                source,
+            },
+            Self::Write { path, source } => Self::Write {
+                path: strip_root(path, root),
+                source,
+            },
+            Self::Locked { path, source } => Self::Locked {
+                path: strip_root(path, root),
+                source,
+            },
+        }
+    }
 }
 
 /// Saves `document` to the list file at `path` unless another program changed the file.
@@ -82,8 +147,9 @@ pub enum SaveError {
 /// Returns [`SaveError::Missing`] if the file no longer exists and
 /// [`SaveError::ModifiedExternally`] if its content no longer matches `expected`; the disk is
 /// left untouched in both cases. Returns [`SaveError::Read`] if the current content cannot be
-/// read and [`SaveError::Write`] if the new content cannot be written, in which case the
-/// original file is unchanged and no temporary file remains.
+/// read, [`SaveError::Write`] if the new content cannot be written and [`SaveError::Locked`]
+/// if another program holds the file open without allowing it to be replaced; the original
+/// file is then unchanged and no temporary file remains.
 ///
 /// # Examples
 ///
@@ -117,10 +183,11 @@ pub fn save(
         });
     }
     let content = document.to_string();
-    replace_atomically(&target, content.as_bytes(), permissions).map_err(|source| {
-        SaveError::Write {
-            path: path.to_path_buf(),
-            source,
+    replace_atomically(&target, content.as_bytes(), permissions).map_err(|error| {
+        let path = path.to_path_buf();
+        match error {
+            ReplaceError::Write(source) => SaveError::Write { path, source },
+            ReplaceError::Locked(source) => SaveError::Locked { path, source },
         }
     })?;
     Ok(Fingerprint::of(content.as_bytes()))
@@ -153,7 +220,11 @@ fn read_with_permissions(path: &Path) -> io::Result<(Vec<u8>, Permissions)> {
 ///
 /// The temporary file must live next to `target` because a rename across file systems fails.
 /// It is deleted when it is dropped, so no temporary file remains after an error.
-fn replace_atomically(target: &Path, content: &[u8], permissions: Permissions) -> io::Result<()> {
+fn replace_atomically(
+    target: &Path,
+    content: &[u8],
+    permissions: Permissions,
+) -> Result<(), ReplaceError> {
     let directory = target
         .parent()
         .expect("a canonical path to a file always has a parent directory");
@@ -174,7 +245,7 @@ fn persist_keeping_permissions(
     temporary: NamedTempFile,
     target: &Path,
     permissions: Permissions,
-) -> io::Result<()> {
+) -> Result<(), ReplaceError> {
     temporary.as_file().set_permissions(permissions)?;
     persist_with_retries(temporary, target, |error| {
         is_transient_rename_error(Platform::current(), error)
@@ -184,15 +255,23 @@ fn persist_keeping_permissions(
 /// Renames `temporary` over `target` and gives it `permissions`, which on Windows are the
 /// file attributes.
 ///
-/// Windows refuses to rename over a read-only file, and the rename resets the attributes of
-/// the temporary file, so a read-only target loses the attribute for the moment of the rename
-/// and gets it back afterwards, also when the rename fails.
+/// The temporary file gets the attributes of the target before the rename, which also drops
+/// the temporary attribute that it was created with. Windows refuses to rename over a
+/// read-only file, so a read-only target loses the attribute for the moment of the rename and
+/// gets it back afterwards, also when the rename fails.
 #[cfg(windows)]
 fn persist_keeping_permissions(
     temporary: NamedTempFile,
     target: &Path,
     permissions: Permissions,
-) -> io::Result<()> {
+) -> Result<(), ReplaceError> {
+    let mut writable = permissions.clone();
+    #[expect(
+        clippy::permissions_set_readonly_false,
+        reason = "on Windows this clears the read-only attribute and grants nothing to others"
+    )]
+    writable.set_readonly(false);
+    fs::set_permissions(temporary.path(), writable.clone())?;
     let persist = |temporary| {
         persist_with_retries(temporary, target, |error| {
             is_transient_rename_error(Platform::current(), error)
@@ -201,41 +280,43 @@ fn persist_keeping_permissions(
     if !permissions.readonly() {
         return persist(temporary);
     }
-    let mut writable = permissions.clone();
-    #[expect(
-        clippy::permissions_set_readonly_false,
-        reason = "on Windows this clears the read-only attribute and grants nothing to others"
-    )]
-    writable.set_readonly(false);
     fs::set_permissions(target, writable)?;
     let persisted = persist(temporary);
     let restored = fs::set_permissions(target, permissions);
-    persisted.and(restored)
+    persisted?;
+    Ok(restored?)
 }
 
 /// Renames `temporary` over `target`, trying again after [`RENAME_RETRY_DELAY`] while
 /// `is_transient` holds for the error, at most [`RENAME_ATTEMPTS`] times in all. The temporary
-/// file is deleted when the last attempt fails.
+/// file is deleted when the rename fails, with [`ReplaceError::Locked`] if every attempt was
+/// refused for a transient reason.
+///
+/// The rename is [`fs::rename`] rather than [`NamedTempFile::persist`]: on Windows only the
+/// former falls back to the POSIX semantics of the rename, which replace a target that another
+/// program holds open while allowing it to be deleted.
 fn persist_with_retries(
     mut temporary: NamedTempFile,
     target: &Path,
     is_transient: impl Fn(&io::Error) -> bool,
-) -> io::Result<()> {
-    for _ in 1..RENAME_ATTEMPTS {
-        match temporary.persist(target) {
-            Ok(_) => return Ok(()),
-            Err(error) if is_transient(&error.error) => {
-                tracing::debug!(error = %error.error, target = %target.display(), "rename refused, retrying");
-                temporary = error.file;
-                thread::sleep(RENAME_RETRY_DELAY);
-            }
-            Err(error) => return Err(error.error),
+) -> Result<(), ReplaceError> {
+    let mut attempt = 1;
+    loop {
+        let Err(error) = fs::rename(temporary.path(), target) else {
+            // The temporary file is the list now.
+            temporary.disable_cleanup(true);
+            return Ok(());
+        };
+        if !is_transient(&error) {
+            return Err(ReplaceError::Write(error));
         }
+        if attempt == RENAME_ATTEMPTS {
+            return Err(ReplaceError::Locked(error));
+        }
+        tracing::debug!(%error, target = %target.display(), "rename refused, retrying");
+        thread::sleep(RENAME_RETRY_DELAY);
+        attempt += 1;
     }
-    temporary
-        .persist(target)
-        .map(drop)
-        .map_err(|error| error.error)
 }
 
 /// Whether the rename over a list may succeed if it is tried again on `platform`.
@@ -375,6 +456,22 @@ mod tests {
     }
 
     #[test]
+    fn relative_to_names_the_list_inside_the_workspace_with_slashes() {
+        let root = TempDir::new().unwrap();
+        let path = root.path().join("Home").join("Inbox.md");
+        let error = SaveError::Locked {
+            path,
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        let expected =
+            "list file Home/Inbox.md is open in another program that blocks replacing it";
+
+        let system_under_test = error.relative_to(root.path());
+
+        assert_eq!(system_under_test.to_string(), expected);
+    }
+
+    #[test]
     fn save_leaves_no_temporary_file_after_success() {
         let (directory, path) = workspace_with_list(ORIGINAL);
         let document = TodoDocument::parse(EDITED);
@@ -445,8 +542,8 @@ mod tests {
             true
         });
 
-        assert!(system_under_test.is_err());
-        assert_eq!(attempts.get(), RENAME_ATTEMPTS - 1);
+        assert!(matches!(system_under_test, Err(ReplaceError::Locked(_))));
+        assert_eq!(attempts.get(), RENAME_ATTEMPTS);
         assert_eq!(entry_names(directory.path()), expected_entries);
     }
 
@@ -464,7 +561,7 @@ mod tests {
             false
         });
 
-        assert!(system_under_test.is_err());
+        assert!(matches!(system_under_test, Err(ReplaceError::Write(_))));
         assert_eq!(attempts.get(), 1);
     }
 
@@ -485,29 +582,29 @@ mod tests {
         assert!(fs::metadata(&path).unwrap().permissions().readonly());
     }
 
-    /// Opens `path` for reading as another program would, sharing it with readers and writers
-    /// and, if `share_delete`, with programs that delete or rename it.
+    /// Opens `path` for reading as a program that shares it with readers and writers but not
+    /// with programs that delete or rename it, as some virus scanners and older Windows
+    /// programs do.
     #[cfg(windows)]
-    fn open_elsewhere(path: &Path, share_delete: bool) -> File {
+    fn open_without_delete_sharing(path: &Path) -> File {
         use std::os::windows::fs::OpenOptionsExt;
 
         const FILE_SHARE_READ: u32 = 1;
         const FILE_SHARE_WRITE: u32 = 2;
-        const FILE_SHARE_DELETE: u32 = 4;
-        let delete = if share_delete { FILE_SHARE_DELETE } else { 0 };
         fs::OpenOptions::new()
             .read(true)
-            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | delete)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
             .open(path)
             .unwrap()
     }
 
-    /// Obsidian, like most programs, opens files with every sharing mode.
+    /// Rust and Node.js, and so Obsidian, open files sharing them with readers, writers and
+    /// programs that delete or rename them; `File::open` is such a handle.
     #[cfg(windows)]
     #[test]
     fn save_replaces_a_list_that_another_program_has_open_on_windows() {
         let (_directory, path) = workspace_with_list(ORIGINAL);
-        let _open = open_elsewhere(&path, true);
+        let _open = File::open(&path).unwrap();
         let document = TodoDocument::parse(EDITED);
         let expected = Fingerprint::of(ORIGINAL.as_bytes());
 
@@ -521,17 +618,16 @@ mod tests {
     #[test]
     fn save_reports_a_list_locked_against_renaming_on_windows() {
         let (directory, path) = workspace_with_list(ORIGINAL);
-        let open = open_elsewhere(&path, false);
+        let _open = open_without_delete_sharing(&path);
         let document = TodoDocument::parse(EDITED);
         let expected = Fingerprint::of(ORIGINAL.as_bytes());
         let expected_entries = vec![LIST_NAME.to_owned()];
 
         let system_under_test = save(&path, &document, expected);
 
-        drop(open);
         assert!(matches!(
             system_under_test,
-            Err(SaveError::Write { path: ref error_path, .. }) if *error_path == path
+            Err(SaveError::Locked { path: ref error_path, .. }) if *error_path == path
         ));
         assert_eq!(fs::read_to_string(&path).unwrap(), ORIGINAL);
         assert_eq!(entry_names(directory.path()), expected_entries);

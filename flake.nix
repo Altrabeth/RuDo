@@ -54,7 +54,9 @@
           default = rustPlatform.buildRustPackage {
             pname = cargoPackage.name;
             inherit (cargoPackage) version;
-            # Only what the build and the tests read, so that other changes keep the hash
+            # Only what the build and the tests read, so that other changes keep the hash. The
+            # tests read every Markdown document: docs/ through include_str!, and all of them
+            # to check that their links resolve.
             src = lib.fileset.toSource {
               root = ./.;
               fileset = lib.fileset.unions [
@@ -64,8 +66,8 @@
                 ./tests
                 ./assets
                 ./proptest-regressions
-                ./README.md
                 ./LICENSE
+                (lib.fileset.fileFilter (file: file.hasExt "md") ./.)
               ];
             };
             cargoLock.lockFile = ./Cargo.lock;

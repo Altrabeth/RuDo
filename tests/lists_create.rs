@@ -205,8 +205,7 @@ fn name_taken_in_the_meantime_becomes_an_error_message() {
     test_app.press("o").type_text("Groceries");
     test_app.write("Groceries.md", "- [ ] Buy milk\n");
     test_app.press("enter");
-    let file = test_app.app().workspace().root().join("Groceries.md");
-    let expected = StatusMessage::error(format!("{} already exists", file.display()));
+    let expected = StatusMessage::error("Groceries.md already exists");
 
     let system_under_test = test_app.app();
 

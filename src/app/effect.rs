@@ -140,7 +140,7 @@ fn save_list(app: &mut App, list: &ListPath) {
     match save(&path, loaded.document(), loaded.fingerprint()) {
         Ok(fingerprint) => app.saved(list, fingerprint),
         Err(SaveError::ModifiedExternally { .. }) => app.save_conflicted(list),
-        Err(error) => app.save_failed(&error),
+        Err(error) => app.save_failed(&error.relative_to(app.workspace().root())),
     }
 }
 
@@ -159,7 +159,7 @@ fn create_entry(app: &mut App, kind: EntryKind, parent: &Path, name: &EntryName)
                 app.record_entries(Some(EntryOperation::Trash(vec![created])));
             }
         }
-        Err(error) => app.entry_failed(&error),
+        Err(error) => app.entry_failed(&error.relative_to(app.workspace().root())),
     }
 }
 
@@ -173,7 +173,7 @@ fn rename_entry(app: &mut App, path: &Path, name: &EntryName) {
                 app.record_entries(Some(EntryOperation::Relocate(vec![back])));
             }
         }
-        Err(error) => app.entry_failed(&error),
+        Err(error) => app.entry_failed(&error.relative_to(app.workspace().root())),
     }
 }
 
@@ -206,7 +206,7 @@ fn move_entries(app: &mut App, entries: &[EntryKey], folder: &Path) {
                     moved_back.push(back);
                     None
                 }
-                Err(error) => Some(error),
+                Err(error) => Some(error.relative_to(app.workspace().root())),
             }
         })
         .collect();
@@ -235,7 +235,9 @@ fn restore_from_bin(app: &mut App, entries: Vec<TrashedEntry>) {
 fn delete_permanently(app: &mut App, locations: &[PathBuf]) {
     let (deleted, _, failures) = attempt(locations.iter().collect(), |location| {
         let workspace = app.workspace();
-        delete_from_bin(workspace.root(), workspace.bin(), location).map(|()| location.as_path())
+        delete_from_bin(workspace.root(), workspace.bin(), location)
+            .map(|()| location.as_path())
+            .map_err(|error| error.relative_to(workspace.root()))
     });
     app.deleted_from_bin(&deleted, &failures);
 }
@@ -296,7 +298,8 @@ fn trash_entries(app: &mut App, paths: Vec<PathBuf>) -> Performed {
     let active = app.lists().active().cloned();
     let (trashed, failed, failures) = attempt(paths, |path| {
         let workspace = app.workspace();
-        let trashed = move_to_bin(workspace.root(), workspace.bin(), path)?;
+        let trashed = move_to_bin(workspace.root(), workspace.bin(), path)
+            .map_err(|error| error.relative_to(workspace.root()))?;
         app.entry_trashed(trashed.clone());
         Ok(trashed)
     });
@@ -346,7 +349,8 @@ fn restore_each(
 ) -> (Vec<PathBuf>, Vec<TrashedEntry>, Vec<EntryError>) {
     let (restored, failed, failures) = attempt(entries, |entry| {
         let workspace = app.workspace();
-        restore(workspace.root(), workspace.bin(), entry)?;
+        restore(workspace.root(), workspace.bin(), entry)
+            .map_err(|error| error.relative_to(workspace.root()))?;
         app.workspace.remove_bin_entry(entry.location());
         Ok(entry.original().to_path_buf())
     });
@@ -361,7 +365,8 @@ fn restore_each(
 fn relocate_entries(app: &mut App, relocations: Vec<Relocation>) -> Performed {
     let (reversed, failed, failures) = attempt(relocations, |relocation| {
         let root = app.workspace().root();
-        move_to(&root.join(relocation.from()), &root.join(relocation.to()))?;
+        move_to(&root.join(relocation.from()), &root.join(relocation.to()))
+            .map_err(|error| error.relative_to(root))?;
         app.entry_relocated_to(relocation.from(), relocation.to());
         Ok(relocation.reversed())
     });
@@ -833,15 +838,14 @@ mod tests {
     }
 
     #[test]
-    fn failed_save_becomes_an_error_message() {
+    fn failed_save_becomes_an_error_message_naming_the_list_in_the_workspace() {
         let directory = TempDir::new().unwrap();
         let file = directory.path().join("groceries.md");
         fs::write(&file, "- [ ] Buy milk\n").unwrap();
         let mut app = app_in(directory.path());
         let list = only_list_path(&app);
         fs::remove_file(&file).unwrap();
-        let expected =
-            StatusMessage::error(format!("list file {} no longer exists", file.display()));
+        let expected = StatusMessage::error("list file groceries.md no longer exists");
         execute(&mut app, Effect::Save(list));
 
         let system_under_test = app.status_message();

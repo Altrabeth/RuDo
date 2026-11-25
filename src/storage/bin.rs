@@ -438,8 +438,8 @@ impl EmptiedBin {
         self.entries
     }
 
-    /// Returns why entries could not be deleted, one error per entry; empty if the bin is
-    /// empty now.
+    /// Returns why entries could not be deleted, one error per entry with its path relative to
+    /// the workspace root; empty if the bin is empty now.
     #[must_use]
     pub fn failures(&self) -> &[EntryError] {
         &self.failures
@@ -461,7 +461,7 @@ pub fn empty_bin(root: &Path, bin: &BinPath) -> EmptiedBin {
         Err(error) => {
             return EmptiedBin {
                 entries: 1,
-                failures: vec![classify(bin_folder, error)],
+                failures: vec![classify(bin_folder, error).relative_to(root)],
             };
         }
     };
@@ -481,7 +481,7 @@ pub fn empty_bin(root: &Path, bin: &BinPath) -> EmptiedBin {
             Ok(true) => emptied.entries += 1,
             Err(error) => {
                 emptied.entries += 1;
-                emptied.failures.push(error);
+                emptied.failures.push(error.relative_to(root));
             }
         }
     }
@@ -1193,6 +1193,24 @@ mod tests {
 
         assert_eq!(system_under_test.entries(), 0);
         assert!(system_under_test.failures().is_empty());
+    }
+
+    #[test]
+    fn empty_bin_names_a_failure_relative_to_the_workspace() {
+        let root = TempDir::new().unwrap();
+        create(root.path(), &[(".trash", "not a folder")]);
+        let expected = vec!["cannot change .trash".to_owned()];
+
+        let system_under_test = empty_bin(root.path(), &bin());
+
+        assert_eq!(
+            system_under_test
+                .failures()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<String>>(),
+            expected
+        );
     }
 
     #[rstest]

@@ -28,6 +28,14 @@ index of the bin stores them with `/` too, so a workspace synced between Windows
 reads the same; RuDo reads both `/` and `\`. New files are written with LF line endings on
 every platform, as Obsidian does; existing files keep theirs.
 
+RuDo saves a list by writing a temporary file and renaming it over the list, so a crash never
+leaves half a list. On Windows the rename works while another program has the list open, as
+long as that program allows others to delete or rename the file, as Obsidian and most editors
+do. A program that holds the list open without allowing that, such as a virus scanner for a
+moment, makes RuDo try again a few times; if the list is still blocked, RuDo keeps it unchanged
+and reports that it is open in another program, so close it there and save again. RuDo does
+not write into the open file instead, because that would no longer be safe against a crash.
+
 ## Docker
 
 The Docker image holds only the static binary ([installation](installation.md#docker)). Mount

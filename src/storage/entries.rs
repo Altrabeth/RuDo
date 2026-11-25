@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::error;
 
+use crate::paths::{portable, strip_root};
+
 /// File extension of new list files, appended to the [`EntryName`].
 const LIST_EXTENSION: &str = ".md";
 
@@ -113,6 +115,9 @@ pub enum InvalidNameError {
 }
 
 /// An error of an operation on a list file or folder.
+///
+/// Its message shows the path with `/` between the components, as the interface shows paths;
+/// [`EntryError::relative_to`] makes it relative to the workspace root.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum EntryError {
@@ -120,25 +125,25 @@ pub enum EntryError {
     #[error(transparent)]
     InvalidName(#[from] InvalidNameError),
     /// An entry with the new name already exists; it was left untouched.
-    #[error("{} already exists", path.display())]
+    #[error("{} already exists", portable(path))]
     AlreadyExists {
         /// The existing entry.
         path: PathBuf,
     },
     /// A folder cannot be moved into itself or into a folder inside it.
-    #[error("cannot move folder {} into itself", path.display())]
+    #[error("cannot move folder {} into itself", portable(path))]
     IntoItself {
         /// The folder that was not moved.
         path: PathBuf,
     },
     /// The folder to delete still contains entries, possibly hidden ones.
-    #[error("folder {} is not empty", path.display())]
+    #[error("folder {} is not empty", portable(path))]
     NotEmpty {
         /// The folder that was not deleted.
         path: PathBuf,
     },
     /// The file system operation failed.
-    #[error("cannot change {}", path.display())]
+    #[error("cannot change {}", portable(path))]
     Io {
         /// The entry the operation failed on.
         path: PathBuf,
@@ -146,6 +151,30 @@ pub enum EntryError {
         #[source]
         source: io::Error,
     },
+}
+
+impl EntryError {
+    /// Returns the error with its path relative to the workspace `root`, so that the message
+    /// names the entry as the lists pane does; a path outside the root is kept.
+    #[must_use]
+    pub fn relative_to(self, root: &Path) -> Self {
+        match self {
+            Self::InvalidName(error) => Self::InvalidName(error),
+            Self::AlreadyExists { path } => Self::AlreadyExists {
+                path: strip_root(path, root),
+            },
+            Self::IntoItself { path } => Self::IntoItself {
+                path: strip_root(path, root),
+            },
+            Self::NotEmpty { path } => Self::NotEmpty {
+                path: strip_root(path, root),
+            },
+            Self::Io { path, source } => Self::Io {
+                path: strip_root(path, root),
+                source,
+            },
+        }
+    }
 }
 
 /// Creates the empty list file `<name>.md` in `directory` and returns its path.
@@ -918,6 +947,18 @@ mod tests {
         let source = io::Error::from(kind);
 
         let system_under_test = classify(PathBuf::from("a"), source);
+
+        assert_eq!(system_under_test.to_string(), expected);
+    }
+
+    #[test]
+    fn relative_to_names_the_entry_inside_the_workspace_with_slashes() {
+        let root = TempDir::new().unwrap();
+        let path = root.path().join("Home").join("Inbox.md");
+        let error = EntryError::AlreadyExists { path };
+        let expected = "Home/Inbox.md already exists";
+
+        let system_under_test = error.relative_to(root.path());
 
         assert_eq!(system_under_test.to_string(), expected);
     }

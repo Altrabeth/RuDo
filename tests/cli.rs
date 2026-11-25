@@ -10,7 +10,8 @@ use rudo::config::DEFAULT_CONFIG_YAML;
 use rudo::paths::parse_portable;
 use tempfile::TempDir;
 
-/// Isolated home and XDG directories, so that no test reads or writes the user's files.
+/// Isolated home and XDG directories, so that no test reads or writes the user's files, and an
+/// environment without the variables that change what the binary prints.
 struct Sandbox {
     directory: TempDir,
 }
@@ -39,6 +40,9 @@ impl Sandbox {
         path
     }
 
+    /// Returns a command that runs `rudo` with `arguments` in the sandbox. CI sets
+    /// `RUST_BACKTRACE`, which makes anyhow append a backtrace to every reported error; the
+    /// variables are cleared so that stderr is the same everywhere.
     fn command(&self, arguments: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_rudo"));
         command
@@ -48,7 +52,9 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.path("data"))
             .env("XDG_STATE_HOME", self.path("state"))
             .env_remove("NO_COLOR")
-            .env_remove("RUDO_LOG");
+            .env_remove("RUDO_LOG")
+            .env_remove("RUST_BACKTRACE")
+            .env_remove("RUST_LIB_BACKTRACE");
         command
     }
 

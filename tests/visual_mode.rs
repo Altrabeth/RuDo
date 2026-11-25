@@ -380,14 +380,11 @@ fn move_onto_an_existing_name_is_refused() {
         ("Work.md", ""),
     ]);
     test_app.press("j v j m").type_text("Home").press("enter");
+    let expected = "moved 1 of 2 lists; 1 failed: Home/Inbox.md already exists";
 
     let system_under_test = message_of(&test_app).unwrap();
 
-    assert!(
-        system_under_test.starts_with("moved 1 of 2 lists; 1 failed: "),
-        "{system_under_test}"
-    );
-    assert!(system_under_test.ends_with("Home/Inbox.md already exists"));
+    assert_eq!(system_under_test, expected);
     assert_eq!(test_app.read("Inbox.md"), "- [ ] New\n");
     assert_eq!(test_app.read("Home/Inbox.md"), "- [ ] Old\n");
     assert!(exists(&test_app, "Home/Work.md"));

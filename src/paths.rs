@@ -311,6 +311,16 @@ pub fn parse_portable(text: &str) -> PathBuf {
         .collect()
 }
 
+/// Returns `path` relative to the workspace `root` if it is inside it, so that an error names
+/// the entry as the interface shows it with [`portable`]; a path outside the root is returned
+/// unchanged.
+pub(crate) fn strip_root(path: PathBuf, root: &Path) -> PathBuf {
+    match path.strip_prefix(root) {
+        Ok(relative) => relative.to_path_buf(),
+        Err(_) => path,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -685,6 +695,28 @@ mod tests {
         let expected: PathBuf = components.iter().collect();
 
         let system_under_test = parse_portable(text);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn strip_root_makes_a_path_inside_the_root_relative() {
+        let root = absolute_path(&["srv", "todo"]);
+        let path = below(&root, &["Home", "Inbox.md"]);
+        let expected: PathBuf = ["Home", "Inbox.md"].iter().collect();
+
+        let system_under_test = strip_root(path, &root);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[test]
+    fn strip_root_keeps_a_path_outside_the_root() {
+        let root = absolute_path(&["srv", "todo"]);
+        let path = absolute_path(&["srv", "notes", "Inbox.md"]);
+        let expected = path.clone();
+
+        let system_under_test = strip_root(path, &root);
 
         assert_eq!(system_under_test, expected);
     }

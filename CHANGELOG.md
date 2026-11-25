@@ -17,8 +17,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   folder that Windows reports, also when OneDrive or a redirection moved it; `XDG_*`
   variables are honoured there too. `notepad` is the last editor fallback, and the editor
   command is split by Windows rules, so `C:\Program Files\Neovim\bin\nvim.exe` works with
-  or without quotes. Saving keeps the read-only attribute of a list and retries briefly while
-  another program holds it open.
+  or without quotes. Saving keeps the read-only attribute of a list and replaces a list that
+  another program, such as Obsidian, has open; a list that a program holds open without
+  allowing that is retried briefly and then kept unchanged with a message naming the lock.
 - **FreeBSD.** RuDo builds and passes its tests on FreeBSD (x86_64), with the folders and the
   `vi` fallback of Linux.
 - **Release binaries.** Every GitHub release has archives for Linux (x86_64 and aarch64, glibc
@@ -53,7 +54,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Paths inside the workspace are shown and stored in the index of the bin with `/` on every
-  platform; the index is read with `/` or `\`.
+  platform; the index is read with `/` or `\`. Error messages about a list or folder name it
+  relative to the workspace, as the lists pane does, instead of with its absolute path.
 - **Documentation.** The README is a short introduction; the reference chapters (files and
   task syntax, keybindings, configuration, command line, installation, platforms,
   troubleshooting, development) moved into [`docs/`](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md). A test checks every

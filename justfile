@@ -2,6 +2,10 @@
 
 set positional-arguments
 
+# Deny cargo's own warnings (manifest lints) as CI does, so that a green `just check` means a
+# green CI run.
+export CARGO_BUILD_WARNINGS := "deny"
+
 directory_name := kebabcase(file_name(justfile_directory()))
 
 # List all recipes

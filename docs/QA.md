@@ -38,7 +38,8 @@ Unless an item says otherwise, start RuDo with `rudo --root /tmp/rudo-qa`.
 - [ ] Inside tmux, `esc` closes prompts without a noticeable delay (with `escape-time` at its
       default and at `0`).
 - [ ] Inside tmux, a hex colour from the theme looks right with the `RGB` terminal feature
-      enabled, and the README warning describes what happens without it.
+      enabled, and the warning in [Theme](configuration.md#theme) describes what happens
+      without it.
 
 ## Sizes and resizing
 
@@ -175,8 +176,8 @@ RuDo in the system console and in a terminal emulator under X11 or Wayland.
       emulator.
 - [ ] A list changed by another program (`echo '- [ ] New' >> /tmp/rudo-qa/Home.md`) shows
       the new task in RuDo without a restart.
-- [ ] The configuration, workspace and log folders are those of Linux in the README section
-      "Platforms", and `e` opens `vi` with `VISUAL` and `EDITOR` unset.
+- [ ] The configuration, workspace and log folders are those of Linux in
+      [Platforms](platforms.md), and `e` opens `vi` with `VISUAL` and `EDITOR` unset.
 
 ## Windows
 
@@ -222,8 +223,8 @@ test on macOS, but not the terminal emulators.
 - [ ] A list changed by another program (`echo '- [ ] New' >> /tmp/rudo-qa/Home.md`) shows
       the new task in RuDo without a restart; `/tmp` is a symbolic link on macOS.
 - [ ] Renaming the list `Home` to `home` (only the case) works and keeps its tasks.
-- [ ] The configuration, workspace and log folders are those of Linux in the README section
-      "Platforms", and `e` opens `vi` with `VISUAL` and `EDITOR` unset.
+- [ ] The configuration, workspace and log folders are those of Linux in
+      [Platforms](platforms.md), and `e` opens `vi` with `VISUAL` and `EDITOR` unset.
 
 ## Result
 

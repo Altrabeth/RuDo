@@ -355,7 +355,7 @@ mod tests {
     use super::*;
     use crate::config::keymap::action::Action;
     use crate::config::keymap::keymap::Keymap;
-    use crate::readme;
+    use crate::user_docs;
 
     const HOME: &str = "/home/alice";
 
@@ -530,8 +530,9 @@ mod tests {
     }
 
     #[test]
-    fn readme_configuration_example_has_a_valid_keymap() {
-        let example: String = readme::section("## Configuration")
+    fn documented_configuration_example_has_a_valid_keymap() {
+        let example: String = user_docs::CONFIGURATION
+            .section("# Configuration")
             .into_iter()
             .skip_while(|line| *line != "```yaml")
             .skip(1)

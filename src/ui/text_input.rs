@@ -512,7 +512,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
-    use crate::readme::README;
+    use crate::user_docs::KEYBINDINGS;
 
     /// Marks the cursor position in the text of test cases.
     const CURSOR_MARK: char = '|';
@@ -733,14 +733,14 @@ mod tests {
     }
 
     #[test]
-    fn readme_lists_every_editing_key() {
+    fn keybinding_documentation_lists_every_editing_key() {
         let expected: Vec<&str> = Vec::new();
 
         let system_under_test: Vec<&str> = EDITING_KEYS
             .iter()
             .flat_map(EditingKey::keys)
             .copied()
-            .filter(|key| !README.contains(&format!("`{key}`")))
+            .filter(|key| !KEYBINDINGS.text().contains(&format!("`{key}`")))
             .collect();
 
         assert_eq!(system_under_test, expected);

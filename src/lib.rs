@@ -12,8 +12,8 @@ pub mod logging;
 pub mod markdown;
 pub mod paths;
 pub mod platform;
-#[cfg(test)]
-mod readme;
 pub mod runtime;
 pub mod storage;
 pub mod ui;
+#[cfg(test)]
+mod user_docs;

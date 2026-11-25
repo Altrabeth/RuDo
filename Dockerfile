@@ -1,6 +1,6 @@
 # A minimal image of RuDo: the static musl binary, with the time zone database bundled, on
 # `scratch`. Run it with `docker run -it --rm -v ~/todo:/workspace ghcr.io/altrabeth/rudo-tui`;
-# the README describes the options and docs/RELEASING.md the release.
+# docs/platforms.md describes the options and docs/RELEASING.md the release.
 
 # The build stage runs on the platform of the build machine and cross-compiles for the target
 # platform, which takes no emulation because RuDo has no C dependencies and rust-lld links musl

@@ -1,38 +1,63 @@
-//! The README as test data for the guard tests that keep the user-facing specification in
-//! sync with the code.
+//! The user documentation in `docs/` as test data for the guard tests that keep it in sync
+//! with the code.
 //!
-//! The README is read with simple line matching: a section is the text below a heading up to
+//! A document is read with simple line matching: a section is the text below a heading up to
 //! the next heading of the same or a higher level, outside fenced code blocks, and a table is
 //! a header row, a separator row and the rows below it.
 
-/// The README, compiled into the tests so that editing it reruns them.
-pub(crate) const README: &str = include_str!("../README.md");
+/// A Markdown document of `docs/`, compiled into the tests so that editing it reruns them.
+pub(crate) struct Document {
+    /// The path of the document in the repository, for failure messages.
+    path: &'static str,
+    /// The content of the document.
+    text: &'static str,
+}
+
+/// `docs/keybindings.md`, with the keybinding tables and the editing keys.
+pub(crate) const KEYBINDINGS: Document = Document {
+    path: "docs/keybindings.md",
+    text: include_str!("../docs/keybindings.md"),
+};
+
+/// `docs/configuration.md`, with the configuration example and the theme tables.
+pub(crate) const CONFIGURATION: Document = Document {
+    path: "docs/configuration.md",
+    text: include_str!("../docs/configuration.md"),
+};
 
 /// Starts and ends a fenced code block.
 const FENCE: &str = "```";
 
-/// Returns the lines below the heading line `heading`, such as `"## Keybindings"`, up to the
-/// next heading of the same or a higher level.
-///
-/// # Panics
-///
-/// Panics if the README has no such heading.
-pub(crate) fn section(heading: &str) -> Vec<&'static str> {
-    let level = heading_level(heading).expect("the heading starts with `#` and a space");
-    let mut lines = README.lines();
-    assert!(
-        lines.any(|line| line == heading),
-        "the README has no heading {heading:?}"
-    );
-    let mut in_code_block = false;
-    lines
-        .take_while(|line| {
-            if line.starts_with(FENCE) {
-                in_code_block = !in_code_block;
-            }
-            in_code_block || heading_level(line).is_none_or(|other| other > level)
-        })
-        .collect()
+impl Document {
+    /// Returns the whole content of the document.
+    pub(crate) fn text(&self) -> &'static str {
+        self.text
+    }
+
+    /// Returns the lines below the heading line `heading`, such as `"## Theme"`, up to the
+    /// next heading of the same or a higher level.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the document has no such heading.
+    pub(crate) fn section(&self, heading: &str) -> Vec<&'static str> {
+        let level = heading_level(heading).expect("the heading starts with `#` and a space");
+        let mut lines = self.text.lines();
+        assert!(
+            lines.any(|line| line == heading),
+            "{} has no heading {heading:?}",
+            self.path
+        );
+        let mut in_code_block = false;
+        lines
+            .take_while(|line| {
+                if line.starts_with(FENCE) {
+                    in_code_block = !in_code_block;
+                }
+                in_code_block || heading_level(line).is_none_or(|other| other > level)
+            })
+            .collect()
+    }
 }
 
 /// Returns the level of a Markdown heading line, the number of its leading `#`.
@@ -43,10 +68,10 @@ fn heading_level(line: &str) -> Option<usize> {
 
 /// Returns the trimmed cells of the body rows of every table in `lines` whose first header
 /// cell is `first_header`.
-pub(crate) fn table_rows<'readme>(
-    lines: &[&'readme str],
+pub(crate) fn table_rows<'document>(
+    lines: &[&'document str],
     first_header: &str,
-) -> Vec<Vec<&'readme str>> {
+) -> Vec<Vec<&'document str>> {
     lines
         .windows(2)
         .enumerate()
@@ -98,21 +123,26 @@ mod tests {
 
     #[test]
     fn section_ends_at_the_next_heading_of_the_same_level() {
-        let heading = "## Command line";
-        let next_heading = "## Troubleshooting";
+        let heading = "## Tasks pane";
+        let last_action = "`toggle-completed`";
+        let next_heading = "## Visual mode (lists pane, tasks pane and bin)";
 
-        let system_under_test = section(heading);
+        let system_under_test = KEYBINDINGS.section(heading);
 
-        assert!(system_under_test.contains(&"rudo [OPTIONS] [COMMAND]"));
+        assert!(
+            system_under_test
+                .iter()
+                .any(|line| line.contains(last_action))
+        );
         assert!(!system_under_test.contains(&next_heading));
     }
 
     #[test]
     fn section_does_not_end_at_comments_in_code_blocks() {
-        let heading = "## Configuration";
-        let subsection = "### Theme";
+        let heading = "# Configuration";
+        let subsection = "## Theme";
 
-        let system_under_test = section(heading);
+        let system_under_test = CONFIGURATION.section(heading);
 
         assert!(system_under_test.contains(&subsection));
     }

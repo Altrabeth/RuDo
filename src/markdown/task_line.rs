@@ -1,7 +1,7 @@
 //! One Markdown task line: parsing and rendering.
 //!
-//! This module is the single place that knows the syntax of a task (see "Task syntax" in the
-//! README). A task line is
+//! This module is the single place that knows the syntax of a task (see "Task syntax" in
+//! `docs/files-and-obsidian.md`). A task line is
 //!
 //! ```text
 //! {indent}{marker}{whitespace}[{status}]{whitespace or end of line}{description}

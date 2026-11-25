@@ -1,9 +1,9 @@
 # Architecture
 
 This document describes how RuDo is built and why. The user-facing behaviour (file format,
-default keymap, configuration) is specified in the [README](../README.md); the coding rules
-are in [AGENTS.md](../AGENTS.md). When this document and the code disagree, fix one of them
-in the same change.
+default keymap, configuration) is specified in the [user documentation](README.md); the
+coding rules are in [AGENTS.md](../AGENTS.md). When this document and the code disagree, fix
+one of them in the same change.
 
 ## Principles
 
@@ -23,10 +23,10 @@ in the same change.
 
   | Fact                       | Source of truth                   | Derived from it                                              |
   | -------------------------- | --------------------------------- | ------------------------------------------------------------ |
-  | what a user can do         | `Action` enum                     | config validation, help screen, key hints, README guard tests |
+  | what a user can do         | `Action` enum                     | config validation, help screen, key hints, documentation guard tests |
   | which keys trigger what    | effective `Keymap`                | key resolution, help screen, bottom bar hints, empty states  |
   | default configuration      | `assets/default-config.yaml`      | `Config::default()` (guard test), `rudo config default`      |
-  | colours                    | `Theme` with the `Slot` enum      | every widget, README guard test; no widget hard-codes a colour |
+  | colours                    | `Theme` with the `Slot` enum      | every widget, documentation guard test; no widget hard-codes a colour |
   | a task's Markdown syntax   | `markdown::task_line`             | parsing and rendering of every task line                     |
   | tree navigation            | `ui::outline::Outline`            | lists pane, tasks pane, help screen scrolling                |
   | screen geometry            | `ui::layout`                      | the drawn areas and the viewport heights used for scrolling  |
@@ -51,7 +51,7 @@ src/
   paths.rs                 config, data and state directories per Platform (XDG, Windows
                            folders), `~` expansion, workspace paths shown and stored with `/`
   platform.rs              Platform: the operating systems RuDo tells apart
-  readme.rs                test only: README sections, tables and code spans for guard tests
+  user_docs.rs             test only: sections, tables and code spans of docs/ for guard tests
   config/
     mod.rs                 Config, config file lookup, parsing with located error reports
     root.rs                WorkspaceRoot: `--root`, `workspace.root` or the default folder
@@ -379,8 +379,8 @@ run in-process.
 | `App::update`                      | build a state, apply actions, assert on the resulting state and effects |
 | widgets and layout                 | `TestApp::render(width, height)` into a `TestBackend`; `insta` text snapshots (`just snap`), colours asserted on single cells |
 | storage                            | the real file system under `tempfile::TempDir`                        |
-| user scenarios                     | `tests/` drive a `TestApp` (`tests/common`) with `press` and `type_text` against a `TempDir` workspace and assert on the files and the rendered screen; the README journeys in `tests/scenarios.rs` compare the files with golden files in `tests/fixtures/` |
-| documentation                      | guard tests read the README through `src/readme.rs`: every `Action` with its default keys, every `Slot`, the colour names and the configuration example; others check the default configuration file |
+| user scenarios                     | `tests/` drive a `TestApp` (`tests/common`) with `press` and `type_text` against a `TempDir` workspace and assert on the files and the rendered screen; the user journeys in `tests/scenarios.rs` compare the files with golden files in `tests/fixtures/` |
+| documentation                      | guard tests read `docs/keybindings.md` and `docs/configuration.md` through `src/user_docs.rs`: every `Action` with its default keys, every `Slot`, the colour names and the configuration example; others check the default configuration file; `tests/doc_links.rs` checks every relative link and anchor in the Markdown files |
 | terminal and event loop            | kept too thin to need unit tests (humble object); `just smoke` drives the real binary in a pseudo-terminal, and [`QA.md`](QA.md) is the manual checklist before a release |
 
 Every test has the three phases required by AGENTS.md: setup, `system_under_test`, assertions.
@@ -392,8 +392,8 @@ for musl and run by `just test-musl`, checks it.
 `just check-targets` lints the code for `x86_64-pc-windows-msvc`, `aarch64-apple-darwin` and
 `x86_64-unknown-freebsd` on any system, since checking needs neither a linker nor an SDK of the
 target. CI runs the lints and the tests on Windows and macOS as well, and the tests in a
-FreeBSD virtual machine (see the README); `.gitattributes` keeps the golden files byte-exact
-on Windows checkouts.
+FreeBSD virtual machine (see [Development](development.md#continuous-integration));
+`.gitattributes` keeps the golden files byte-exact on Windows checkouts.
 
 ## Conventions
 

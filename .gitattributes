@@ -1,6 +1,6 @@
 # Every text file is stored and checked out with LF line endings on every system, even with
 # `core.autocrlf=true` (the default of Git for Windows and the Windows CI runner). Sources,
-# snapshots, the README read by the guard tests and the embedded default configuration
+# snapshots, the documents read by the guard tests and the embedded default configuration
 # therefore have the same bytes on Windows as on Linux and macOS.
 * text=auto eol=lf
 

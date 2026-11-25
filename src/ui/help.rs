@@ -1,9 +1,10 @@
 //! What the help screen shows, generated from the effective [`Keymap`].
 //!
 //! [`help_sections`] lists every [`Action`] once, with the keys the user actually configured,
-//! in the sections of the README keybinding tables, followed by the fixed [`EDITING_KEYS`] of
-//! text inputs. [`filter`] narrows the sections to a search query and [`rows`] flattens them
-//! for scrolling. The model is pure, so its correctness is tested without rendering.
+//! in the sections of the keybinding tables in `docs/keybindings.md`, followed by the fixed
+//! [`EDITING_KEYS`] of text inputs. [`filter`] narrows the sections to a search query and
+//! [`rows`] flattens them for scrolling. The model is pure, so its correctness is tested
+//! without rendering.
 
 use std::fmt::{self, Display, Formatter, Write};
 
@@ -22,7 +23,7 @@ const UNBOUND: &str = "unbound";
 /// Separates the key sequences of one entry.
 const KEY_SEPARATOR: &str = ", ";
 
-/// A section of the help screen, mirroring the keybinding tables of the README.
+/// A section of the help screen, mirroring the keybinding tables in `docs/keybindings.md`.
 ///
 /// Displays as the section title, such as `Tasks pane`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
@@ -211,7 +212,8 @@ impl OutlineItem for HelpRowKey {
 /// Returns the help screen for `keymap`: every action exactly once, in the section of its
 /// most general context, followed by the editing keys of text inputs.
 ///
-/// Actions keep the order of the keymap registry, which is the order of the README tables.
+/// Actions keep the order of the keymap registry, which is the order of the tables in
+/// `docs/keybindings.md`.
 ///
 /// # Examples
 ///

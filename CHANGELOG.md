@@ -54,10 +54,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Paths inside the workspace are shown and stored in the index of the bin with `/` on every
   platform; the index is read with `/` or `\`.
+- **Documentation.** The README is a short introduction; the reference chapters (files and
+  task syntax, keybindings, configuration, command line, installation, platforms,
+  troubleshooting, development) moved into [`docs/`](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md). A test checks every
+  relative link and heading anchor in the Markdown files.
 
 ## [1.0.0] - Unreleased
 
-The first release, not tagged yet. The [README](https://github.com/Altrabeth/RuDo/blob/main/README.md) specifies the behaviour in detail.
+The first release, not tagged yet. The [documentation](https://github.com/Altrabeth/RuDo/blob/main/docs/README.md) specifies the behaviour in detail.
 
 ### Added
 

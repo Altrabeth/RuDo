@@ -521,7 +521,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
-    use crate::readme;
+    use crate::user_docs;
 
     fn sequences(notations: &[&str]) -> Vec<KeySequence> {
         notations
@@ -534,16 +534,16 @@ mod tests {
         serde_saphyr::from_str(name).unwrap()
     }
 
-    /// Returns every row of the README keybinding tables as the action with its keys, in table
-    /// order.
-    fn readme_bindings() -> Vec<(Action, Vec<KeySequence>)> {
-        readme::table_rows(&readme::section("## Keybindings"), "Keys")
+    /// Returns every row of the keybinding tables in `docs/keybindings.md` as the action with its
+    /// keys, in table order.
+    fn documented_bindings() -> Vec<(Action, Vec<KeySequence>)> {
+        user_docs::table_rows(&user_docs::KEYBINDINGS.section("# Keybindings"), "Keys")
             .iter()
             .map(|cells| {
-                let keys = readme::code_spans(cells[0])
+                let keys = user_docs::code_spans(cells[0])
                     .map(|notation| notation.parse().unwrap())
                     .collect();
-                let [action] = readme::code_spans(cells[1]).collect::<Vec<_>>()[..] else {
+                let [action] = user_docs::code_spans(cells[1]).collect::<Vec<_>>()[..] else {
                     panic!("expected one action in {cells:?}");
                 };
                 (parse_action(action), keys)
@@ -552,11 +552,11 @@ mod tests {
     }
 
     #[test]
-    fn readme_keybinding_tables_list_every_action_in_registry_order() {
+    fn documented_keybinding_tables_list_every_action_in_registry_order() {
         let expected: Vec<Action> = Action::iter().collect();
         let mut seen = HashSet::new();
 
-        let system_under_test: Vec<Action> = readme_bindings()
+        let system_under_test: Vec<Action> = documented_bindings()
             .into_iter()
             .map(|(action, _)| action)
             .filter(|action| seen.insert(*action))
@@ -566,13 +566,13 @@ mod tests {
     }
 
     #[test]
-    fn readme_keybinding_tables_show_the_default_keys() {
-        let expected: Vec<(Action, Vec<KeySequence>)> = readme_bindings()
+    fn documented_keybinding_tables_show_the_default_keys() {
+        let expected: Vec<(Action, Vec<KeySequence>)> = documented_bindings()
             .into_iter()
             .map(|(action, _)| (action, action.default_keys()))
             .collect();
 
-        let system_under_test = readme_bindings();
+        let system_under_test = documented_bindings();
 
         assert_eq!(system_under_test, expected);
     }
@@ -593,7 +593,7 @@ mod tests {
     #[case::restore_from_bin(Action::RestoreFromBin, &["R"])]
     #[case::empty_bin(Action::EmptyBin, &["E"])]
     #[case::close_bin(Action::CloseBin, &["h", "left", "esc"])]
-    fn default_keys_match_the_readme(#[case] action: Action, #[case] notations: &[&str]) {
+    fn default_keys_match_the_documentation(#[case] action: Action, #[case] notations: &[&str]) {
         let expected = sequences(notations);
 
         let system_under_test = action.default_keys();
@@ -635,7 +635,10 @@ mod tests {
     #[case::yank_selection(Action::YankSelection, &[Context::Visual])]
     #[case::move_to_folder(Action::MoveToFolder, &[Context::Lists, Context::Visual])]
     #[case::cancel(Action::Cancel, &[Context::Input, Context::Visual, Context::BinVisual])]
-    fn contexts_follow_the_readme_sections(#[case] action: Action, #[case] expected: &[Context]) {
+    fn contexts_follow_the_documented_sections(
+        #[case] action: Action,
+        #[case] expected: &[Context],
+    ) {
         let system_under_test = action.contexts();
 
         assert_eq!(system_under_test, expected);

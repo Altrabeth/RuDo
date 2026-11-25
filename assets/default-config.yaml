@@ -88,8 +88,8 @@ theme:
   # search_match: { fg: yellow, modifiers: [reversed] }
   # filter_context: { fg: dark-gray }
 
-# Keys of actions, by the action names of the keybinding tables in the README. The keys you
-# give replace the default keys of that action; actions you do not mention keep theirs.
+# Keys of actions, by the action names of the keybinding tables in docs/keybindings.md. The keys
+# you give replace the default keys of that action; actions you do not mention keep theirs.
 # A key sequence is written with spaces between the keys (`g g`), `[]` unbinds an action.
 # RuDo refuses a key bound to two actions in the same pane, a binding that is the beginning
 # of another (`g` and `g g`) and printable keys for `submit` and `cancel`.

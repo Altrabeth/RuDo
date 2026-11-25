@@ -2,9 +2,9 @@
 //!
 //! A [`KeyChord`] is one key press with its modifiers (`ctrl-d`, `G`, `space`), a
 //! [`KeySequence`] is one or more chords typed one after the other (`g g`). Both parse from
-//! and print to the notation described in the README. Chords are normalised on construction,
-//! so a chord parsed from the configuration and the same chord reported by the terminal
-//! compare equal.
+//! and print to the notation described in "Key notation" in `docs/keybindings.md`. Chords are
+//! normalised on construction, so a chord parsed from the configuration and the same chord
+//! reported by the terminal compare equal.
 
 use std::borrow::Borrow;
 use std::fmt::{self, Display, Formatter};

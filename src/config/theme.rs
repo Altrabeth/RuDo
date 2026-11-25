@@ -391,7 +391,7 @@ mod tests {
 
     use super::*;
     use crate::config::{Config, ConfigError, DEFAULT_CONFIG_YAML};
-    use crate::readme;
+    use crate::user_docs;
 
     fn parse_theme(yaml: &str) -> Result<ThemeConfig, ConfigError> {
         Config::from_yaml(yaml, Path::new("config.yaml")).map(|config| config.theme().clone())
@@ -643,20 +643,20 @@ mod tests {
         assert_eq!(system_under_test, expected);
     }
 
-    /// Returns the code spans in the first column of the README theme table with the header
-    /// `first_header`.
-    fn readme_theme_column(first_header: &str) -> Vec<&'static str> {
-        readme::table_rows(&readme::section("### Theme"), first_header)
+    /// Returns the code spans in the first column of the theme table in `docs/configuration.md`
+    /// with the header `first_header`.
+    fn documented_theme_column(first_header: &str) -> Vec<&'static str> {
+        user_docs::table_rows(&user_docs::CONFIGURATION.section("## Theme"), first_header)
             .into_iter()
-            .flat_map(|cells| readme::code_spans(cells[0]))
+            .flat_map(|cells| user_docs::code_spans(cells[0]))
             .collect()
     }
 
     #[test]
-    fn readme_theme_table_lists_every_slot_in_order() {
+    fn documented_theme_table_lists_every_slot_in_order() {
         let expected: Vec<Slot> = Slot::iter().collect();
 
-        let system_under_test: Vec<Slot> = readme_theme_column("Slot")
+        let system_under_test: Vec<Slot> = documented_theme_column("Slot")
             .into_iter()
             .map(|name| serde_saphyr::from_str(name).unwrap())
             .collect();
@@ -665,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn readme_colour_table_lists_colours_that_parse() {
+    fn documented_colour_table_lists_colours_that_parse() {
         let expected = [
             Color::Black,
             Color::Red,
@@ -688,7 +688,7 @@ mod tests {
             Color::Indexed(238),
         ];
 
-        let system_under_test: Vec<Color> = readme_theme_column("Colour")
+        let system_under_test: Vec<Color> = documented_theme_column("Colour")
             .into_iter()
             .map(|colour| {
                 let style = parse_style(&format!("{{ fg: {colour} }}")).unwrap();

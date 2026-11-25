@@ -1,4 +1,4 @@
-//! End-to-end user journeys from the README, compared byte for byte against the golden
+//! End-to-end user journeys from the documentation, compared byte for byte against the golden
 //! Markdown files in `tests/fixtures/expected/`.
 //!
 //! Every journey starts from the fixtures in `tests/fixtures/`, copied into a fresh `TempDir`

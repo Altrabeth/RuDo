@@ -18,8 +18,9 @@ the same tasks from the terminal and from Obsidian at the same time.
  o new task  a subtask  i edit  x done  dd delete  D due date                     ? help
 ```
 
-> **Status:** version 1.0. Every feature below is implemented; changes are listed in the
-> [changelog](CHANGELOG.md).
+> **Status:** release candidate for 1.0. Every feature below is implemented; the remaining
+> 1.0 work is tracked in the [v1.0 milestone](https://github.com/Altrabeth/RuDo/milestone/1),
+> changes are listed in the [changelog](CHANGELOG.md).
 
 ## Features
 

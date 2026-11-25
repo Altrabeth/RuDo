@@ -7,9 +7,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-11-25
+## [1.0.0] - Unreleased
 
-The first release. The [README](README.md) specifies the behaviour in detail.
+The first release, not tagged yet. The [README](README.md) specifies the behaviour in detail.
 
 ### Added
 

@@ -10,7 +10,7 @@ use std::ops::Range;
 use ratatui::style::Style;
 use ratatui::text::Span;
 
-use crate::app::filter::SmartCaseQuery;
+use crate::app::filter::SmartCaseWords;
 use crate::config::theme::{Slot, Theme};
 
 /// The matches of a query in one text and the style that highlights them.
@@ -22,10 +22,11 @@ pub(crate) struct Highlight {
 }
 
 impl Highlight {
-    /// Finds the matches of `query` in `text`; nothing is highlighted without a query.
-    pub(crate) fn new(query: Option<&SmartCaseQuery>, text: &str, theme: &Theme) -> Self {
+    /// Finds the matches of the words of `query` in `text`; nothing is highlighted without a
+    /// query.
+    pub(crate) fn new(query: Option<&SmartCaseWords>, text: &str, theme: &Theme) -> Self {
         Self {
-            matches: query.map_or_default(|query| query.match_ranges(text).collect()),
+            matches: query.map_or_default(|query| query.match_ranges(text)),
             style: theme.style(Slot::SearchMatch),
         }
     }
@@ -115,7 +116,7 @@ mod tests {
         #[case] expected: &str,
     ) {
         let theme = Theme::default();
-        let query = query.map(SmartCaseQuery::new);
+        let query = query.map(SmartCaseWords::new);
         let highlight = Highlight::new(query.as_ref(), text, &theme);
         let highlighted = BASE.patch(theme.style(Slot::SearchMatch));
         let mut spans = Vec::new();

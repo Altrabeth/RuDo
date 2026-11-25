@@ -6,6 +6,8 @@
 //! and then the completed tasks of every readable list among them. Equal scores keep this
 //! order, so ties prefer folders and lists over tasks and open tasks over completed ones.
 //! Tasks match by their text, folders and lists by their path with matches in the name first.
+//! The typed text is a [`Query`]: with at least one term, only the tasks that match the terms
+//! are offered, ranked by the text words.
 //!
 //! The target is looked up again on `enter`, because a reload may have removed it or, for a
 //! task, given it a new [`TaskId`] while the finder was open; a target that is gone is
@@ -17,6 +19,7 @@ use std::rc::Rc;
 use crate::app::entry_visibility::HiddenEntries;
 use crate::app::lists::{EntryKey, TreeRow, tree_items};
 use crate::app::picker::{PickerCandidate, PickerPrompt, path_name_start};
+use crate::app::query::{Query, TaskData, TaskSnapshot};
 use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_visibility::CompletedTasks;
@@ -24,7 +27,6 @@ use crate::app::tasks::unfiltered_list_items;
 use crate::config::ListOrder;
 use crate::config::theme::Slot;
 use crate::markdown::document::{TaskId, TodoDocument};
-use crate::markdown::task_line::TaskStatus;
 use crate::paths::portable;
 use crate::storage::workspace::{Entry, Folder, List, ListPath, Workspace};
 use crate::ui::outline::OutlineItem;
@@ -68,8 +70,7 @@ enum Target {
     Task {
         list: Rc<ListLocation>,
         id: TaskId,
-        status: TaskStatus,
-        text: String,
+        task: TaskSnapshot,
     },
 }
 
@@ -89,8 +90,9 @@ impl GoToCandidate {
 impl PickerCandidate for GoToCandidate {
     fn text(&self) -> &str {
         match &self.0 {
-            Target::Folder { text, .. } | Target::Task { text, .. } => text,
+            Target::Folder { text, .. } => text,
             Target::List(list) => &list.text,
+            Target::Task { task, .. } => task.description(),
         }
     }
 
@@ -109,7 +111,7 @@ impl PickerCandidate for GoToCandidate {
         match &self.0 {
             Target::Folder { .. } => Slot::Folder,
             Target::List(_) => Slot::List,
-            Target::Task { status, .. } => status_slot(*status),
+            Target::Task { task, .. } => status_slot(task.status()),
         }
     }
 
@@ -128,6 +130,14 @@ impl PickerCandidate for GoToCandidate {
             Target::Task { list, .. } => Some(&list.text),
         }
     }
+
+    /// Only tasks match terms.
+    fn matches_terms(&self, query: &Query) -> bool {
+        match &self.0 {
+            Target::Folder { .. } | Target::List(_) => false,
+            Target::Task { task, .. } => query.matches_terms(task),
+        }
+    }
 }
 
 /// The open and the completed tasks of the lists, collected apart so that the open ones are
@@ -142,8 +152,7 @@ impl TaskCandidates {
     /// Adds every task of `document`, the content of `list`.
     fn push_tasks(&mut self, list: &Rc<ListLocation>, document: &TodoDocument) {
         for node in document.tasks() {
-            let status = node.task().status();
-            let tasks = if status.is_completed() {
+            let tasks = if node.task().status().is_completed() {
                 &mut self.completed
             } else {
                 &mut self.open
@@ -151,8 +160,7 @@ impl TaskCandidates {
             tasks.push(GoToCandidate(Target::Task {
                 list: Rc::clone(list),
                 id: node.id(),
-                status,
-                text: node.task().description().to_owned(),
+                task: TaskSnapshot::from(node.task()),
             }));
         }
     }
@@ -221,9 +229,12 @@ fn destination(workspace: &Workspace, target: &Target) -> Result<Destination, St
             .list(&list.path)
             .map(|_| Destination::List(list.path.clone()))
             .ok_or_else(|| format!("list {} is gone", list.text)),
-        Target::Task { list, id, text, .. } => find_task(workspace, &list.path, *id, text)
-            .map(|id| Destination::Task(list.path.clone(), id))
-            .ok_or_else(|| format!("task {text} is gone")),
+        Target::Task { list, id, task } => {
+            let text = task.description();
+            find_task(workspace, &list.path, *id, text)
+                .map(|id| Destination::Task(list.path.clone(), id))
+                .ok_or_else(|| format!("task {text} is gone"))
+        }
     }
 }
 
@@ -233,7 +244,7 @@ impl App {
     pub(super) fn open_go_to(&mut self) {
         self.resolver.reset();
         let candidates = go_to_candidates(&self.workspace, self.lists.hidden_entries());
-        self.mode = Mode::GoTo(PickerPrompt::new(candidates));
+        self.mode = Mode::GoTo(PickerPrompt::with_terms(candidates, self.today));
     }
 
     /// Closes go to anything and goes to the selected candidate; one that is gone keeps the

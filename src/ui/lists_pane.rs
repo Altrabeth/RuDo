@@ -1,6 +1,7 @@
 //! The lists pane: the workspace tree of folders and lists.
 //!
-//! Every row is a folder with its fold marker or a list with its `done/total` counter, and the
+//! Every row is a folder with its fold marker or a list with its `done/total` counter, after
+//! the number of tasks matching the query terms of the filter if it has any, and the
 //! last row the bin with the number of entries in it. The counters are computed from the
 //! documents for the rendered rows only, so they follow every edit without a cache. While the
 //! bin is open, the pane shows its entries with their original path and deletion date instead.
@@ -15,7 +16,8 @@ use ratatui::text::{Line, Span};
 
 use crate::app::bin::{BinView, bin_items};
 use crate::app::entry_visibility::HiddenEntries;
-use crate::app::lists::{TreeItem, TreeRow};
+use crate::app::lists::{TreeItem, TreeRow, term_matches};
+use crate::app::query::Query;
 use crate::app::{App, Focus};
 use crate::config::ListOrder;
 use crate::config::keymap::action::Action;
@@ -48,6 +50,8 @@ const COLLAPSED_MARKER: &str = "▸ ";
 const ACTIVE_MARKER: &str = "• ";
 /// Keeps list names aligned with folder names.
 const LIST_MARKER: &str = "  ";
+/// Separates the number of tasks that match the query terms from the counter of a list.
+const MATCHES_SEPARATOR: &str = " ";
 /// Shown instead of the counter of a list that could not be loaded.
 const UNREADABLE: &str = "unreadable";
 /// Added to the title while hidden entries are shown.
@@ -205,7 +209,13 @@ fn label_style(app: &App, entry: &Entry, slot: Slot) -> Style {
 }
 
 /// Renders `label` into `area` with `counter` aligned to its right edge.
-fn render_with_counter(frame: &mut Frame, area: Rect, label: Line<'_>, counter: Span<'_>) {
+fn render_with_counter<'a>(
+    frame: &mut Frame,
+    area: Rect,
+    label: Line<'_>,
+    counter: impl Into<Line<'a>>,
+) {
+    let counter = counter.into();
     let counter_width = u16::try_from(counter.width())
         .unwrap_or(u16::MAX)
         .min(area.width);
@@ -223,22 +233,33 @@ fn render_with_counter(frame: &mut Frame, area: Rect, label: Line<'_>, counter: 
 }
 
 /// Renders `list` with its marker and its right-aligned counter into `area`, its name in
-/// `style`.
+/// `style`. While the filter has query terms, the number of tasks matching them comes before
+/// the counter.
 fn render_list(app: &App, frame: &mut Frame, area: Rect, list: &List, style: Style) {
     let theme = app.theme();
-    let counter = match list.content() {
+    let query = app.lists().filter().query();
+    let mut counter = Line::default();
+    if let Some(query) = query.filter(|query| query.has_terms()) {
+        let matches = term_matches(list, query).count();
+        counter.push_span(Span::styled(
+            matches.to_string(),
+            theme.style(Slot::SearchMatch),
+        ));
+        counter.push_span(MATCHES_SEPARATOR);
+    }
+    counter.push_span(match list.content() {
         Ok(loaded) => Span::styled(
             loaded.document().progress().to_string(),
             theme.style(Slot::ListCount),
         ),
         Err(_) => Span::styled(UNREADABLE, theme.style(Slot::MessageError)),
-    };
+    });
     let marker = if app.lists().active() == Some(list.path()) {
         ACTIVE_MARKER
     } else {
         LIST_MARKER
     };
-    let highlight = Highlight::new(app.lists().filter().query(), list.name(), theme);
+    let highlight = Highlight::new(query.map(Query::words), list.name(), theme);
     let mut spans = vec![Span::raw(marker)];
     highlight.push_spans(&mut spans, list.name(), 0, Style::new());
     let label = Line::from(spans).style(style);

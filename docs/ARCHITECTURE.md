@@ -99,7 +99,9 @@ src/
     reload.rs              external changes: App::on_fs_changed, reload_list, rescan, conflicts
     history.rs             undo and redo stacks of document snapshots and EntryOperations
     register.rs            the yank register holding detached TaskBlocks
-    filter.rs              smart-case matching shared by every filter
+    filter.rs              smart-case matching shared by every filter, per word
+    query.rs               query terms of search and go to anything: Query, TaskData, the
+                           term syntax for the help screen and the words tab completes
     fuzzy.rs               fuzzy matching with nucleo-matcher: FuzzyQuery, FuzzyMatcher, scores
                            and matched characters, names ranked before paths
     picker.rs              generic fuzzy picker state: Picker, PickerCandidate, ranked results
@@ -215,6 +217,18 @@ src/
   open and then the completed tasks of the readable lists, so that equal scores keep that
   order; on `enter` it looks the target up again (a reloaded task by its text, since a reload
   gives new task ids) and reports one that is gone.
+- Search and go to anything read the typed text as an `app::query::Query`, parsed once per
+  change of the text relative to today (and again when `App::set_today` moves the date):
+  terms (`due:`, `created:`, `done:`, `priority:`, `is:`, `#tag`) with their values already
+  parsed, and the remaining text words. Dates go through `domain::date::parse_due`, the
+  grammar of the due date prompt, and priorities through the `Priority` codec, so there is
+  no second grammar. A term matches anything that implements `TaskData`: a `TaskLine`, read
+  lazily, or the `TaskSnapshot` that go to anything copies once when it opens. A
+  `PaneFilter` keeps its query as `Result<Query, QueryError>`, so an invalid term matches
+  nothing and the search prompt shows the error; `SearchItem::matches` lets a task match the
+  whole query and a list match by its name and, with terms, by containing a matching task.
+  A picker opened with `Picker::with_terms` filters candidates by the terms
+  (`PickerCandidate::matches_terms`, false for folders and lists) and ranks them by the text.
 - The visual selection is an anchor key in the pane's `Outline` (or the `BinView`'s) plus its
   cursor; the selected keys are derived from the visible rows whenever they are needed, so
   folds, filters, hidden completed tasks and hidden entries are respected and a reload that

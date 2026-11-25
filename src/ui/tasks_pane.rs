@@ -22,8 +22,9 @@ use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
-use crate::app::filter::SmartCaseQuery;
+use crate::app::filter::SmartCaseWords;
 use crate::app::lists::entry_description;
+use crate::app::query::Query;
 use crate::app::search::PaneFilter;
 use crate::app::task_input::InlineEditKind;
 use crate::app::task_visibility::CompletedTasks;
@@ -173,11 +174,13 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         InlineEditKind::Existing(id) => Some((id, input)),
         InlineEditKind::New(_) => None,
     });
-    let query = app.task_filter().and_then(PaneFilter::query);
+    let filter = app.task_filter();
+    let query = filter.and_then(PaneFilter::query).map(Query::words);
     if items.is_empty() && new_task.is_none() {
-        let message = match query {
-            Some(_) => Cow::Borrowed(NO_MATCHES),
-            None => Cow::Owned(no_tasks_hint(app.keymap())),
+        let message = if filter.is_some_and(PaneFilter::is_active) {
+            Cow::Borrowed(NO_MATCHES)
+        } else {
+            Cow::Owned(no_tasks_hint(app.keymap()))
         };
         render_message(app, frame, text_area, &message, Slot::Text);
         return;
@@ -285,7 +288,7 @@ fn visual_selection(
 struct ShownRows<'a, 'document> {
     selected: Option<&'a TaskId>,
     visual: &'a HashSet<TaskId>,
-    query: Option<&'a SmartCaseQuery>,
+    query: Option<&'a SmartCaseWords>,
     rows: &'a [PaneRow<'a, 'document>],
 }
 
@@ -499,7 +502,7 @@ impl<'a> TaskRow<'a> {
     /// Highlights the matches of `query` in the description; without a query nothing is
     /// highlighted.
     #[must_use]
-    pub fn highlight(mut self, query: Option<&SmartCaseQuery>, theme: &Theme) -> Self {
+    pub fn highlight(mut self, query: Option<&SmartCaseWords>, theme: &Theme) -> Self {
         self.description.highlight = Highlight::new(query, self.description.text, theme);
         self
     }

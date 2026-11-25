@@ -79,7 +79,8 @@ task open again removes its completion date. Only the selected task changes, nev
 subtasks or parents.
 
 Due dates are set with `D`. The prompt accepts `YYYY-MM-DD`, `today` (`tod`), `tomorrow`
-(`tom`), `yesterday`, `+3d`, `+2w`, `+1m`, `+1y` (the `+` is optional) and weekday names
+(`tom`), `yesterday`, `+3d`, `+2w`, `+1m`, `+1y` (the `+` is optional), offsets into the past
+such as `-3d` or `-1m`, and weekday names
 (`fri`, `friday`: the next such day after today), and previews the date while you type; an
 empty input or `none` removes the due date. `tab` completes these words (`fr` to `friday`, see
 [completion](keybindings.md#picker-go-to-anything-and-folders)), in the recurrence prompt too.
@@ -116,7 +117,9 @@ the text, so a due date set later comes after it: `- [ ] Buy milk [created:: 202
 [due:: 2026-11-27]`; a `created` field typed into the text is kept instead. Pasting is moving,
 not creating: pasted tasks keep their fields as they are and never get a creation date. Tasks
 without the field have no creation date; RuDo does not guess one from the file. The creation
-date is not shown in the tasks pane, and search and go to anything do not match it.
+date is not shown in the tasks pane and text search does not match it, but the query term
+`created:` does, such as `created:>-1m` for tasks created in the last month (see
+[Query terms](keybindings.md#query-terms)).
 
 Lines inside fenced code blocks and front matter are never treated as tasks. Line endings
 (LF or CRLF), a trailing newline and a byte order mark are preserved. Untouched lines are

@@ -1,0 +1,10 @@
+---
+source: tests/query_terms.rs
+expression: system_under_test
+---
+"╭ Lists  /due:today ───╮╭ Home  1/5 ───────────────────────────────────────────╮"
+"│ • Home         2 1/5 ││   [ ] Pay rent #bills                          today │"
+"│   Work         1 0/2 ││ ▾ [ ] Garden                                         │"
+"│                      ││ │   [ ] Water plants                           today │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" /due:today                                                                     "

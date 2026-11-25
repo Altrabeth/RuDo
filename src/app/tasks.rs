@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::mem;
 
 use crate::app::lists::EntryChange;
+use crate::app::query::Query;
 use crate::app::search::{PaneFilter, SearchItem};
 use crate::app::state::{App, Focus};
 use crate::app::task_visibility::CompletedTasks;
@@ -42,8 +43,8 @@ impl<'document> TaskItem<'document> {
 }
 
 impl SearchItem for TaskItem<'_> {
-    fn search_text(&self) -> Option<&str> {
-        Some(self.task.description())
+    fn matches(&self, query: &Query) -> bool {
+        query.matches(self.task)
     }
 
     fn with_role(self, role: FilterRole) -> Self {
@@ -189,6 +190,11 @@ impl TasksPane {
     /// Returns the search filter of the list at `path`, creating it on first use.
     pub(super) fn filter_mut(&mut self, path: &ListPath) -> &mut PaneFilter<TaskId> {
         &mut self.tree_mut(path).filter
+    }
+
+    /// Returns the search filters of every list opened so far.
+    pub(super) fn filters_mut(&mut self) -> impl Iterator<Item = &mut PaneFilter<TaskId>> {
+        self.trees.values_mut().map(|tree| &mut tree.filter)
     }
 
     /// Returns the lists that were opened so far.

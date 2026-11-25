@@ -196,8 +196,14 @@ impl App {
 
     /// Sets the date the application treats as today; the runtime calls it when the date
     /// changes, because the core never reads the clock.
+    ///
+    /// The search filters are parsed again, so that relative dates such as `due:today` follow
+    /// the date.
     pub fn set_today(&mut self, today: Date) {
-        self.today = today;
+        if today != self.today {
+            self.today = today;
+            self.refilter_for_today(today);
+        }
     }
 
     /// Returns whether the user asked to quit; the runtime stops when it is set.

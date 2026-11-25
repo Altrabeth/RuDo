@@ -190,13 +190,19 @@ impl App {
         }
     }
 
-    /// Completes the word before the cursor of an open prompt, or the text of an open picker;
-    /// other text inputs have nothing to complete from.
+    /// Completes the word before the cursor of an open prompt or search prompt, or the text of
+    /// an open picker; other text inputs have nothing to complete from.
     fn complete(&mut self) {
-        if let Mode::Prompt(prompt) = &mut self.mode {
-            prompt.complete(self.today);
-        } else {
-            self.update_picker(PickerCommand::Complete);
+        match &mut self.mode {
+            Mode::Prompt(prompt) => prompt.complete(self.today),
+            &mut Mode::Search(pane) => self.complete_search(pane),
+            Mode::Normal
+            | Mode::Help(_)
+            | Mode::FolderPicker(_)
+            | Mode::GoTo(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Visual => self.update_picker(PickerCommand::Complete),
         }
     }
 

@@ -1,4 +1,5 @@
-//! Due date expressions and their display relative to today.
+//! Date expressions, shared by the due date prompt and the query terms of the search, and the
+//! display of due dates relative to today.
 //!
 //! [`parse_due`] turns what the user types into a [`Date`], [`due_keywords`] lists the words it
 //! understands, [`DueClass`] buckets a due date by urgency and [`RelativeDue`] displays it
@@ -67,6 +68,8 @@ pub enum DateExprError {
 /// - `+Nd`, `+Nw`, `+Nm`, `+Ny`: `N` days, weeks, months or years after today; the `+` is
 ///   optional. Adding months or years clamps to the end of the month, so one month after
 ///   January 31 is the last day of February,
+/// - `-Nd`, `-Nw`, `-Nm`, `-Ny`: `N` days, weeks, months or years before today, clamped in
+///   the same way,
 /// - a weekday (`mon` or `monday`, ...): the next such day strictly after today, so `fri` on a
 ///   Friday means the Friday one week later.
 ///
@@ -85,6 +88,7 @@ pub enum DateExprError {
 ///
 /// let today = date(2026, 11, 24);
 /// assert_eq!(parse_due("+3d", today)?, Some(date(2026, 11, 27)));
+/// assert_eq!(parse_due("-1w", today)?, Some(date(2026, 11, 17)));
 /// assert_eq!(parse_due(" Fri ", today)?, Some(date(2026, 11, 27)));
 /// assert_eq!(parse_due("none", today)?, None);
 /// # Ok::<(), DateExprError>(())
@@ -137,9 +141,9 @@ fn resolve(expression: &str, today: Date) -> Result<Date, DateExprError> {
                 source,
             });
     }
-    if let Some((digits, unit)) = split_offset(expression) {
-        // The digits are validated, so parsing fails only when the count overflows.
-        let count: i64 = digits
+    if let Some((signed_count, unit)) = split_offset(expression) {
+        // The count is validated, so parsing fails only when it overflows.
+        let count: i64 = signed_count
             .parse()
             .map_err(|_overflow| DateExprError::OutOfRange)?;
         return add_offset(today, count, unit);
@@ -185,14 +189,17 @@ fn has_iso_date_shape(expression: &str) -> bool {
         })
 }
 
-/// Splits an offset expression such as `+3d` into its digits and its unit.
+/// Splits an offset expression such as `+3d` or `-1m` into its count with an optional sign,
+/// which parses as an integer, and its unit.
 fn split_offset(expression: &str) -> Option<(&str, OffsetUnit)> {
-    let body = expression.strip_prefix('+').unwrap_or(expression);
-    let (unit_index, unit_suffix) = body.char_indices().next_back()?;
+    let (unit_index, unit_suffix) = expression.char_indices().next_back()?;
     let unit = OffsetUnit::from_suffix(unit_suffix)?;
-    let digits = &body[..unit_index];
+    let signed_count = &expression[..unit_index];
+    let digits = signed_count
+        .strip_prefix(['+', '-'])
+        .unwrap_or(signed_count);
     let is_count = !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit());
-    is_count.then_some((digits, unit))
+    is_count.then_some((signed_count, unit))
 }
 
 /// Adds `count` units to `today`, failing if the result is out of range.
@@ -364,6 +371,11 @@ mod tests {
     #[case::multi_digit("+100d", date(2027, 3, 4))]
     #[case::trimmed_and_upper_case("  ToMorrow\t", date(2026, 11, 25))]
     #[case::upper_case_unit("+3D", date(2026, 11, 27))]
+    #[case::days_back("-3d", date(2026, 11, 21))]
+    #[case::weeks_back("-1w", date(2026, 11, 17))]
+    #[case::months_back("-1m", date(2026, 10, 24))]
+    #[case::years_back("-2y", date(2024, 11, 24))]
+    #[case::zero_days_back("-0d", TODAY)]
     fn parse_due_accepts_expressions(#[case] input: &str, #[case] expected: Date) {
         let system_under_test = parse_due(input, TODAY);
 
@@ -398,6 +410,7 @@ mod tests {
     #[case::jan_31_to_feb_28(date(2026, 1, 31), "+1m", date(2026, 2, 28))]
     #[case::jan_31_to_leap_feb_29(date(2028, 1, 31), "+1m", date(2028, 2, 29))]
     #[case::leap_day_plus_a_year(date(2028, 2, 29), "+1y", date(2029, 2, 28))]
+    #[case::mar_31_back_to_feb_28(date(2026, 3, 31), "-1m", date(2026, 2, 28))]
     fn parse_due_clamps_to_the_end_of_the_month(
         #[case] today: Date,
         #[case] input: &str,
@@ -413,8 +426,11 @@ mod tests {
     #[case::unknown_unit("+3x")]
     #[case::missing_count("+d")]
     #[case::double_plus("++3d")]
-    #[case::minus("-3d")]
+    #[case::double_minus("--3d")]
     #[case::inner_sign("+-3d")]
+    #[case::inner_plus("-+3d")]
+    #[case::minus_only("-")]
+    #[case::missing_count_back("-d")]
     #[case::space_in_offset("+3 d")]
     #[case::plus_only("+")]
     #[case::partial_iso("2026-12")]
@@ -450,6 +466,8 @@ mod tests {
     #[case::huge_days("+99999999d")]
     #[case::years_past_the_maximum("+9000y")]
     #[case::count_overflows_i64("+99999999999999999999999d")]
+    #[case::huge_years_back("-99999y")]
+    #[case::count_back_overflows_i64("-99999999999999999999999d")]
     fn parse_due_rejects_dates_out_of_range(#[case] input: &str) {
         let system_under_test = parse_due(input, TODAY);
 

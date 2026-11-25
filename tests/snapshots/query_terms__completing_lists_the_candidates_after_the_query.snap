@@ -1,0 +1,10 @@
+---
+source: tests/query_terms.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Home  1/5  /is:open ─────────────────────────────────╮"
+"│ • Home           1/5 ││   [ ] Pay rent #bills                          today │"
+"│   Later          0/1 ││ ▾ [ ] Garden                                         │"
+"│   Work           0/2 ││ │   [ ] Water plants                           today │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" /is:open                                                      is:open, is:done "

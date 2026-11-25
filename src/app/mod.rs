@@ -21,6 +21,7 @@ pub mod lists;
 mod lists_order;
 pub mod picker;
 pub mod prompt;
+pub mod query;
 mod register;
 mod reload;
 pub mod search;

@@ -1,8 +1,8 @@
 //! What the help screen shows, generated from the effective [`Keymap`].
 //!
 //! [`help_sections`] lists every [`Action`] once, with the keys the user actually configured,
-//! in the sections of the keybinding tables in `docs/keybindings.md`, followed by the fixed
-//! [`EDITING_KEYS`] of text inputs. [`filter`] narrows the sections to a search query and
+//! in the sections of the keybinding tables in `docs/keybindings.md`, followed by the syntax of
+//! the [`QUERY_TERMS`] and the fixed [`EDITING_KEYS`] of text inputs. [`filter`] narrows the sections to a search query and
 //! [`rows`] flattens them for scrolling. The model is pure, so its correctness is tested
 //! without rendering.
 
@@ -11,6 +11,7 @@ use std::fmt::{self, Display, Formatter, Write};
 use strum::IntoEnumIterator;
 
 use crate::app::filter::SmartCaseQuery;
+use crate::app::query::{QUERY_TERMS, TermSyntax};
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeySequence;
 use crate::config::keymap::keymap::Keymap;
@@ -49,6 +50,8 @@ pub enum HelpHeading {
     HelpAndDialogs,
     /// Choosing a match in a picker: go to anything and the folder picker.
     Picker,
+    /// The query terms of the search and go to anything.
+    QueryTerms,
     /// The fixed editing keys of text inputs.
     EditingKeys,
 }
@@ -66,6 +69,7 @@ impl Display for HelpHeading {
             Self::Bin => "Bin (lists pane)",
             Self::HelpAndDialogs => "Help screen, dialogs and text input",
             Self::Picker => "Picker (go to anything and folders)",
+            Self::QueryTerms => "Query terms (search and go to anything)",
             Self::EditingKeys => "Editing keys in text input",
         })
     }
@@ -78,6 +82,8 @@ pub enum HelpSubject {
     Action(Action),
     /// An editing command of text inputs with fixed keys.
     Edit(EditCommand),
+    /// The syntax of query terms, listed in place of keys.
+    QueryTerm(TermSyntax),
 }
 
 impl HelpSubject {
@@ -86,7 +92,7 @@ impl HelpSubject {
     pub fn name(self) -> Option<&'static str> {
         match self {
             Self::Action(action) => Some(action.into()),
-            Self::Edit(_) => None,
+            Self::Edit(_) | Self::QueryTerm(_) => None,
         }
     }
 }
@@ -114,6 +120,14 @@ impl HelpEntry {
             subject: HelpSubject::Edit(editing_key.command()),
             keys: Some(editing_key.keys().join(KEY_SEPARATOR)),
             description: editing_key.description(),
+        }
+    }
+
+    fn for_term_syntax(syntax: &TermSyntax) -> Self {
+        Self {
+            subject: HelpSubject::QueryTerm(*syntax),
+            keys: Some(syntax.examples().join(KEY_SEPARATOR)),
+            description: syntax.description(),
         }
     }
 
@@ -279,6 +293,7 @@ fn section_entries(heading: HelpHeading, keymap: &Keymap) -> Vec<HelpEntry> {
             .iter()
             .map(HelpEntry::for_editing_key)
             .collect(),
+        HelpHeading::QueryTerms => QUERY_TERMS.iter().map(HelpEntry::for_term_syntax).collect(),
         HelpHeading::Everywhere
         | HelpHeading::MovingAround
         | HelpHeading::Trees
@@ -460,7 +475,7 @@ mod tests {
                 .iter()
                 .filter_map(|entry| match entry.subject() {
                     HelpSubject::Action(action) => Some(action),
-                    HelpSubject::Edit(_) => None,
+                    HelpSubject::Edit(_) | HelpSubject::QueryTerm(_) => None,
                 })
                 .collect();
             assert!(actions.is_sorted(), "{}", section.heading());
@@ -566,6 +581,41 @@ mod tests {
             .collect();
         assert_eq!(section.heading(), HelpHeading::EditingKeys);
         assert_eq!(listed, expected);
+    }
+
+    #[test]
+    fn query_terms_come_from_the_term_syntax_table() {
+        let keymap = keymap("");
+        let expected: Vec<(HelpSubject, String, &str)> = QUERY_TERMS
+            .iter()
+            .map(|syntax| {
+                (
+                    HelpSubject::QueryTerm(*syntax),
+                    syntax.examples().join(", "),
+                    syntax.description(),
+                )
+            })
+            .collect();
+
+        let system_under_test = help_sections(&keymap);
+
+        let section = system_under_test
+            .iter()
+            .find(|section| section.heading() == HelpHeading::QueryTerms)
+            .unwrap();
+        let listed: Vec<(HelpSubject, String, &str)> = section
+            .entries()
+            .iter()
+            .map(|entry| {
+                (
+                    entry.subject(),
+                    entry.keys().to_owned(),
+                    entry.description(),
+                )
+            })
+            .collect();
+        assert_eq!(listed, expected);
+        assert_eq!(HelpSubject::QueryTerm(QUERY_TERMS[0]).name(), None);
     }
 
     #[rstest]

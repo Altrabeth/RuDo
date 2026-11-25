@@ -47,7 +47,8 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(Block::new().style(theme.style(Slot::StatusBar)), area);
     frame.render_widget(right, right_area);
     if let Some(input) = app.search_input() {
-        render_search_prompt(input, theme, frame, left_area);
+        let note = search_note(app, theme);
+        render_search_prompt(input, note, theme, frame, left_area);
         return;
     }
     let left = if let Some(message) = app.status_message() {
@@ -66,17 +67,45 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(left, left_area);
 }
 
+/// Returns what the bottom bar shows after the query of the open search prompt: the words
+/// `tab` cycles through while completing, else why the query is invalid, else nothing.
+fn search_note(app: &App, theme: &Theme) -> Line<'static> {
+    if let Some(candidates) = app.search_completion() {
+        return Line::styled(
+            format!(" {} ", candidates.join(", ")),
+            theme.style(Slot::KeyHintLabel),
+        );
+    }
+    app.search_error()
+        .map_or_default(|error| Line::styled(format!(" {error} "), theme.style(Slot::InputError)))
+}
+
 /// Renders the search prompt into `area`: a blank, the [`PROMPT`] and the typed query with
-/// the cursor.
-fn render_search_prompt(input: &TextInput, theme: &Theme, frame: &mut Frame, area: Rect) {
+/// the cursor, followed by `note` at the right edge.
+fn render_search_prompt(
+    input: &TextInput,
+    note: Line<'_>,
+    theme: &Theme,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let prompt = Line::from_iter([
         Span::raw(" "),
         Span::styled(PROMPT, theme.style(Slot::KeyHint)),
     ]);
     let prompt_width = u16::try_from(prompt.width()).unwrap_or(u16::MAX);
-    let [prompt_area, input_area] =
-        Layout::horizontal([Constraint::Length(prompt_width), Constraint::Fill(1)]).areas(area);
+    // The note gives way to at least half of the area for the query.
+    let note_width = u16::try_from(note.width())
+        .unwrap_or(u16::MAX)
+        .min(area.width / 2);
+    let [prompt_area, input_area, note_area] = Layout::horizontal([
+        Constraint::Length(prompt_width),
+        Constraint::Fill(1),
+        Constraint::Length(note_width),
+    ])
+    .areas(area);
     frame.render_widget(prompt, prompt_area);
+    frame.render_widget(note, note_area);
     TextInputView::new(input, "")
         .style(theme.style(Slot::StatusBar))
         .render_with_cursor(frame, input_area);

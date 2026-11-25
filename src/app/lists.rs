@@ -14,12 +14,14 @@ use crate::app::entry_visibility::HiddenEntries;
 use crate::app::folder_picker::FolderPurpose;
 use crate::app::lists_order::{OrderedEntry, ordered_entries};
 use crate::app::prompt::PromptKind;
+use crate::app::query::Query;
 use crate::app::search::{PaneFilter, SearchItem};
 use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
 use crate::config::ListOrder;
 use crate::config::keymap::action::Action;
+use crate::markdown::task_line::TaskLine;
 use crate::paths::portable;
 use crate::storage::bin::BinEntry;
 use crate::storage::workspace::{Entry, Folder, List, ListPath, Workspace, moved_path};
@@ -145,12 +147,16 @@ impl<'workspace> TreeItem<'workspace> {
 }
 
 impl SearchItem for TreeItem<'_> {
-    /// Lists match by name; folders are only shown because they contain a match, and the
-    /// bin never while filtering.
-    fn search_text(&self) -> Option<&str> {
+    /// Lists match by name and, with terms, if they contain a task that matches the terms;
+    /// folders are only shown because they contain a match, and the bin never while
+    /// filtering.
+    fn matches(&self, query: &Query) -> bool {
         match self.row {
-            TreeRow::Entry(Entry::List(list)) => Some(list.name()),
-            TreeRow::Entry(Entry::Folder(_)) | TreeRow::Bin(_) => None,
+            TreeRow::Entry(Entry::List(list)) => {
+                query.words().matches(list.name())
+                    && (!query.has_terms() || term_matches(list, query).next().is_some())
+            }
+            TreeRow::Entry(Entry::Folder(_)) | TreeRow::Bin(_) => false,
         }
     }
 
@@ -169,6 +175,20 @@ impl OutlineItem for TreeItem<'_> {
     fn depth(&self) -> usize {
         self.depth
     }
+}
+
+/// Returns the tasks of `list` that match the terms of `query`, completed ones included; none
+/// if the list could not be loaded.
+pub fn term_matches<'list>(
+    list: &'list List,
+    query: &Query,
+) -> impl Iterator<Item = &'list TaskLine> {
+    list.content()
+        .ok()
+        .into_iter()
+        .flat_map(|loaded| loaded.document().tasks())
+        .map(|node| node.task())
+        .filter(|task| query.matches_terms(*task))
 }
 
 /// Returns the folders and lists of `workspace` that `hidden_entries` shows, the entries of
@@ -882,7 +902,7 @@ mod tests {
         assert_eq!(system_under_test.len(), 2);
         assert_eq!(system_under_test[1].key(), &expected);
         assert!(matches!(system_under_test[1].row(), TreeRow::Bin([_])));
-        assert_eq!(system_under_test[1].search_text(), None);
+        assert!(!system_under_test[1].matches(&Query::default()));
     }
 
     #[rstest]

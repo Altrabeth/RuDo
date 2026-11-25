@@ -1,0 +1,10 @@
+---
+source: tests/query_terms.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Home  1/5  /due:blah ────────────────────────────────╮"
+"│ • Home           1/5 ││ No matches                                           │"
+"│   Later          0/1 ││                                                      │"
+"│   Work           0/2 ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" /due:blah                                  due: unknown date expression `blah` "

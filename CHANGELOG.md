@@ -23,18 +23,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `fr` to `friday` in the due date prompt (`D`), `ev` to `every` and `every 2 w` to
   `every 2 weeks` in the recurrence prompt (`r`). Ambiguous words cycle through the
   candidates, which the hint lists, and back to the typed text; the preview follows. The
-  prompts for names and the search ignore `tab`.
+  prompts for names ignore `tab`.
 - **Sorting the lists pane.** `s d`, `s p`, `s o`, `s t` and `s a` order the folders and lists
   of every folder by urgency (the earliest due date of the open tasks), priority, open tasks,
   total tasks or name, folders first and ordered by everything below them, ties by name.
   The order is a view that changes no file, is named in the pane title (`Lists by due`), stays
   for the session and follows every edit and reload; `lists.sort` sets it at start. Ordering a
   workspace of 10,000 tasks takes well under a millisecond in a release build.
+- **Query terms.** The search (`/`) of both panes and go to anything (`ctrl-p`) find tasks
+  by their data: `due:today`, `due:<=fri`, `due:overdue`, `due:none`, `created:>-1m`,
+  `done:<=-1w`, `priority:>=medium`, `#tag` (also nested tags) and `is:open`, combined with
+  text words, all of which must match. With a term, the lists pane shows the lists that
+  contain a matching task with the number of matches, and go to anything offers only tasks.
+  An invalid value such as `due:blah` shows an error next to the query. `tab` in the search
+  completes terms (`due:to` to `due:today`), and the help screen lists them under "Query
+  terms". Date expressions everywhere also accept offsets into the past: `-3d`, `-1w`,
+  `-1m`, `-1y`.
 
 ### Changed
 
 - The sort keys have their own section on the help screen and in the keybinding tables,
   `Sorting (lists pane and tasks pane)`.
+- **Search words match on their own.** The words of a search query match in any order, each
+  with its own smart case, so `milk buy` finds `Buy milk`.
 
 ## [1.0.0] - 2026-11-25
 

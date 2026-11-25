@@ -44,7 +44,8 @@ the same tasks from the terminal and from Obsidian at the same time.
   colour-coded relative display (`tomorrow`, `in 3d`, `2d overdue`).
 - **Priorities, tags and recurring tasks.** Completing a recurring task creates its next
   occurrence.
-- **Search and filter** any pane with `/`, with vim-style smart case.
+- **Search and filter** any pane with `/`, with vim-style smart case and query terms such
+  as `due:today`, `created:>-1m`, `priority:high`, `#tag` or `is:open`.
 - **Go to anything** with `ctrl-p`: a fuzzy finder over every folder, list and task of the
   workspace that jumps to the chosen one.
 - **Fuzzy folder picker** like fzf for moving lists and folders (`m`), with `tab` completion.

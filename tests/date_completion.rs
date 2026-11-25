@@ -191,7 +191,7 @@ fn task_text_ignores_tab() {
 }
 
 #[test]
-fn search_ignores_tab() {
+fn search_without_a_fitting_query_term_ignores_tab() {
     let mut test_app = TestApp::new(FILES);
     test_app.press("tab /").type_text("to").press("tab");
 

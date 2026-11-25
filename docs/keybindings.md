@@ -22,7 +22,9 @@ typed one key after the other; the keys typed so far are shown in the bottom bar
 | `e`             | `open-in-editor`   | open the list in your editor at the selected task   |
 
 `/` opens a search prompt in the bottom bar and filters the focused pane while you type,
-with vim's smart case: a query without capital letters ignores case. The tasks pane shows
+with vim's smart case: a word without capital letters ignores case. Every word must match,
+in any order, and [query terms](#query-terms) such as `due:today` or `#home` match tasks by
+their dates and fields. The tasks pane shows
 matching tasks with their parent tasks dimmed, ignoring folds; the lists pane shows matching
 list names with their folders. `enter` keeps the filter (the pane title shows `/query`),
 `esc` in the prompt or in the pane removes it. Every list has its own filter. Tasks you add
@@ -275,8 +277,47 @@ below the input lists them and each `tab` shows the next one, then the typed tex
 while the preview shows the date or rule of the word shown; typing or moving the cursor accepts
 it. Without a fitting word nothing changes. The recurrence prompt offers only the words valid
 at their position: `every`, then a unit (`day`, `week`, `month`, `year`), or its plural after
-an interval (`every 2 w` to `every 2 weeks`). The prompts for names and the search ignore
-`tab`.
+an interval (`every 2 w` to `every 2 weeks`). In the search prompt (`/`) `tab` completes
+[query terms](#query-terms) such as `due:to` to `due:today`, listing the candidates after the
+query. The prompts for names ignore `tab`.
+
+## Query terms
+
+The search (`/`) of both panes and go to anything (`ctrl-p`) find tasks by their dates and
+fields, not only by their text. A query is a list of words separated by spaces, all of which
+must match. A word with one of the prefixes below is a term; every other word is text, also a
+word with an unknown prefix such as `foo:bar`:
+
+| Terms                 | Matches                                         |
+| --------------------- | ----------------------------------------------- |
+| `due:today`           | due on that day (today, fri, +3d, -1w, 2026-12-01) |
+| `due:<=fri`           | due before or after that day (<, <=, >, >=)     |
+| `due:overdue`         | open and due before today                       |
+| `due:none`, `due:any` | without or with a due date                      |
+| `created:>-1m`        | created in the last month (dates as for due)    |
+| `done:<=-1w`          | completed a week ago or earlier                 |
+| `priority:>=medium`   | priority (lowest, low, medium, high, highest)   |
+| `#tag`                | with the tag or a tag nested in it              |
+| `is:open`, `is:done`  | open, or done or cancelled                      |
+
+Dates are the expressions of the due date prompt (`D`) relative to today, including offsets
+into the past such as `-3d`, `-1w`, `-1m` and `-1y`; a weekday is the next one after today. A task
+whose field holds no `YYYY-MM-DD` date has no such date. `created:` and `done:` take the same
+values as `due:` but `overdue`, so `created:none` finds tasks without a creation date. A task
+without a priority, or with an unknown one, has normal priority, which lies between `low` and
+`medium`: `priority:>low` includes it. Tags ignore case, and `#home` also finds `#home/garden`.
+Term values ignore case; prefixes are lower case.
+Smart case applies to the text words only, each on its own, so `milk Buy` finds `Buy oat
+milk`. A term with an invalid value, such as `due:blah`, shows the error next to the query
+and matches nothing until it is fixed.
+
+- In the tasks pane, the matching tasks are shown with their parent tasks, as for text.
+- In the lists pane, a query with at least one term shows the lists that contain a matching
+  task, completed ones included, with their folders and the number of matches before the
+  `done/total` counter; text words still match list names. `due:today is:open` lists where
+  something is due today.
+- In go to anything, a query with at least one term offers only tasks; the text words rank
+  them as before.
 
 ## Key notation
 

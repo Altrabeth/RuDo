@@ -2,7 +2,8 @@
 //! lists and tasks pane.
 //!
 //! As in vim with `ignorecase` and `smartcase`, a query matches regardless of case unless it
-//! contains an upper-case letter.
+//! contains an upper-case letter. [`SmartCaseWords`] applies this to every word of a query
+//! on its own, all of which must match.
 
 use std::iter;
 use std::ops::Range;
@@ -108,10 +109,71 @@ impl SmartCaseQuery {
     }
 }
 
+/// The words of a search query, each a [`SmartCaseQuery`] of its own, which a text matches if
+/// it contains every word, in any order.
+///
+/// # Examples
+///
+/// ```
+/// use rudo::app::filter::SmartCaseWords;
+///
+/// let words = SmartCaseWords::new("milk Buy");
+/// assert!(words.matches("Buy oat milk"));
+/// assert!(!words.matches("buy oat milk"));
+/// assert_eq!(words.match_ranges("Buy oat milk"), [0..3, 8..12]);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct SmartCaseWords {
+    words: Vec<SmartCaseQuery>,
+}
+
+impl SmartCaseWords {
+    /// Splits `text` at whitespace into words, each case-sensitive only if it contains an
+    /// upper-case letter.
+    #[must_use]
+    pub fn new(text: &str) -> Self {
+        Self {
+            words: text.split_whitespace().map(SmartCaseQuery::new).collect(),
+        }
+    }
+
+    /// Tells whether there are no words, which match everything.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.words.is_empty()
+    }
+
+    /// Tells whether `haystack` contains every word.
+    #[must_use]
+    pub fn matches(&self, haystack: &str) -> bool {
+        self.words.iter().all(|word| word.matches(haystack))
+    }
+
+    /// Returns the byte ranges of the occurrences of every word in `haystack`, for
+    /// highlighting them: in order, with overlapping and adjacent ranges merged.
+    #[must_use]
+    pub fn match_ranges(&self, haystack: &str) -> Vec<Range<usize>> {
+        let mut ranges: Vec<Range<usize>> = self
+            .words
+            .iter()
+            .flat_map(|word| word.match_ranges(haystack))
+            .collect();
+        ranges.sort_unstable_by_key(|range| range.start);
+        ranges.dedup_by(|next, merged| {
+            let overlaps = next.start <= merged.end;
+            if overlaps {
+                merged.end = merged.end.max(next.end);
+            }
+            overlaps
+        });
+        ranges
+    }
+}
+
 /// Returns how many bytes at the start of `text` match `lowercase_needle` when compared in
 /// lower case, or `None` if `text` does not start with it; compares without allocating a
 /// lower-case copy of `text`.
-fn matched_length(text: &str, lowercase_needle: &str) -> Option<usize> {
+pub(crate) fn matched_length(text: &str, lowercase_needle: &str) -> Option<usize> {
     let mut needle = lowercase_needle.chars().peekable();
     for (offset, character) in text.char_indices() {
         if needle.peek().is_none() {
@@ -178,6 +240,58 @@ mod tests {
             .collect();
 
         assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::no_words_match_everything("", "move down", true)]
+    #[case::whitespace_only("  \t ", "move down", true)]
+    #[case::every_word_in_any_order("down move", "move down", true)]
+    #[case::one_word_missing("move up", "move down", false)]
+    #[case::smart_case_per_word("Move down", "Move DOWN", true)]
+    #[case::uppercase_word_respects_case("move Down", "move down", false)]
+    fn words_match_if_the_text_contains_every_word(
+        #[case] words: &str,
+        #[case] text: &str,
+        #[case] expected: bool,
+    ) {
+        let words = SmartCaseWords::new(words);
+
+        let system_under_test = words.matches(text);
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::none("", "move down", &[])]
+    #[case::in_text_order("down move", "move down", &[(0, 4), (5, 9)])]
+    #[case::overlapping_merged("mov ove", "move", &[(0, 4)])]
+    #[case::adjacent_merged("mo ve", "move", &[(0, 4)])]
+    #[case::contained_merged("move ov", "move", &[(0, 4)])]
+    #[case::missing_word_highlights_the_others("move up", "move down", &[(0, 4)])]
+    fn word_ranges_are_ordered_and_merged(
+        #[case] words: &str,
+        #[case] text: &str,
+        #[case] expected: &[(usize, usize)],
+    ) {
+        let words = SmartCaseWords::new(words);
+
+        let system_under_test: Vec<(usize, usize)> = words
+            .match_ranges(text)
+            .into_iter()
+            .map(|range| (range.start, range.end))
+            .collect();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::empty("", true)]
+    #[case::blank(" ", true)]
+    #[case::word("x", false)]
+    fn words_are_empty_only_without_a_word(#[case] words: &str, #[case] expected: bool) {
+        let system_under_test = SmartCaseWords::new(words);
+
+        assert_eq!(system_under_test.is_empty(), expected);
     }
 
     #[rstest]

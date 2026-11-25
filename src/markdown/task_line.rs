@@ -582,18 +582,19 @@ impl TaskLine {
     /// has no such field or its value is not a `YYYY-MM-DD` date.
     #[must_use]
     pub fn created(&self) -> Option<Date> {
-        self.date(&FieldKey::Created)
+        self.field_date(&FieldKey::Created)
     }
 
     /// Returns the due date, or `None` if the task has no due field or its value is no date.
     #[must_use]
     pub fn due(&self) -> Option<Date> {
-        self.date(&FieldKey::Due)
+        self.field_date(&FieldKey::Due)
     }
 
-    /// Returns the date in the first field with `key`, or `None` if there is no such field or
-    /// its value is no date.
-    fn date(&self, key: &FieldKey) -> Option<Date> {
+    /// Returns the date in the first field with `key`, such as the completion date, or `None`
+    /// if there is no such field or its value is no date.
+    #[must_use]
+    pub fn field_date(&self, key: &FieldKey) -> Option<Date> {
         self.field(key)?.value().parse().ok()
     }
 
@@ -1271,6 +1272,27 @@ mod tests {
         let task = parse_task(line);
 
         let system_under_test = task.created();
+
+        assert_eq!(system_under_test, expected);
+    }
+
+    #[rstest]
+    #[case::due("- [ ] a [due:: 2026-11-25]", FieldKey::Due, Some(date(2026, 11, 25)))]
+    #[case::completion(
+        "- [x] a [completion:: 2026-11-20]",
+        FieldKey::Completion,
+        Some(date(2026, 11, 20))
+    )]
+    #[case::no_date("- [ ] a [due:: tomorrow]", FieldKey::Due, None)]
+    #[case::other_field("- [ ] a [due:: 2026-11-25]", FieldKey::Completion, None)]
+    fn field_date_parses_the_value_as_a_date(
+        #[case] line: &str,
+        #[case] key: FieldKey,
+        #[case] expected: Option<Date>,
+    ) {
+        let task = parse_task(line);
+
+        let system_under_test = task.field_date(&key);
 
         assert_eq!(system_under_test, expected);
     }

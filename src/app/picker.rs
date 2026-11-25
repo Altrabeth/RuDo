@@ -2,14 +2,19 @@
 //! match the typed text, like fzf.
 //!
 //! [`Picker`] knows nothing about what its candidates are; anything that implements
-//! [`PickerCandidate`] can be picked, such as the folders of the folder picker. The results
+//! [`PickerCandidate`] can be picked, such as the folders of the folder picker. A picker
+//! opened [`with_terms`](Picker::with_terms) reads the typed text as a [`Query`]: its terms
+//! keep only the candidates that match them, and its text words rank them. The results
 //! are ranked once per change of the text, so moving the selection and drawing never match
 //! again, and the widget [`PickerPopup`](crate::ui::picker::PickerPopup) draws only the rows
 //! that are visible.
 
 use std::ops::Range;
 
+use jiff::civil::Date;
+
 use crate::app::fuzzy::{FuzzyMatcher, FuzzyQuery};
+use crate::app::query::Query;
 use crate::config::keymap::key::KeyChord;
 use crate::config::theme::Slot;
 use crate::ui::text_input::{TextChange, TextInput};
@@ -44,6 +49,21 @@ pub trait PickerCandidate {
     fn location(&self) -> Option<&str> {
         None
     }
+
+    /// Tells whether the candidate matches the terms of `query`, in a picker opened
+    /// [`with_terms`](Picker::with_terms); candidates without task data never do.
+    fn matches_terms(&self, _query: &Query) -> bool {
+        false
+    }
+}
+
+/// How a [`Picker`] reads the typed text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Syntax {
+    /// All of it is matched fuzzily.
+    Text,
+    /// As a [`Query`] relative to today.
+    Terms { today: Date },
 }
 
 /// A change of the selection or the text of a picker that a key triggers, for any kind of
@@ -108,6 +128,9 @@ pub struct Picker<C> {
     /// Index into the results; `0` while there are none.
     selected: usize,
     matcher: FuzzyMatcher,
+    syntax: Syntax,
+    /// Why the typed query is invalid, which leaves no results.
+    query_error: Option<String>,
 }
 
 impl<C: PickerCandidate> Picker<C> {
@@ -115,12 +138,26 @@ impl<C: PickerCandidate> Picker<C> {
     /// given order with the first one selected.
     #[must_use]
     pub fn new(candidates: Vec<C>) -> Self {
+        Self::with_syntax(candidates, Syntax::Text)
+    }
+
+    /// Opens a picker like [`Picker::new`] that reads the typed text as a [`Query`] relative to
+    /// `today`: with at least one term only candidates that match the terms are listed, ranked
+    /// by the text words.
+    #[must_use]
+    pub fn with_terms(candidates: Vec<C>, today: Date) -> Self {
+        Self::with_syntax(candidates, Syntax::Terms { today })
+    }
+
+    fn with_syntax(candidates: Vec<C>, syntax: Syntax) -> Self {
         let mut picker = Self {
             input: TextInput::new(),
             candidates,
             results: Vec::new(),
             selected: 0,
             matcher: FuzzyMatcher::default(),
+            syntax,
+            query_error: None,
         };
         picker.rank();
         picker
@@ -157,6 +194,12 @@ impl<C: PickerCandidate> Picker<C> {
     #[must_use]
     pub fn selected_index(&self) -> Option<usize> {
         (self.selected < self.results.len()).then_some(self.selected)
+    }
+
+    /// Returns why the typed query is invalid, or `None` while it is valid.
+    #[must_use]
+    pub fn query_error(&self) -> Option<&str> {
+        self.query_error.as_deref()
     }
 
     /// Returns the selected candidate, or `None` without results.
@@ -224,15 +267,32 @@ impl<C: PickerCandidate> Picker<C> {
     /// Ranks the candidates against the typed text, best first and otherwise in their given
     /// order, and selects the best match.
     fn rank(&mut self) {
-        let query = FuzzyQuery::new(self.input.value());
-        let matcher = &mut self.matcher;
         self.results.clear();
+        self.selected = 0;
+        self.query_error = None;
+        match self.syntax {
+            Syntax::Text => self.rank_matching(&FuzzyQuery::new(self.input.value()), None),
+            Syntax::Terms { today } => match Query::parse(self.input.value(), today) {
+                Ok(query) => {
+                    let terms = query.has_terms().then_some(&query);
+                    self.rank_matching(&FuzzyQuery::new(query.text()), terms);
+                }
+                Err(error) => self.query_error = Some(error.to_string()),
+            },
+        }
+    }
+
+    /// Ranks the candidates that match the terms of `terms`, or all of them without terms,
+    /// against `text`.
+    fn rank_matching(&mut self, text: &FuzzyQuery, terms: Option<&Query>) {
+        let matcher = &mut self.matcher;
         self.results.extend(
             self.candidates
                 .iter()
                 .enumerate()
+                .filter(|(_, candidate)| terms.is_none_or(|query| candidate.matches_terms(query)))
                 .filter_map(|(index, candidate)| {
-                    let found = matcher.score(&query, candidate.text(), candidate.name_start())?;
+                    let found = matcher.score(text, candidate.text(), candidate.name_start())?;
                     Some(Ranked {
                         candidate: index,
                         score: found.score(),
@@ -243,7 +303,6 @@ impl<C: PickerCandidate> Picker<C> {
         // A stable sort keeps the given order among equal scores.
         self.results
             .sort_by_key(|ranked| std::cmp::Reverse(ranked.score));
-        self.selected = 0;
     }
 }
 
@@ -273,16 +332,27 @@ impl<C: PickerCandidate> PickerPrompt<C> {
         }
     }
 
+    /// Opens a prompt like [`PickerPrompt::new`] whose picker reads query terms, see
+    /// [`Picker::with_terms`].
+    #[must_use]
+    pub fn with_terms(candidates: Vec<C>, today: Date) -> Self {
+        Self {
+            picker: Picker::with_terms(candidates, today),
+            error: None,
+        }
+    }
+
     /// Returns the picker with the typed text and the matching candidates.
     #[must_use]
     pub const fn picker(&self) -> &Picker<C> {
         &self.picker
     }
 
-    /// Returns why the last choice was refused, until the text or the selection changes.
+    /// Returns why the last choice was refused, until the text or the selection changes, or
+    /// else why the typed query is invalid.
     #[must_use]
     pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+        self.error.as_deref().or_else(|| self.picker.query_error())
     }
 
     /// Shows `error` as the reason why the selected choice was refused.

@@ -113,9 +113,10 @@ task is hidden together with its parent.
 `H` in the lists pane shows and hides hidden folders and lists instead (`toggle-hidden`); a
 binding of `toggle-completed` in your configuration only applies in the tasks pane.
 
-`m` asks for the folder that receives the selected list or folder, relative to the workspace
-folder (`Home/Garden`); empty text moves it to the top level. A folder cannot be moved into
-itself, and an entry with the same name in the target folder is never replaced.
+`m` asks for the folder that receives the selected list or folder in the
+[picker](#picker): type a few letters of the folder, such as `gar` for `Home/Garden`, and
+press `enter`; `/` is the top level of the workspace. A folder cannot be moved into itself,
+and an entry with the same name in the target folder is never replaced.
 
 ## Visual mode (lists pane, tasks pane and bin)
 
@@ -160,7 +161,7 @@ The tasks pane shows the tasks of the selected list, read-only. `R` moves the en
 original path; if another entry took that path in the meantime, RuDo says so and leaves the
 entry in the bin, so rename or move the other entry first. Entries that another program, such
 as Obsidian, put into the bin have no known original path, and `R` asks for the folder that
-receives them. `u` undoes a restore like any other change.
+receives them in the [picker](#picker). `u` undoes a restore like any other change.
 
 `d d` in the bin deletes the selected entry permanently and `E` deletes everything in the bin
 permanently, also files that are not lists; both ask first, saying what is deleted
@@ -185,8 +186,8 @@ undone.`); if some cannot be deleted, one message names them.
 | `?`, `q`, `esc`      | `close-help`  | help screen   | close the help screen       |
 | `y`, `enter`         | `confirm-yes` | dialogs       | confirm                     |
 | `n`, `esc`           | `confirm-no`  | dialogs       | cancel                      |
-| `enter`              | `submit`      | text input    | accept the text             |
-| `esc`, `ctrl-c`      | `cancel`      | text input, visual mode (also in the bin) | discard the text, or end the selection |
+| `enter`              | `submit`      | text input, picker | accept the text        |
+| `esc`, `ctrl-c`      | `cancel`      | text input, picker, visual mode (also in the bin) | discard the text, or end the selection |
 
 While typing, these editing keys are fixed: `left`, `right`, `ctrl-left` and `ctrl-right`
 (word), `home` or `ctrl-a`, `end` or `ctrl-e`, `backspace`, `delete`, `ctrl-w` (delete the
@@ -195,6 +196,25 @@ Pasted text is inserted into an open text input and ignored everywhere else, so 
 triggers commands.
 
 Vim users who expect `esc` to keep the typed text can bind `esc` to `submit` instead.
+
+## Picker
+
+| Keys             | Action            | Description                                                      |
+| ---------------- | ----------------- | ---------------------------------------------------------------- |
+| `down`, `ctrl-n` | `picker-next`     | select the next match                                            |
+| `up`, `ctrl-p`   | `picker-previous` | select the previous match                                        |
+| `tab`            | `complete`        | complete the text to the selected match; again for the next one  |
+
+Wherever RuDo asks for a folder (`m`, and `R` in the bin for entries of unknown origin), it
+opens a picker like fzf: the folders of the workspace that match the typed text are listed
+below it, the best match first, with the matched letters highlighted and the position in the
+bottom border (`1-10/42`). The letters only need to appear in order (`hgar` finds
+`Home/Garden`), matches in the folder name rank before matches in its parents, and case
+follows the smart case of `/`. `/` stands for the top level of the workspace; hidden folders
+are listed while `H` shows them, the bin never. `tab` puts the selected folder into the input
+and, pressed again, the next one. `enter` takes the selected folder, or the typed path if
+nothing matches, which reports a folder that does not exist (create it with `O` first);
+`esc` cancels. The [editing keys](#help-screen-dialogs-and-text-input) work in the input.
 
 ## Key notation
 

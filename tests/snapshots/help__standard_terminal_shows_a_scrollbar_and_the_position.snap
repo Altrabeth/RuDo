@@ -24,5 +24,5 @@ expression: system_under_test
 "│   │  P                 paste above the selected task                     │   │"
 "│   │  J                 swap with the next sibling                        │   │"
 "│   │  K                 swap with the previous sibling                    │   │"
-"╰───╰──────────────────────────────────────────────────────────── 25-44/81 ╯───╯"
+"╰───╰──────────────────────────────────────────────────────────── 25-44/85 ╯───╯"
 " / search                                                               ? close "

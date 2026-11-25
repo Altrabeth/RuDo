@@ -143,6 +143,7 @@ const fn hint_actions(context: Context, focus: Focus) -> &'static [Action] {
         Context::Help => &[Action::Search],
         Context::Dialog => &[Action::ConfirmYes, Action::ConfirmNo],
         Context::Input => &[Action::Submit, Action::Cancel],
+        Context::Picker => &[Action::Complete, Action::Submit, Action::Cancel],
     }
 }
 
@@ -153,7 +154,11 @@ const fn pinned_action(context: Context) -> Option<Action> {
     match context {
         Context::Lists | Context::Tasks | Context::Bin => Some(Action::Help),
         Context::Help => Some(Action::CloseHelp),
-        Context::Visual | Context::BinVisual | Context::Dialog | Context::Input => None,
+        Context::Visual
+        | Context::BinVisual
+        | Context::Dialog
+        | Context::Input
+        | Context::Picker => None,
     }
 }
 
@@ -340,6 +345,7 @@ mod tests {
     #[case::bin_visual(Context::BinVisual, None)]
     #[case::dialog(Context::Dialog, None)]
     #[case::input(Context::Input, None)]
+    #[case::picker(Context::Picker, None)]
     fn pinned_action_says_how_to_open_or_leave_the_help(
         #[case] context: Context,
         #[case] expected: Option<Action>,

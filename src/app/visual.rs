@@ -45,6 +45,7 @@ impl App {
             Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_) => None,
@@ -58,6 +59,7 @@ impl App {
             Mode::Visual => self.end_visual_mode(),
             Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_) => {}
@@ -97,6 +99,7 @@ impl App {
             Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_) => {}

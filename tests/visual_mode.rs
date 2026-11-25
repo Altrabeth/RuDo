@@ -12,7 +12,7 @@ use ratatui::backend::TestBackend;
 use ratatui::style::Modifier;
 use rstest::rstest;
 use rudo::app::confirm::ConfirmOverlay;
-use rudo::app::prompt::PromptOverlay;
+use rudo::app::folder_picker::FolderPicker;
 use rudo::app::{Mode, StatusMessage};
 
 use crate::common::TestApp;
@@ -44,10 +44,10 @@ fn confirm_of(test_app: &TestApp) -> &ConfirmOverlay {
     }
 }
 
-fn prompt_of(test_app: &TestApp) -> &PromptOverlay {
+fn folder_picker_of(test_app: &TestApp) -> &FolderPicker {
     match test_app.app().mode() {
-        Mode::Prompt(prompt) => prompt,
-        mode => panic!("no prompt is open, the mode is {mode:?}"),
+        Mode::FolderPicker(folder_picker) => folder_picker,
+        mode => panic!("no folder picker is open, the mode is {mode:?}"),
     }
 }
 
@@ -393,24 +393,14 @@ fn move_onto_an_existing_name_is_refused() {
 #[rstest]
 #[case::into_itself("Home", "cannot move folder Home into itself")]
 #[case::missing_folder("Garden", "there is no folder Garden")]
-fn invalid_move_target_keeps_the_prompt_open(#[case] target: &str, #[case] expected: &str) {
+fn invalid_move_target_keeps_the_picker_open(#[case] target: &str, #[case] expected: &str) {
     let mut test_app = TestApp::new(LISTS);
     test_app.press("g g m").type_text(target).press("enter");
 
-    let system_under_test = prompt_of(&test_app).prompt().error();
+    let system_under_test = folder_picker_of(&test_app).error();
 
     assert_eq!(system_under_test, Some(expected));
     assert!(exists(&test_app, "Home/Chores.md"));
-}
-
-#[test]
-fn move_prompt_shows_the_hint() {
-    let mut test_app = TestApp::new(LISTS);
-    test_app.press("G m");
-
-    let system_under_test = test_app.render(80, 12);
-
-    assert_snapshot!(system_under_test);
 }
 
 #[test]

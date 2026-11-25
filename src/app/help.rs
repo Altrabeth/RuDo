@@ -211,6 +211,7 @@ impl App {
             Mode::Help(_) => self.mode = Mode::Normal,
             Mode::Normal
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)
@@ -249,6 +250,7 @@ mod tests {
             Mode::Help(help) => help,
             Mode::Normal
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)

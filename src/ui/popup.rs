@@ -246,14 +246,19 @@ fn confirm_keys(keymap: &Keymap, theme: &Theme) -> Line<'static> {
 }
 
 /// The border shared by all popups, without title and styles.
-fn popup_block() -> Block<'static> {
+pub(crate) fn popup_block() -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
         .padding(Padding::horizontal(1))
 }
 
 /// Clears `popup`, draws the border titled `title` around it and returns the area inside.
-fn render_popup_block(title: &str, popup: Rect, buffer: &mut Buffer, theme: &Theme) -> Rect {
+pub(crate) fn render_popup_block(
+    title: &str,
+    popup: Rect,
+    buffer: &mut Buffer,
+    theme: &Theme,
+) -> Rect {
     let block = popup_block()
         .style(theme.style(Slot::Text))
         .border_style(theme.style(Slot::PopupBorder))

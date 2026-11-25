@@ -2,7 +2,8 @@
 //!
 //! The panes split their text into styled parts, such as tags in a task description;
 //! [`Highlight::push_spans`] splits each part further where a match begins or ends, so a match
-//! keeps the style of the part it is in, patched with the `search_match` style.
+//! keeps the style of the part it is in, patched with the `search_match` style. The fuzzy
+//! picker highlights the characters its matcher found with [`push_highlighted_spans`].
 
 use std::ops::Range;
 
@@ -38,29 +39,43 @@ impl Highlight {
         offset: usize,
         style: Style,
     ) {
-        let end = offset + part.len();
-        let mut position = offset;
-        for found in self
-            .matches
-            .iter()
-            .filter(|found| found.start < end && found.end > offset)
-        {
-            let start = found.start.max(position);
-            let stop = found.end.min(end);
-            if start > position {
-                spans.push(Span::styled(
-                    &part[position - offset..start - offset],
-                    style,
-                ));
-            }
-            spans.push(Span::styled(
-                &part[start - offset..stop - offset],
-                style.patch(self.style),
-            ));
-            position = stop;
-        }
-        spans.push(Span::styled(&part[position - offset..], style));
+        push_highlighted_spans(spans, part, offset, style, &self.matches, self.style);
     }
+}
+
+/// Appends `part`, the part of a text that starts at byte `offset`, to `spans` in `style`,
+/// with every part of `matches` inside it patched with `highlight`.
+///
+/// `matches` are byte ranges of the whole text, in order and not overlapping.
+pub(crate) fn push_highlighted_spans<'a>(
+    spans: &mut Vec<Span<'a>>,
+    part: &'a str,
+    offset: usize,
+    style: Style,
+    matches: &[Range<usize>],
+    highlight: Style,
+) {
+    let end = offset + part.len();
+    let mut position = offset;
+    for found in matches
+        .iter()
+        .filter(|found| found.start < end && found.end > offset)
+    {
+        let start = found.start.max(position);
+        let stop = found.end.min(end);
+        if start > position {
+            spans.push(Span::styled(
+                &part[position - offset..start - offset],
+                style,
+            ));
+        }
+        spans.push(Span::styled(
+            &part[start - offset..stop - offset],
+            style.patch(highlight),
+        ));
+        position = stop;
+    }
+    spans.push(Span::styled(&part[position - offset..], style));
 }
 
 #[cfg(test)]

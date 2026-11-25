@@ -45,6 +45,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `sudo dnf install ./rudo-tui-<version>-1.x86_64.rpm`), and an Arch package built from the
   PKGBUILD (`sudo pacman -U ./rudo-tui-<version>-1-x86_64.pkg.tar.zst`), each with its SHA-256
   checksum. CI installs every package in a Debian, Fedora, openSUSE or Arch container.
+- **Fuzzy folder picker.** Moving lists and folders (`m`) and restoring entries of the bin
+  whose original folder is unknown (`R`) ask for the folder with a picker like fzf instead of
+  a text prompt: the matching folders are listed while you type, the best match first with
+  the matched letters highlighted; `up`/`down` or `ctrl-p`/`ctrl-n` select, `tab` completes
+  and cycles, `enter` accepts. The new actions `picker-next`, `picker-previous` and
+  `complete` can be rebound.
 
 ### Fixed
 

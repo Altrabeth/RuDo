@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use jiff::civil::Date;
 
 use crate::app::effect::Effect;
-use crate::app::lists::{EntryKey, check_move_target};
 use crate::app::state::{App, Mode};
 use crate::app::task_due::{DUE_DATE_HINT, due_preview, parse_due_text};
 use crate::app::task_recurrence::{RECURRENCE_HINT, parse_recurrence_text, recurrence_preview};
@@ -46,12 +45,6 @@ pub enum PromptKind {
         /// The entry to rename.
         path: PathBuf,
     },
-    /// The folder that receives the lists and folders `entries`, relative to the workspace
-    /// root and empty for the root itself.
-    MoveToFolder {
-        /// The lists and folders to move.
-        entries: Vec<EntryKey>,
-    },
     /// The due date of the task `task` in the list at `list`, as a due date expression.
     DueDate {
         /// The list that holds the task.
@@ -65,13 +58,6 @@ pub enum PromptKind {
         list: ListPath,
         /// The task whose recurrence rule is set or cleared.
         task: TaskId,
-    },
-    /// The folder that receives those entries of the bin at `locations` whose original path
-    /// is unknown; relative to the workspace root and empty for the root itself.
-    RestoreInto {
-        /// The entries to restore, relative to the bin; those with a known original path go
-        /// back to it.
-        locations: Vec<PathBuf>,
     },
 }
 
@@ -89,21 +75,17 @@ impl PromptKind {
                 kind: EntryKind::Folder,
                 ..
             } => "Rename folder",
-            Self::MoveToFolder { .. } => "Move to folder",
-            Self::RestoreInto { .. } => "Restore into folder",
             Self::DueDate { .. } => "Due date",
             Self::Recurrence { .. } => "Recurrence",
         }
     }
 
-    /// Returns the hint below the input: the folder of the new or renamed entry, how to name
-    /// the target folder of a move, or the accepted due date expressions or recurrence rules.
+    /// Returns the hint below the input: the folder of the new or renamed entry, or the
+    /// accepted due date expressions or recurrence rules.
     fn hint(&self) -> Cow<'static, str> {
         match self {
             Self::NewList { parent } | Self::NewFolder { parent } => location_hint(parent),
             Self::Rename { path, .. } => location_hint(path.parent().unwrap_or(Path::new(""))),
-            Self::MoveToFolder { .. } => Cow::Borrowed(MOVE_HINT),
-            Self::RestoreInto { .. } => Cow::Borrowed(RESTORE_HINT),
             Self::DueDate { .. } => Cow::Borrowed(DUE_DATE_HINT),
             Self::Recurrence { .. } => Cow::Borrowed(RECURRENCE_HINT),
         }
@@ -118,11 +100,7 @@ impl PromptKind {
         today: Date,
     ) -> Result<Option<Cow<'static, str>>, Cow<'static, str>> {
         match self {
-            Self::NewList { .. }
-            | Self::NewFolder { .. }
-            | Self::Rename { .. }
-            | Self::MoveToFolder { .. }
-            | Self::RestoreInto { .. } => Ok(None),
+            Self::NewList { .. } | Self::NewFolder { .. } | Self::Rename { .. } => Ok(None),
             Self::DueDate { .. } => due_preview(text, today).map(Some),
             Self::Recurrence { .. } => recurrence_preview(text).map(Some),
         }
@@ -146,10 +124,6 @@ impl PromptKind {
                 path: path.clone(),
                 name: name()?,
             }),
-            Self::MoveToFolder { entries } => Submission::Effect(Effect::MoveEntries {
-                entries: entries.clone(),
-                folder: folder_path(text),
-            }),
             Self::DueDate { list, task } => Submission::SetDue {
                 list: list.clone(),
                 task: *task,
@@ -159,10 +133,6 @@ impl PromptKind {
                 list: list.clone(),
                 task: *task,
                 recurrence: parse_recurrence_text(text)?,
-            },
-            Self::RestoreInto { locations } => Submission::RestoreInto {
-                locations: locations.clone(),
-                folder: folder_path(text),
             },
         })
     }
@@ -186,22 +156,6 @@ enum Submission {
         task: TaskId,
         recurrence: Option<Recurrence>,
     },
-    /// Restoring the entries of the bin at `locations`, those of unknown origin into `folder`.
-    RestoreInto {
-        locations: Vec<PathBuf>,
-        folder: PathBuf,
-    },
-}
-
-/// Explains the text of the prompt for the target folder of a move.
-const MOVE_HINT: &str = "like Home/Garden; empty for the top level";
-/// Explains the text of the prompt for the folder that receives a restored entry.
-const RESTORE_HINT: &str = "its original folder is unknown; like Home, empty for the top level";
-
-/// Returns the folder named by `text`, relative to the workspace root: surrounding whitespace
-/// and slashes are ignored, so that empty text names the root.
-fn folder_path(text: &str) -> PathBuf {
-    PathBuf::from(text.trim().trim_matches('/'))
 }
 
 /// Describes the folder `parent` of a new or renamed entry.
@@ -290,21 +244,6 @@ impl App {
         let Some(submission) = prompt.submit(self.today) else {
             return Vec::new();
         };
-        let target = match &submission {
-            Submission::Effect(Effect::MoveEntries { entries, folder }) => {
-                Some((&entries[..], folder))
-            }
-            Submission::RestoreInto { folder, .. } => Some((&[][..], folder)),
-            Submission::Effect(_)
-            | Submission::SetDue { .. }
-            | Submission::SetRecurrence { .. } => None,
-        };
-        if let Some((entries, folder)) = target
-            && let Err(error) = check_move_target(&self.workspace, entries, folder)
-        {
-            prompt.prompt.set_error(Some(Cow::Owned(error)));
-            return Vec::new();
-        }
         self.close_prompt();
         match submission {
             Submission::Effect(effect) => vec![effect],
@@ -314,7 +253,6 @@ impl App {
                 task,
                 recurrence,
             } => self.set_recurrence(&list, task, recurrence),
-            Submission::RestoreInto { locations, folder } => self.restore_into(&locations, &folder),
         }
     }
 
@@ -327,6 +265,7 @@ impl App {
             }
             Mode::Normal
             | Mode::Help(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)
@@ -391,11 +330,6 @@ mod tests {
         "Rename folder",
         "in the workspace folder"
     )]
-    #[case::move_to_folder(
-        PromptKind::MoveToFolder { entries: Vec::new() },
-        "Move to folder",
-        MOVE_HINT
-    )]
     fn open_shows_the_title_and_the_target_folder(
         #[case] kind: PromptKind,
         #[case] expected_title: &str,
@@ -433,25 +367,6 @@ mod tests {
         };
 
         let system_under_test = kind.submit("Tasks", TODAY);
-
-        assert_eq!(system_under_test, Ok(Submission::Effect(expected)));
-    }
-
-    #[rstest]
-    #[case::folder(" Home/Garden/ ", "Home/Garden")]
-    #[case::root("  ", "")]
-    #[case::slash_only("/", "")]
-    fn folder_text_becomes_a_move_effect(#[case] text: &str, #[case] expected_folder: &str) {
-        let entries = vec![EntryKey::Folder(PathBuf::from("Work"))];
-        let kind = PromptKind::MoveToFolder {
-            entries: entries.clone(),
-        };
-        let expected = Effect::MoveEntries {
-            entries,
-            folder: PathBuf::from(expected_folder),
-        };
-
-        let system_under_test = kind.submit(text, TODAY);
 
         assert_eq!(system_under_test, Ok(Submission::Effect(expected)));
     }

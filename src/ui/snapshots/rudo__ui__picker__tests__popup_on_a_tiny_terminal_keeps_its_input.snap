@@ -1,0 +1,7 @@
+---
+source: src/ui/picker.rs
+expression: system_under_test
+---
+"╭ Move ────╮"
+"│ ho       │"
+"╰──────────╯"

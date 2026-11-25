@@ -172,6 +172,7 @@ impl App {
             Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Visual => None,

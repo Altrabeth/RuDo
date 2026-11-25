@@ -32,6 +32,8 @@ pub enum Context {
     Dialog,
     /// A text input is open.
     Input,
+    /// A picker is open: a text input with a list of matching candidates below it.
+    Picker,
 }
 
 /// Something a user can trigger with a key.
@@ -189,6 +191,12 @@ pub enum Action {
     Submit,
     /// Discard the typed text or end the selection.
     Cancel,
+    /// Select the next candidate of a picker.
+    PickerNext,
+    /// Select the previous candidate of a picker.
+    PickerPrevious,
+    /// Complete the typed text to the selected candidate.
+    Complete,
 }
 
 impl Display for Context {
@@ -202,6 +210,7 @@ impl Display for Context {
             Self::Help => "help screen",
             Self::Dialog => "dialogs",
             Self::Input => "text input",
+            Self::Picker => "picker",
         })
     }
 }
@@ -235,8 +244,14 @@ const VISUAL: &[Context] = &[Context::Visual];
 const ALL_VISUAL: &[Context] = &[Context::Visual, Context::BinVisual];
 const HELP: &[Context] = &[Context::Help];
 const DIALOG: &[Context] = &[Context::Dialog];
-const INPUT_AND_VISUAL: &[Context] = &[Context::Input, Context::Visual, Context::BinVisual];
-const INPUT: &[Context] = &[Context::Input];
+const INPUT_PICKER_AND_VISUAL: &[Context] = &[
+    Context::Input,
+    Context::Picker,
+    Context::Visual,
+    Context::BinVisual,
+];
+const INPUT_AND_PICKER: &[Context] = &[Context::Input, Context::Picker];
+const PICKER: &[Context] = &[Context::Picker];
 
 impl Action {
     /// Returns the sentence shown on the help screen, lowercase and without a trailing period.
@@ -306,6 +321,9 @@ impl Action {
             Self::ConfirmNo => "cancel",
             Self::Submit => "accept the text",
             Self::Cancel => "discard the text, or end the selection",
+            Self::PickerNext => "select the next match",
+            Self::PickerPrevious => "select the previous match",
+            Self::Complete => "complete the text to the selected match; again for the next one",
         }
     }
 
@@ -372,6 +390,9 @@ impl Action {
             Self::ConfirmNo => "no",
             Self::Submit => "accept",
             Self::Cancel => "cancel",
+            Self::PickerNext => "next",
+            Self::PickerPrevious => "previous",
+            Self::Complete => "complete",
         }
     }
 
@@ -432,8 +453,9 @@ impl Action {
             Self::EmptyBin | Self::CloseBin => BIN,
             Self::CloseHelp => HELP,
             Self::ConfirmYes | Self::ConfirmNo => DIALOG,
-            Self::Submit => INPUT,
-            Self::Cancel => INPUT_AND_VISUAL,
+            Self::Submit => INPUT_AND_PICKER,
+            Self::Cancel => INPUT_PICKER_AND_VISUAL,
+            Self::PickerNext | Self::PickerPrevious | Self::Complete => PICKER,
         }
     }
 
@@ -455,7 +477,7 @@ impl Action {
         match self {
             Self::Help => &["?"],
             Self::Quit => &["q", "ctrl-c"],
-            Self::FocusNext => &["tab"],
+            Self::FocusNext | Self::Complete => &["tab"],
             Self::FocusPrevious => &["backtab"],
             Self::FocusLists => &["1"],
             Self::FocusTasks => &["2"],
@@ -509,6 +531,8 @@ impl Action {
             Self::ConfirmYes => &["y", "enter"],
             Self::ConfirmNo => &["n", "esc"],
             Self::Cancel => &["esc", "ctrl-c"],
+            Self::PickerNext => &["down", "ctrl-n"],
+            Self::PickerPrevious => &["up", "ctrl-p"],
         }
     }
 }
@@ -593,6 +617,9 @@ mod tests {
     #[case::restore_from_bin(Action::RestoreFromBin, &["R"])]
     #[case::empty_bin(Action::EmptyBin, &["E"])]
     #[case::close_bin(Action::CloseBin, &["h", "left", "esc"])]
+    #[case::picker_next(Action::PickerNext, &["down", "ctrl-n"])]
+    #[case::picker_previous(Action::PickerPrevious, &["up", "ctrl-p"])]
+    #[case::complete(Action::Complete, &["tab"])]
     fn default_keys_match_the_documentation(#[case] action: Action, #[case] notations: &[&str]) {
         let expected = sequences(notations);
 
@@ -626,7 +653,8 @@ mod tests {
     #[case::toggle_hidden(Action::ToggleHidden, &[Context::Lists])]
     #[case::help(Action::CloseHelp, &[Context::Help])]
     #[case::dialog(Action::ConfirmYes, &[Context::Dialog])]
-    #[case::input(Action::Submit, &[Context::Input])]
+    #[case::input(Action::Submit, &[Context::Input, Context::Picker])]
+    #[case::picker(Action::Complete, &[Context::Picker])]
     #[case::visual_mode(
         Action::VisualMode,
         &[Context::Lists, Context::Tasks, Context::Visual, Context::Bin, Context::BinVisual]
@@ -634,7 +662,10 @@ mod tests {
     #[case::selection(Action::DeleteSelection, &[Context::Visual, Context::BinVisual])]
     #[case::yank_selection(Action::YankSelection, &[Context::Visual])]
     #[case::move_to_folder(Action::MoveToFolder, &[Context::Lists, Context::Visual])]
-    #[case::cancel(Action::Cancel, &[Context::Input, Context::Visual, Context::BinVisual])]
+    #[case::cancel(
+        Action::Cancel,
+        &[Context::Input, Context::Picker, Context::Visual, Context::BinVisual]
+    )]
     fn contexts_follow_the_documented_sections(
         #[case] action: Action,
         #[case] expected: &[Context],
@@ -675,6 +706,7 @@ mod tests {
     #[case::help(Context::Help, "help screen")]
     #[case::dialog(Context::Dialog, "dialogs")]
     #[case::input(Context::Input, "text input")]
+    #[case::picker(Context::Picker, "picker")]
     fn context_displays_as_a_place(#[case] context: Context, #[case] expected: &str) {
         let system_under_test = context.to_string();
 

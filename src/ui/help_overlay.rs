@@ -40,6 +40,7 @@ pub fn render(app: &App, frame: &mut Frame) {
     match app.mode() {
         Mode::Normal
         | Mode::Prompt(_)
+        | Mode::FolderPicker(_)
         | Mode::Confirm(_)
         | Mode::InlineEdit(_)
         | Mode::Search(_)
@@ -87,7 +88,11 @@ fn render_help(help: &HelpOverlay, theme: &Theme, frame: &mut Frame) {
 }
 
 /// Returns the indicator of the visible rows, such as ` 1-19/70 `.
-fn position_indicator(offset: usize, viewport_height: usize, row_count: usize) -> String {
+pub(crate) fn position_indicator(
+    offset: usize,
+    viewport_height: usize,
+    row_count: usize,
+) -> String {
     let bottom = (offset + viewport_height).min(row_count);
     format!(" {}-{bottom}/{row_count} ", offset + 1)
 }

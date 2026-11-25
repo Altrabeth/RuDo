@@ -254,10 +254,10 @@ fn restore_of_a_foreign_entry_asks_for_the_folder() {
 
     let system_under_test = test_app.type_text("Archive").press("enter");
 
-    let Mode::Prompt(prompt) = system_under_test.app().mode() else {
-        panic!("expected the prompt to stay open");
+    let Mode::FolderPicker(folder_picker) = system_under_test.app().mode() else {
+        panic!("expected the folder picker to stay open");
     };
-    assert_eq!(prompt.prompt().error(), Some("there is no folder Archive"));
+    assert_eq!(folder_picker.error(), Some("there is no folder Archive"));
 }
 
 #[test]

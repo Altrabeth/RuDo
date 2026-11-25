@@ -252,7 +252,7 @@ fn restore_names_every_taken_path_and_keeps_the_skipped_entries_selected() {
 fn mixed_selection_asks_once_for_the_folder_of_the_foreign_entries() {
     let mut test_app = bin_app();
     test_app.press("G k v j R");
-    let asked = matches!(test_app.app().mode(), Mode::Prompt(_));
+    let asked = matches!(test_app.app().mode(), Mode::FolderPicker(_));
 
     let system_under_test = test_app.type_text("Archive").press("enter");
 

@@ -78,6 +78,7 @@ impl App {
             mode @ (Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)
             | Mode::Visual) => {
@@ -97,6 +98,7 @@ impl App {
             Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)
             | Mode::Visual => {}

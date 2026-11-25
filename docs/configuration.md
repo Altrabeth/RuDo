@@ -63,9 +63,10 @@ list of keys, written in the [key notation](keybindings.md#key-notation). The
 keys you give *replace* the default keys of that action; actions you do not mention keep
 their defaults, and an unbound action is still listed on the help screen. RuDo refuses a
 configuration in which a key is bound to two actions in the same pane, in which one binding
-is a prefix of another (`g` and `g g`), or in which `submit` or `cancel` starts with a key
-that types text (a character without `ctrl` or `alt`), and lists every collision with the
-actions involved.
+is a prefix of another (`g` and `g g`), or in which a key of text input or the picker
+(`submit`, `cancel`, `picker-next`, `picker-previous`, `complete`) starts with a key that
+types text (a character without `ctrl` or `alt`), and lists every collision with the actions
+involved.
 
 ## Theme
 
@@ -91,7 +92,7 @@ there.
 | `text`                                | default text                                     |
 | `border`, `border_focused`            | pane borders                                     |
 | `title`, `title_focused`              | pane titles                                      |
-| `selection`, `selection_unfocused`    | selected row in the focused and the other pane   |
+| `selection`, `selection_unfocused`    | selected row in the focused and the other pane; `selection` also in the help and the picker |
 | `visual_selection`                    | rows selected in visual mode                     |
 | `folder`, `list`, `list_count`        | lists pane entries and `done/total` counters     |
 | `hidden_entry`                        | hidden folders and lists while they are shown    |
@@ -103,7 +104,7 @@ there.
 | `tag`, `recurrence`                   | tags and recurrence rules                        |
 | `status_bar`, `key_hint`, `key_hint_label`, `pending_keys` | bottom bar                  |
 | `message_info`, `message_error`       | messages in the bottom bar                       |
-| `popup_border`, `popup_title`, `input_error` | dialogs and text input                    |
+| `popup_border`, `popup_title`, `input_error` | dialogs, text input and the picker        |
 | `help_heading`, `help_key`, `help_description` | help screen                             |
-| `search_match`, `filter_context`      | search matches, and parents kept for context     |
+| `search_match`, `filter_context`      | search matches and the matched letters in the picker, and parents kept for context |
 

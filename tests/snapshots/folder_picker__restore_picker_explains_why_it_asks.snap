@@ -1,0 +1,28 @@
+---
+source: tests/folder_picker.rs
+expression: system_under_test
+---
+"╭ Bin ─────────────────╮╭ Note  0/1  in the bin ───────────────────────────────╮"
+"│   Note       unknown ││ Read only. Press R to restore it.                    │"
+"│                      ││                                                      │"
+"│                      ││   [ ] Read                                           │"
+"│                      ││                                                      │"
+"│               ╭ Restore into folder ─────────────────────────╮               │"
+"│               │                                              │               │"
+"│               │ /                                            │               │"
+"│               │ Archive                                      │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │ the original folder is unknown               │               │"
+"│               ╰─────────────────────────────────────── 1-2/2 ╯               │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" tab complete  enter accept  esc cancel                                         "

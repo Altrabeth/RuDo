@@ -45,6 +45,8 @@ pub enum HelpHeading {
     Bin,
     /// Closing the help screen, answering dialogs and finishing text input.
     HelpAndDialogs,
+    /// Choosing a match in a picker.
+    Picker,
     /// The fixed editing keys of text inputs.
     EditingKeys,
 }
@@ -60,6 +62,7 @@ impl Display for HelpHeading {
             Self::VisualMode => "Visual mode (lists pane, tasks pane and bin)",
             Self::Bin => "Bin (lists pane)",
             Self::HelpAndDialogs => "Help screen, dialogs and text input",
+            Self::Picker => "Picker",
             Self::EditingKeys => "Editing keys in text input",
         })
     }
@@ -280,7 +283,8 @@ fn section_entries(heading: HelpHeading, keymap: &Keymap) -> Vec<HelpEntry> {
         | HelpHeading::TasksPane
         | HelpHeading::VisualMode
         | HelpHeading::Bin
-        | HelpHeading::HelpAndDialogs => Action::iter()
+        | HelpHeading::HelpAndDialogs
+        | HelpHeading::Picker => Action::iter()
             .filter(|action| action_heading(*action) == heading)
             .map(|action| HelpEntry::for_action(action, keymap.keys(action)))
             .collect(),
@@ -350,6 +354,7 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::ConfirmNo
         | Action::Submit
         | Action::Cancel => HelpHeading::HelpAndDialogs,
+        Action::PickerNext | Action::PickerPrevious | Action::Complete => HelpHeading::Picker,
     }
 }
 

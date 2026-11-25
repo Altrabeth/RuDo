@@ -208,6 +208,7 @@ impl App {
             mode @ (Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::Search(_)
             | Mode::Visual) => {

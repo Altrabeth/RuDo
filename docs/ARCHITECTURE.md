@@ -98,6 +98,11 @@ src/
     history.rs             undo and redo stacks of document snapshots and EntryOperations
     register.rs            the yank register holding detached TaskBlocks
     filter.rs              smart-case matching shared by every filter
+    fuzzy.rs               fuzzy matching with nucleo-matcher: FuzzyQuery, FuzzyMatcher, scores
+                           and matched characters, names ranked before paths
+    picker.rs              generic fuzzy picker state: Picker, PickerCandidate, ranked results
+    folder_picker.rs       folder picker (Mode::FolderPicker): FolderPurpose, moving and
+                           restoring into the chosen folder
     search.rs              pane search (Mode::Search): PaneFilter per pane and per list
     help.rs                help screen state (Mode::Help): scrolling and filter input
     prompt.rs              input prompt state (Mode::Prompt): PromptKind, validation on submit
@@ -130,6 +135,7 @@ src/
     status_bar.rs          key hints, pending keys, messages, the search prompt
     text_input.rs          TextInput, EditCommand, EDITING_KEYS and the TextInputView widget
     popup.rs               input popup and confirmation dialog
+    picker.rs              PickerPopup: input, ranked results with highlights, `top-bottom/total`
     help.rs                help content model generated from the effective keymap
     help_overlay.rs        help overlay: rows, scrollbar, filter line
     highlight.rs           search match highlighting inside styled row text
@@ -168,12 +174,23 @@ src/
   bound to is typed into the open text input, if any. Pasted text (bracketed paste) only
   goes into an open text input and is never interpreted as keys.
 - The `Mode` decides what takes the keys: `Normal` (the focused pane), `Help(HelpOverlay)`,
-  `Prompt(PromptOverlay)` (input popup), `Confirm(ConfirmOverlay)`, `InlineEdit(InlineEdit)`
-  (a row of the tasks pane), `Search(Focus)` (the search prompt in the bottom bar) and
-  `Visual` (a selection of several rows of the focused pane or of the bin view). `Prompt`,
-  `InlineEdit`, `Search` and the open help filter resolve keys in `Context::Input`, `Visual`
+  `Prompt(PromptOverlay)` (input popup), `FolderPicker(FolderPicker)` (fuzzy picker of a
+  folder), `Confirm(ConfirmOverlay)`, `InlineEdit(InlineEdit)` (a row of the tasks pane),
+  `Search(Focus)` (the search prompt in the bottom bar) and `Visual` (a selection of several
+  rows of the focused pane or of the bin view). `Prompt`, `InlineEdit`, `Search` and the open
+  help filter resolve keys in `Context::Input`, `FolderPicker` in `Context::Picker` (`submit`
+  and `cancel` as in `Input`, plus `picker-next`, `picker-previous` and `complete`), `Visual`
   in `Context::Visual`, or in `Context::BinVisual` while the bin view is open, so that
   `restore-from-bin` resolves on a selection in the bin but not on one in the panes.
+- A picker (`app::picker::Picker<C>`) is generic over its candidates (`PickerCandidate`: the
+  text shown, matched and completed to, and where its name starts). It ranks all candidates
+  once per change of the typed text with `app::fuzzy` (nucleo-matcher, smart case, matches in
+  the name before matches in the rest of the path) and keeps the results; moving the
+  selection, completing with `tab` (which cycles while the text equals the selection) and
+  drawing do not match again. `ui::picker::PickerPopup` draws only the visible results and
+  scrolls without stored state, like `TextInputView`. The folder picker offers the root (`/`)
+  and the folders the lists pane can show, collected when it opens, and checks the choice
+  with `check_move_target` on `enter`.
 - The visual selection is an anchor key in the pane's `Outline` (or the `BinView`'s) plus its
   cursor; the selected keys are derived from the visible rows whenever they are needed, so
   folds, filters, hidden completed tasks and hidden entries are respected and a reload that
@@ -300,13 +317,13 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
   default key sequences, each through an exhaustive `match`, so adding an action fails to
   compile until all four are defined.
 - `Context` is one of `Lists`, `Tasks`, `Visual`, `Bin`, `BinVisual`, `Help`, `Dialog`,
-  `Input`. Global actions are valid in `Lists` and `Tasks` (`help`, `quit`, `undo` and `redo`
+  `Input`, `Picker`. Global actions are valid in `Lists` and `Tasks` (`help`, `quit`, `undo` and `redo`
   also in `Bin`); navigation actions additionally in `Visual`, `Bin`, `BinVisual` and `Help`,
   `search` in `Help`. Keys are bound per action, so the selection actions of `Visual`
   (`delete-selection` on `d`) are separate from those of the panes (`delete` on `d d`).
 - The effective `Keymap` is built once at start-up from the defaults and the user's
   overrides and validated per context: no key sequence bound twice, no binding that is a prefix
-  of another, no binding in `Input` that starts with a printable key. Validation errors name
+  of another, no binding in `Input` or `Picker` that starts with a printable key. Validation errors name
   both actions.
 - `KeyResolver` consumes one `KeyChord` at a time and answers `Action`, `Pending`,
   `Cancelled` (`esc` while a sequence is pending) or `NoMatch`. A chord that breaks a pending

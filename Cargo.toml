@@ -66,6 +66,7 @@ anyhow = "1.0.105"
 clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 jiff = { version = "1.0.2", default-features = false, features = ["serde", "std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"] }
 notify-debouncer-full = { version = "0.8.0", default-features = false, features = ["macos_fsevent"] }
+nucleo-matcher = { version = "0.3.1", default-features = false, features = ["unicode-casefold", "unicode-normalization"] }
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 rayon = "1.12.0"
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }

@@ -311,6 +311,7 @@ fn inline_edit(app: &App) -> Option<(InlineEditKind, &TextInput)> {
         Mode::Normal
         | Mode::Help(_)
         | Mode::Prompt(_)
+        | Mode::FolderPicker(_)
         | Mode::Confirm(_)
         | Mode::Search(_)
         | Mode::Visual => None,

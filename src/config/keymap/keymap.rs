@@ -266,10 +266,14 @@ fn bind_context(
     for (&action, sequences) in actions {
         for sequence in sequences {
             if types_text(context) && starts_with_printable_key(sequence) {
-                errors.push(KeymapError::PrintableInInput {
+                let error = KeymapError::PrintableInInput {
                     action,
                     sequence: sequence.clone(),
-                });
+                };
+                // An action valid in several contexts that type text is reported once.
+                if !errors.contains(&error) {
+                    errors.push(error);
+                }
             }
             match bindings.entry(sequence.clone()) {
                 Entry::Vacant(entry) => {
@@ -316,7 +320,7 @@ fn prefix_conflicts(
 /// Returns whether printable keys type text in `context` instead of triggering actions.
 const fn types_text(context: Context) -> bool {
     match context {
-        Context::Input => true,
+        Context::Input | Context::Picker => true,
         Context::Lists
         | Context::Tasks
         | Context::Visual
@@ -426,6 +430,10 @@ mod tests {
     #[case::dialog_context(Context::Dialog, "y", Lookup::Action(Action::ConfirmYes))]
     #[case::input_types_text(Context::Input, "j", Lookup::None)]
     #[case::input_action(Context::Input, "esc", Lookup::Action(Action::Cancel))]
+    #[case::input_has_no_picker_keys(Context::Input, "tab", Lookup::None)]
+    #[case::picker_types_text(Context::Picker, "j", Lookup::None)]
+    #[case::picker_action(Context::Picker, "ctrl-n", Lookup::Action(Action::PickerNext))]
+    #[case::picker_submit(Context::Picker, "enter", Lookup::Action(Action::Submit))]
     fn looks_up_chords_typed_so_far(
         #[case] context: Context,
         #[case] notation: &str,
@@ -542,6 +550,7 @@ mod tests {
     #[case::space("cancel: space", Action::Cancel, "space")]
     #[case::shifted("submit: A", Action::Submit, "A")]
     #[case::sequence("cancel: x ctrl-c", Action::Cancel, "x ctrl-c")]
+    #[case::picker("complete: c", Action::Complete, "c")]
     fn printable_key_in_text_input_is_rejected(
         #[case] yaml: &str,
         #[case] action: Action,

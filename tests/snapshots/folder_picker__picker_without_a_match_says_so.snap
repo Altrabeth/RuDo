@@ -1,0 +1,28 @@
+---
+source: tests/folder_picker.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ Seeds  0/1 ──────────────────────────────────────────╮"
+"│ ▾ Home               ││   [ ] Sow                                            │"
+"│   ▾ Garden           ││                                                      │"
+"│     • Seeds      0/1 ││                                                      │"
+"│ ▾ Release Notes      ││                                                      │"
+"│   ▾ Old       ╭ Move to folder ──────────────────────────────╮               │"
+"│       Readme  │ Garage                                       │               │"
+"│ ▾ Work        │ no matches                                   │               │"
+"│   ▾ Projects  │                                              │               │"
+"│     ▾ Release │                                              │               │"
+"│         Notes │                                              │               │"
+"│   Inbox       │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │                                              │               │"
+"│               │ there is no folder Garage                    │               │"
+"│               ╰──────────────────────────────────────────────╯               │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" tab complete  enter accept  esc cancel                                         "

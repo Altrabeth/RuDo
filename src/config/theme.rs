@@ -40,7 +40,7 @@ pub enum Slot {
     Title,
     /// Title of the focused pane.
     TitleFocused,
-    /// Selected row in the focused pane.
+    /// Selected row in the focused pane, the help screen and the picker.
     Selection,
     /// Selected row in the pane without focus.
     SelectionUnfocused,
@@ -110,7 +110,7 @@ pub enum Slot {
     HelpKey,
     /// Action description on the help screen.
     HelpDescription,
-    /// Search match.
+    /// Search match, and the matched characters in the picker.
     SearchMatch,
     /// Parent kept visible as context while filtering.
     FilterContext,

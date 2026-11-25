@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 
 use crate::app::confirm::ConfirmKind;
 use crate::app::effect::{Effect, error_report};
+use crate::app::folder_picker::FolderPurpose;
 use crate::app::lists::{count_lists_and_tasks, counted, entry_description};
-use crate::app::prompt::PromptKind;
 use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
 use crate::app::task_delete::counted_tasks;
@@ -25,7 +25,6 @@ use crate::config::keymap::action::Action;
 use crate::storage::bin::{BinEntry, EmptiedBin, TrashedEntry};
 use crate::storage::workspace::{Entry, Workspace};
 use crate::ui::outline::{FilterRole, Outcome, Outline, OutlineCommand, OutlineItem};
-use crate::ui::text_input::TextInput;
 
 /// Ends every question about a permanent deletion.
 const CANNOT_BE_UNDONE: &str = "This cannot be undone.";
@@ -140,7 +139,7 @@ impl App {
         if let Some(entries) = known {
             return vec![Effect::RestoreEntries(entries)];
         }
-        self.open_prompt(PromptKind::RestoreInto { locations }, TextInput::new());
+        self.open_folder_picker(FolderPurpose::RestoreInto(locations));
         Vec::new()
     }
 
@@ -273,6 +272,7 @@ impl App {
             Mode::Normal
             | Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_) => self

@@ -125,6 +125,9 @@ impl OutlineCommand {
             | Action::FocusNext
             | Action::FocusPrevious
             | Action::FocusLists
+            | Action::PickerNext
+            | Action::PickerPrevious
+            | Action::Complete
             | Action::FocusTasks
             | Action::Search
             | Action::ClearFilter

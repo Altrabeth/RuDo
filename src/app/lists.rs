@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use crate::app::bin::BinView;
 use crate::app::confirm::ConfirmKind;
 use crate::app::entry_visibility::HiddenEntries;
+use crate::app::folder_picker::FolderPurpose;
 use crate::app::prompt::PromptKind;
 use crate::app::search::{PaneFilter, SearchItem};
 use crate::app::state::{App, Focus, Mode};
@@ -515,8 +516,8 @@ impl App {
         }
     }
 
-    /// Opens the prompt for the folder that receives the selected lists and folders in visual
-    /// mode, or the selected entry otherwise.
+    /// Opens the folder picker for the folder that receives the selected lists and folders in
+    /// visual mode, or the selected entry otherwise.
     pub(super) fn ask_for_move_target(&mut self) {
         let entries = match self.mode {
             Mode::Visual => match self.focus {
@@ -532,12 +533,13 @@ impl App {
                 .map(|entry| vec![EntryKey::from(entry)]),
             Mode::Help(_)
             | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_) => None,
         };
         if let Some(entries) = entries {
-            self.open_prompt(PromptKind::MoveToFolder { entries }, TextInput::new());
+            self.open_folder_picker(FolderPurpose::Move(entries));
         }
     }
 
@@ -569,7 +571,7 @@ enum Opened {
 ///
 /// # Errors
 ///
-/// Returns why `folder` cannot receive `entries`, to be shown in the prompt.
+/// Returns why `folder` cannot receive `entries`, to be shown in the folder picker.
 pub(super) fn check_move_target(
     workspace: &Workspace,
     entries: &[EntryKey],

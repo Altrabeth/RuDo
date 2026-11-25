@@ -5,6 +5,7 @@ use std::mem;
 
 use crate::app::effect::Effect;
 use crate::app::history::{Direction, DocumentSnapshot, HistoryEntry};
+use crate::app::picker::Picker;
 use crate::app::prompt::PromptKind;
 use crate::app::state::{App, Focus, Mode};
 use crate::app::status::StatusMessage;
@@ -51,6 +52,7 @@ impl App {
             }
             Mode::Help(help) => help.paste(text, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.paste(text, self.today),
+            Mode::FolderPicker(folder_picker) => folder_picker.update(|picker| picker.paste(text)),
             Mode::InlineEdit(edit) => edit.paste(text),
             &mut Mode::Search(pane) => self.paste_search(pane, text),
         }
@@ -136,6 +138,9 @@ impl App {
             Action::VisualMode => self.toggle_visual_mode(),
             Action::DeleteSelection => return self.delete_selection(),
             Action::YankSelection => self.yank_selection(),
+            Action::PickerNext => self.update_folder_picker(Picker::select_next),
+            Action::PickerPrevious => self.update_folder_picker(Picker::select_previous),
+            Action::Complete => self.update_folder_picker(Picker::complete),
         }
         Vec::new()
     }
@@ -153,7 +158,11 @@ impl App {
                 Focus::Lists => self.update_lists(action),
                 Focus::Tasks => self.update_tasks(action),
             },
-            Mode::Prompt(_) | Mode::Confirm(_) | Mode::InlineEdit(_) | Mode::Search(_) => {}
+            Mode::Prompt(_)
+            | Mode::FolderPicker(_)
+            | Mode::Confirm(_)
+            | Mode::InlineEdit(_)
+            | Mode::Search(_) => {}
         }
     }
 
@@ -164,6 +173,7 @@ impl App {
             Mode::Help(help) => help.open_filter(self.screen_size),
             Mode::Normal => self.open_search(),
             Mode::Prompt(_)
+            | Mode::FolderPicker(_)
             | Mode::Confirm(_)
             | Mode::InlineEdit(_)
             | Mode::Search(_)
@@ -176,6 +186,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.submit_filter(self.screen_size),
             Mode::Prompt(_) => return self.submit_prompt(),
+            Mode::FolderPicker(_) => return self.submit_folder_picker(),
             Mode::InlineEdit(_) => return self.submit_inline_edit(),
             Mode::Search(_) => self.submit_search(),
             Mode::Normal | Mode::Confirm(_) | Mode::Visual => {}
@@ -188,6 +199,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.cancel_filter(&self.keymap, self.screen_size),
             Mode::Prompt(_) => self.close_prompt(),
+            Mode::FolderPicker(_) => self.close_folder_picker(),
             Mode::InlineEdit(_) => self.cancel_inline_edit(),
             &mut Mode::Search(pane) => self.cancel_search(pane),
             Mode::Visual => self.end_visual_mode(),
@@ -200,6 +212,7 @@ impl App {
         match &mut self.mode {
             Mode::Help(help) => help.press(chord, &self.keymap, self.screen_size),
             Mode::Prompt(prompt) => prompt.press(chord, self.today),
+            Mode::FolderPicker(folder_picker) => folder_picker.press(chord),
             Mode::InlineEdit(edit) => edit.press(chord),
             &mut Mode::Search(pane) => self.type_search(pane, chord),
             Mode::Normal | Mode::Confirm(_) | Mode::Visual => {}

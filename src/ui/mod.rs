@@ -3,8 +3,8 @@
 //!
 //! [`view`] divides the terminal with [`layout::Screen`] and lets every region render itself:
 //! [`lists_pane`] and [`tasks_pane`] inside their borders and [`status_bar`] below them.
-//! Overlays such as [`help_overlay`] and the [`popup`] of an open prompt or dialog are drawn last, over
-//! the panes. All styles come from [`App::theme`].
+//! Overlays such as [`help_overlay`], the [`popup`] of an open prompt or dialog and the
+//! [`picker`] are drawn last, over the panes. All styles come from [`App::theme`].
 
 pub mod help;
 pub mod help_overlay;
@@ -13,6 +13,7 @@ pub mod layout;
 pub mod lists_pane;
 pub mod outline;
 pub(crate) mod pane_message;
+pub mod picker;
 pub mod popup;
 pub mod status_bar;
 pub mod tasks_pane;
@@ -25,6 +26,7 @@ use ratatui::widgets::{Paragraph, Wrap};
 use crate::app::{App, Focus, Mode};
 use crate::config::theme::Slot;
 use crate::ui::layout::{PaneBorder, PaneSwitchHint, Screen, render_pane_border};
+use crate::ui::picker::PickerPopup;
 use crate::ui::popup::{ConfirmDialog, InputPopup};
 
 /// Shown instead of the panes if the terminal is too small for them.
@@ -59,13 +61,19 @@ pub fn view(app: &App, frame: &mut Frame) {
     render_popup(app, frame);
 }
 
-/// Draws the input popup of [`Mode::Prompt`] or the dialog of [`Mode::Confirm`] over the rest
-/// of the interface.
+/// Draws the input popup of [`Mode::Prompt`], the picker of [`Mode::FolderPicker`] or the
+/// dialog of [`Mode::Confirm`] over the rest of the interface.
 fn render_popup(app: &App, frame: &mut Frame) {
     let area = frame.area();
     match app.mode() {
         Mode::Prompt(prompt) => {
             InputPopup::new(prompt.prompt(), app.theme()).render_with_cursor(frame, area);
+        }
+        Mode::FolderPicker(folder_picker) => {
+            PickerPopup::new(folder_picker.picker(), folder_picker.title(), app.theme())
+                .hint(folder_picker.hint())
+                .error(folder_picker.error())
+                .render_with_cursor(frame, area);
         }
         Mode::Confirm(confirm) => {
             let dialog = ConfirmDialog::new(confirm.message(), app.keymap(), app.theme());

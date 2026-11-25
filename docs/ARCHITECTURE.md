@@ -230,6 +230,11 @@ pub struct TaskLine {          // a plain value: markdown::task_line knows nothi
 - Text typed into a task row (`Mode::InlineEdit`) does not touch the document: the tasks pane
   shows a placeholder row, and submitting applies the whole change with one `edit_list` call,
   so it is saved once and undone in one step; cancelling leaves the file byte-identical.
+- `edit_list` also records the document and the selected task before every changing edit in
+  `app::history` (100 entries per stack). Undo and redo swap that snapshot with the document,
+  bypassing `edit_list`, and save. A list's history follows it when it is renamed and is
+  forgotten when it is deleted, reloaded from disk or fails to save because it was modified
+  externally.
 - Before writing, the executor compares the file on disk with the content RuDo loaded. If it
   differs, RuDo does not overwrite it, reloads the file and reports that the last change was
   not applied.

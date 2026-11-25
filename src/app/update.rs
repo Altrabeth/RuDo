@@ -1,15 +1,20 @@
 //! The decisions of the application: key presses and actions change the [`App`] and return
 //! the [`Effect`]s to perform.
 
+use std::mem;
+
 use crate::app::effect::Effect;
+use crate::app::history::{Direction, HistoryEntry};
 use crate::app::prompt::PromptKind;
 use crate::app::state::{App, Focus, Mode};
+use crate::app::status::StatusMessage;
 use crate::config::keymap::action::Action;
 use crate::config::keymap::key::KeyChord;
 use crate::config::keymap::resolver::Resolution;
+use crate::markdown::document::TaskId;
 use crate::markdown::document::{EditOutcome, InsertPosition, TodoDocument};
-use crate::storage::workspace::ListPath;
-use crate::ui::outline::OutlineCommand;
+use crate::storage::workspace::{List, ListPath};
+use crate::ui::outline::{Outline, OutlineCommand};
 use crate::ui::text_input::TextInput;
 
 impl App {
@@ -110,9 +115,9 @@ impl App {
             Action::NewSubtask => self.add_subtask(),
             Action::OpenInEditor => return self.open_in_editor(),
             Action::SetDueDate => self.open_due_date_prompt(),
+            Action::Undo => return self.step_history(Direction::Undo),
+            Action::Redo => return self.step_history(Direction::Redo),
             Action::ClearFilter
-            | Action::Undo
-            | Action::Redo
             | Action::ToggleCompleted
             | Action::Edit
             | Action::Yank
@@ -186,9 +191,10 @@ impl App {
     /// Applies `edit` to the document of the list at `list` and returns [`Effect::Save`] for
     /// it if the edit changed the document.
     ///
-    /// This is the only way the application changes a document, so saving (and undo) cannot
-    /// be forgotten by a feature. A list that is not in the workspace or could not be loaded
-    /// is not edited.
+    /// This is the only way the application changes a document, so saving and undo cannot be
+    /// forgotten by a feature: a changing edit records the document and the selected task
+    /// before it in the undo history. A list that is not in the workspace or could not be
+    /// loaded is not edited.
     #[must_use]
     pub fn edit_list(
         &mut self,
@@ -202,9 +208,63 @@ impl App {
         else {
             return Vec::new();
         };
-        match edit(loaded.document_mut()) {
-            EditOutcome::Changed => vec![Effect::Save(list.clone())],
+        let document = loaded.document_mut();
+        let before = document.clone();
+        match edit(document) {
+            EditOutcome::Changed => {
+                self.history.record(HistoryEntry {
+                    list: list.clone(),
+                    document: before,
+                    selection: self.selected_task_of(list),
+                });
+                vec![Effect::Save(list.clone())]
+            }
             EditOutcome::Unchanged => Vec::new(),
+        }
+    }
+
+    /// Returns the task selected in the tasks pane of `list`, if it was ever opened.
+    fn selected_task_of(&self, list: &ListPath) -> Option<TaskId> {
+        self.tasks
+            .outline(list)
+            .and_then(Outline::selected)
+            .copied()
+    }
+
+    /// Undoes or redoes the newest change in `direction`: swaps the document and selection of
+    /// its list with the remembered ones, opens that list and saves it.
+    ///
+    /// Undo and redo bypass [`App::edit_list`], which would record them as new changes.
+    fn step_history(&mut self, direction: Direction) -> Vec<Effect> {
+        let Some(mut entry) = self.history.take(direction) else {
+            self.show_message(StatusMessage::info(format!("nothing to {direction}")));
+            return Vec::new();
+        };
+        let Some(Ok(loaded)) = self.workspace.list_mut(&entry.list).map(List::content_mut) else {
+            tracing::warn!(list = %entry.list, "list of a history entry is not loaded");
+            return Vec::new();
+        };
+        mem::swap(loaded.document_mut(), &mut entry.document);
+        let selection = self.selected_task_of(&entry.list);
+        let restored_selection = mem::replace(&mut entry.selection, selection);
+        self.show_restored(&entry.list, restored_selection);
+        let name = self.workspace.list(&entry.list).map_or("", List::name);
+        self.show_message(StatusMessage::info(format!("{direction}: {name}")));
+        let list = entry.list.clone();
+        self.history.put_back(direction, entry);
+        vec![Effect::Save(list)]
+    }
+
+    /// Opens `list` if it is not the active one and selects `selection` in its restored
+    /// document.
+    fn show_restored(&mut self, list: &ListPath, selection: Option<TaskId>) {
+        if self.lists.active() != Some(list) {
+            let viewport_height = self.viewport_height(Focus::Lists);
+            self.lists.open(&self.workspace, list, viewport_height);
+        }
+        self.refresh_tasks();
+        if let Some(task) = selection {
+            self.select_task(task);
         }
     }
 }

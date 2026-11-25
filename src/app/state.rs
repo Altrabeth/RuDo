@@ -5,6 +5,7 @@ use ratatui::layout::{Rect, Size};
 
 use crate::app::confirm::ConfirmOverlay;
 use crate::app::help::HelpOverlay;
+use crate::app::history::History;
 use crate::app::lists::ListsPane;
 use crate::app::prompt::PromptOverlay;
 use crate::app::status::Status;
@@ -38,6 +39,7 @@ pub struct App {
     pub(super) mode: Mode,
     pub(super) today: Date,
     pub(super) status: Status,
+    pub(super) history: History,
     pub(super) should_quit: bool,
     /// Size of the terminal, from which scrolling commands derive the viewport heights.
     pub(super) screen_size: Size,
@@ -72,6 +74,7 @@ impl App {
             mode: Mode::Normal,
             today,
             status: Status::default(),
+            history: History::default(),
             should_quit: false,
             screen_size,
         };

@@ -14,13 +14,15 @@ impl App {
     /// assigns new task ids, so the tasks pane of the list starts afresh: folds are opened
     /// and the selection moves to the task on the line of the previously selected task, or
     /// to the last task before that line. A file that cannot be loaded any more makes the
-    /// list show its load error. An unchanged file and a list missing from the workspace are
-    /// left alone.
+    /// list show its load error. The undo history of a replaced list is forgotten, because it
+    /// describes a document that no longer exists. An unchanged file and a list missing from
+    /// the workspace are left alone.
     pub fn reload_list(&mut self, list: &ListPath) {
         let selected_line = self.selected_line(list);
         match self.workspace.reload(list) {
             Some(Reload::Replaced) => {
                 tracing::info!(%list, "list changed on disk and was reloaded");
+                self.history.forget(list);
                 self.restore_selection(list, selected_line);
             }
             Some(Reload::Unchanged) => {}

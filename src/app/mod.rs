@@ -10,6 +10,7 @@ pub mod editor;
 pub mod effect;
 pub mod filter;
 pub mod help;
+mod history;
 pub mod lists;
 pub mod prompt;
 mod reload;

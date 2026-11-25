@@ -255,6 +255,13 @@ impl ListsPane {
             && self.open_selected_list()
     }
 
+    /// Selects the list at `path` in the tree of `workspace` and makes it the active one, in a
+    /// viewport `viewport_height` rows high.
+    pub(super) fn open(&mut self, workspace: &Workspace, path: &ListPath, viewport_height: usize) {
+        self.select(workspace, &EntryKey::List(path.clone()), viewport_height);
+        self.active = Some(path.clone());
+    }
+
     /// Makes the selected list the active one; returns `false` if no list is selected.
     fn open_selected_list(&mut self) -> bool {
         match self.outline.selected() {
@@ -284,6 +291,7 @@ impl App {
         self.lists
             .apply_entry_change(&self.workspace, change, viewport_height);
         self.tasks.apply_entry_change(change);
+        self.history.apply_entry_change(change);
     }
 
     /// Opens a prompt to rename the selected folder or list, starting with its current name.

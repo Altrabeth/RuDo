@@ -106,7 +106,8 @@ def run(binary: str, workspace: str, home: str) -> tuple[int, bytes]:
 
 def main() -> int:
     binary = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "target/debug/rudo")
-    expected = f"- [x] Buy milk [completion:: {datetime.date.today().isoformat()}]\n"
+    today = datetime.date.today().isoformat()
+    expected = f"- [x] Buy milk [created:: {today}] [completion:: {today}]\n"
     with tempfile.TemporaryDirectory(prefix="rudo-smoke-") as home:
         workspace = os.path.join(home, "workspace")
         os.mkdir(workspace)

@@ -580,7 +580,7 @@ impl Visitor<'_> for KeySequenceVisitor {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use ratatui::crossterm::event::KeyEventKind;
+    use ratatui::crossterm::event::{KeyEventKind, KeyEventState};
     use rstest::rstest;
 
     use super::*;
@@ -882,6 +882,21 @@ mod tests {
     #[case::tab_with_shift(KeyCode::Tab, KeyModifiers::SHIFT, Some(chord(Key::BackTab, &[])))]
     #[case::shifted_arrow(KeyCode::Up, KeyModifiers::SHIFT, Some(chord(Key::Up, &[Modifier::Shift])))]
     #[case::enter(KeyCode::Enter, KeyModifiers::NONE, Some(chord(Key::Enter, &[])))]
+    #[case::enter_with_shift(
+        KeyCode::Enter,
+        KeyModifiers::SHIFT,
+        Some(chord(Key::Enter, &[Modifier::Shift]))
+    )]
+    #[case::enter_with_alt(
+        KeyCode::Enter,
+        KeyModifiers::ALT,
+        Some(chord(Key::Enter, &[Modifier::Alt]))
+    )]
+    #[case::ctrl_shift_character(
+        KeyCode::Char('o'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        Some(chord(Key::Char('O'), &[Modifier::Ctrl]))
+    )]
     #[case::esc(KeyCode::Esc, KeyModifiers::NONE, Some(chord(Key::Esc, &[])))]
     #[case::backspace(KeyCode::Backspace, KeyModifiers::NONE, Some(chord(Key::Backspace, &[])))]
     #[case::delete(KeyCode::Delete, KeyModifiers::NONE, Some(chord(Key::Delete, &[])))]
@@ -928,6 +943,29 @@ mod tests {
     fn key_event_and_notation_agree_for_ctrl_j() {
         let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL);
         let expected: KeyChord = "ctrl-j".parse().unwrap();
+
+        let system_under_test = KeyChord::from_key_event(event);
+
+        assert_eq!(system_under_test, Some(expected));
+    }
+
+    /// The kitty keyboard protocol reports `shift-tab` as tab with shift, `shift-enter` as
+    /// enter with shift and the state of caps lock and num lock apart from the modifiers.
+    #[rstest]
+    #[case::esc(KeyCode::Esc, KeyModifiers::NONE, "esc")]
+    #[case::shift_tab(KeyCode::Tab, KeyModifiers::SHIFT, "backtab")]
+    #[case::shift_enter(KeyCode::Enter, KeyModifiers::SHIFT, "shift-enter")]
+    #[case::alt_enter(KeyCode::Enter, KeyModifiers::ALT, "alt-enter")]
+    #[case::ctrl_chord(KeyCode::Char('c'), KeyModifiers::CONTROL, "ctrl-c")]
+    #[case::upper_case_letter(KeyCode::Char('O'), KeyModifiers::SHIFT, "O")]
+    fn kitty_protocol_key_event_and_notation_agree(
+        #[case] code: KeyCode,
+        #[case] modifiers: KeyModifiers,
+        #[case] notation: &str,
+    ) {
+        let state = KeyEventState::CAPS_LOCK | KeyEventState::NUM_LOCK;
+        let event = KeyEvent::new_with_kind_and_state(code, modifiers, KeyEventKind::Press, state);
+        let expected: KeyChord = notation.parse().unwrap();
 
         let system_under_test = KeyChord::from_key_event(event);
 

@@ -146,6 +146,17 @@ mod tests {
     #[case::esc_without_pending(Context::Tasks, "esc", &[Resolution::Action(Action::ClearFilter)])]
     #[case::esc_in_help(Context::Help, "esc", &[Resolution::Action(Action::CloseHelp)])]
     #[case::esc_in_input(Context::Input, "esc", &[Resolution::Action(Action::Cancel)])]
+    #[case::enter_in_input(Context::Input, "enter", &[Resolution::Action(Action::Submit)])]
+    #[case::shift_enter_in_input(
+        Context::Input,
+        "shift-enter",
+        &[Resolution::Action(Action::SubmitAndAddTask)],
+    )]
+    #[case::alt_enter_in_input(
+        Context::Input,
+        "alt-enter",
+        &[Resolution::Action(Action::SubmitAndAddTask)],
+    )]
     #[case::repeated(
         Context::Tasks,
         "j j",

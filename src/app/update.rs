@@ -84,6 +84,7 @@ impl App {
             | Action::Open) => self.navigate(action),
             Action::Search => self.search(),
             Action::Submit => return self.submit(),
+            Action::SubmitAndAddTask => return self.submit_and_add_task(),
             Action::Cancel => self.cancel(),
             Action::Help => self.open_help(),
             Action::CloseHelp => self.close_help(),
@@ -253,6 +254,22 @@ impl App {
             Mode::Normal | Mode::Confirm(_) | Mode::Visual => {}
         }
         Vec::new()
+    }
+
+    /// Accepts the text of the inline task editor and opens a new one below the task, or
+    /// accepts the text of any other text input like [`Action::Submit`].
+    fn submit_and_add_task(&mut self) -> Vec<Effect> {
+        match self.mode {
+            Mode::InlineEdit(_) => self.submit_inline_edit_and_add_task(),
+            Mode::Normal
+            | Mode::Help(_)
+            | Mode::Prompt(_)
+            | Mode::FolderPicker(_)
+            | Mode::GoTo(_)
+            | Mode::Confirm(_)
+            | Mode::Search(_)
+            | Mode::Visual => self.submit(),
+        }
     }
 
     /// Discards the text of the open text input, or ends the selection of visual mode.

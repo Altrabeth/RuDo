@@ -107,6 +107,27 @@ fn narrow_bar_drops_hints_from_the_right_but_keeps_help(
 }
 
 #[test]
+fn inline_task_editor_shows_the_key_for_the_next_task() {
+    let mut test_app = TestApp::new(&[("groceries.md", "- [ ] Buy milk\n")]);
+    test_app.press("2 o");
+
+    let system_under_test = test_app.render(80, 6);
+
+    assert_snapshot!(system_under_test);
+}
+
+#[test]
+fn other_text_inputs_do_not_show_the_key_for_the_next_task() {
+    let mut test_app = TestApp::new(&[]);
+    test_app.press("o");
+    let expected = format!("{:<80}", " enter accept  esc cancel ");
+
+    let system_under_test = test_app.render(80, 24);
+
+    assert_eq!(bottom_row(&system_under_test), expected);
+}
+
+#[test]
 fn hints_use_the_key_hint_slots() {
     let mut test_app = TestApp::new(&[]);
 

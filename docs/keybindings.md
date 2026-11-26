@@ -117,7 +117,9 @@ command is split); in the tasks pane at the line of the selected task. RuDo relo
 | `H`            | `toggle-completed`    | show or hide completed tasks                     |
 
 The task text is edited in its row; `enter` saves it, `esc` discards it, and empty text
-changes nothing. A new task gets today's creation date (see
+changes nothing. `shift-enter` (or `alt-enter`) saves it and opens a new row right below it,
+at the same depth, so that several tasks are typed in a row, each saved and undone on its
+own; empty text ends the row. In the other text inputs it accepts the text like `enter`. A new task gets today's creation date (see
 [Task syntax](files-and-obsidian.md#task-syntax)), a pasted one keeps its fields. Deleting a task does not ask: `u` brings it back and `p` pastes it. Every
 action moves, deletes or copies a task together with its subtasks.
 
@@ -247,6 +249,7 @@ undone.`); if some cannot be deleted, one message names them.
 | `y`, `enter`         | `confirm-yes` | dialogs       | confirm                     |
 | `n`, `esc`           | `confirm-no`  | dialogs       | cancel                      |
 | `enter`              | `submit`      | text input, picker | accept the text        |
+| `shift-enter`, `alt-enter` | `submit-and-add-task` | text input | accept the text and add another task below it |
 | `esc`, `ctrl-c`      | `cancel`      | text input, picker, visual mode (also in the bin) | discard the text, or end the selection |
 
 While typing, these editing keys are fixed: `left`, `right`, `ctrl-left` and `ctrl-right`
@@ -346,3 +349,9 @@ Modifiers can be combined in any order and are printed as `ctrl-alt-shift-`. Shi
 of the character, so `shift-a` is the same key as `A` and `shift-?` the same as `?`;
 `shift-tab` is `backtab`. Terminals send `ctrl-h` as `backspace`, `ctrl-i` as `tab`, `ctrl-m`
 as `enter` and `ctrl-[` as `esc`, so these keys cannot be bound separately.
+
+Most terminals also send `shift-enter` as `enter`. Where the terminal supports the kitty
+keyboard protocol (kitty, WezTerm, foot, Ghostty, Alacritty, recent iTerm2 and others), RuDo
+turns it on while it runs, which tells the two apart; on Windows the console reports
+`shift-enter` without it. In other terminals use `alt-enter`, the second key of
+`submit-and-add-task`, or bind the action to another key in `keybindings`.

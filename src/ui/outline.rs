@@ -172,6 +172,7 @@ impl OutlineCommand {
             | Action::ConfirmYes
             | Action::ConfirmNo
             | Action::Submit
+            | Action::SubmitAndAddTask
             | Action::Cancel => None,
         }
     }

@@ -9,6 +9,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Tasks in a row.** `shift-enter` (`submit-and-add-task`, also `alt-enter`) in the inline
+  task editor saves the task and opens a new one right below it, at the same depth, after
+  `o`, `O`, `a` and `i`; empty text ends the row, and each task is saved and undone on its
+  own. The bottom bar shows the key while a task is typed. To tell `shift-enter` from
+  `enter`, RuDo turns on the kitty keyboard protocol in terminals that support it (kitty,
+  WezTerm, foot, Ghostty, Alacritty, recent iTerm2 and others) and turns it off again for
+  the external editor and on exit; elsewhere `alt-enter` does the same.
 - **Windows installer.** Every release has `rudo-tui-x86_64-pc-windows-msvc.msi`, which
   installs RuDo for all users into `C:\Program Files\rudo-tui`, adds `rudo` to `PATH` and
   appears in Installed apps, where it is uninstalled. It is not signed, so SmartScreen asks

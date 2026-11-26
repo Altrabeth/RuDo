@@ -228,3 +228,127 @@ fn placeholder_row_shows_the_input_at_the_insertion_point(
 
     assert_snapshot!(snapshot, system_under_test);
 }
+
+#[rstest]
+#[case::shift_enter("shift-enter")]
+#[case::alt_enter("alt-enter")]
+fn tasks_typed_in_a_row_become_siblings_in_order(#[case] next: &str) {
+    let mut test_app = groceries();
+    let expected_file = "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+         - [ ] Eggs [created:: 2026-03-14]\n- [ ] Flour [created:: 2026-03-14]\n\
+         - [ ] Sugar [created:: 2026-03-14]\n- [ ] Bake bread\n";
+    test_app
+        .press("o")
+        .type_text("Eggs")
+        .press(next)
+        .type_text("Flour")
+        .press(next)
+        .type_text("Sugar")
+        .press("enter");
+
+    let system_under_test = test_app.read("Groceries.md");
+
+    assert_eq!(system_under_test, expected_file);
+    assert_eq!(selected_task(&test_app), Some(task_id(&test_app, "Sugar")));
+    assert!(matches!(test_app.app().mode(), Mode::Normal));
+}
+
+#[rstest]
+#[case::above(
+    "G O",
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+     - [ ] Eggs [created:: 2026-03-14]\n- [ ] Flour [created:: 2026-03-14]\n\
+     - [ ] Bake bread\n"
+)]
+#[case::subtasks(
+    "a",
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+     \t- [ ] Eggs [created:: 2026-03-14]\n\t- [ ] Flour [created:: 2026-03-14]\n\
+     - [ ] Bake bread\n"
+)]
+#[case::after_editing_a_task(
+    "j i ctrl-u",
+    "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Eggs\n\
+     \t- [ ] Flour [created:: 2026-03-14]\n- [ ] Bake bread\n"
+)]
+fn next_task_follows_the_task_just_written(#[case] keys: &str, #[case] expected: &str) {
+    let mut test_app = groceries();
+    test_app
+        .press(keys)
+        .type_text("Eggs")
+        .press("shift-enter")
+        .type_text("Flour")
+        .press("enter");
+
+    let system_under_test = test_app.read("Groceries.md");
+
+    assert_eq!(system_under_test, expected);
+}
+
+#[test]
+fn next_task_after_an_unchanged_edit_goes_below_the_edited_task() {
+    let mut test_app = groceries();
+    let expected_file = "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+         - [ ] Bake bread\n- [ ] Flour [created:: 2026-03-14]\n";
+    test_app
+        .press("G i shift-enter")
+        .type_text("Flour")
+        .press("enter");
+
+    let system_under_test = test_app.read("Groceries.md");
+
+    assert_eq!(system_under_test, expected_file);
+}
+
+#[test]
+fn empty_text_ends_the_chain() {
+    let mut test_app = groceries();
+    let expected_file = "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+         - [ ] Eggs [created:: 2026-03-14]\n- [ ] Bake bread\n";
+    test_app
+        .press("o")
+        .type_text("Eggs")
+        .press("shift-enter shift-enter");
+
+    let system_under_test = test_app.read("Groceries.md");
+
+    assert_eq!(system_under_test, expected_file);
+    assert_eq!(selected_task(&test_app), Some(task_id(&test_app, "Eggs")));
+    assert!(matches!(test_app.app().mode(), Mode::Normal));
+}
+
+#[test]
+fn failed_submit_opens_no_new_editor() {
+    let mut test_app = groceries();
+    let list = test_app.list_path("Groceries.md");
+    let expected_file = "# Groceries\n";
+    test_app.press("i").type_text(" now");
+    test_app.write("Groceries.md", expected_file);
+    test_app.run(|app| {
+        app.reload_list(&list);
+        Vec::new()
+    });
+    test_app.press("shift-enter");
+
+    let system_under_test = test_app.app().mode();
+
+    assert!(matches!(system_under_test, Mode::Normal));
+    assert_eq!(test_app.read("Groceries.md"), expected_file);
+}
+
+#[test]
+fn each_task_of_a_row_is_undone_on_its_own() {
+    let mut test_app = groceries();
+    let expected_file = "# Groceries\n\n- [ ] Buy milk\n\t- [ ] Oat milk\n\
+         - [ ] Eggs [created:: 2026-03-14]\n- [ ] Bake bread\n";
+    test_app
+        .press("o")
+        .type_text("Eggs")
+        .press("shift-enter")
+        .type_text("Flour")
+        .press("enter u");
+
+    let system_under_test = test_app.read("Groceries.md");
+
+    assert_eq!(system_under_test, expected_file);
+}

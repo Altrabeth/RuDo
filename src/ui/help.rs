@@ -389,6 +389,7 @@ const fn action_heading(action: Action) -> HelpHeading {
         | Action::ConfirmYes
         | Action::ConfirmNo
         | Action::Submit
+        | Action::SubmitAndAddTask
         | Action::Cancel => HelpHeading::HelpAndDialogs,
         Action::PickerNext | Action::PickerPrevious | Action::Complete => HelpHeading::Picker,
     }

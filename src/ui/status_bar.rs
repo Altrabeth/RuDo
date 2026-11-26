@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 
 use crate::app::search::PROMPT;
-use crate::app::{App, Focus, Severity, StatusMessage};
+use crate::app::{App, Focus, Mode, Severity, StatusMessage};
 use crate::config::keymap::action::{Action, Context};
 use crate::config::keymap::key::{KeyChord, KeySequence};
 use crate::config::keymap::keymap::Keymap;
@@ -25,6 +25,10 @@ pub(crate) type KeyHint = [Span<'static>; 5];
 
 /// Starts the bottom bar in visual mode, vim style, followed by the number of selected rows.
 pub const VISUAL_INDICATOR: &str = "-- VISUAL --";
+
+/// The hints while the inline task editor is open; only there does [`Action::SubmitAndAddTask`]
+/// differ from [`Action::Submit`], so other text inputs do not show it.
+const INLINE_EDIT_HINTS: &[Action] = &[Action::Submit, Action::SubmitAndAddTask, Action::Cancel];
 
 /// Renders the bottom bar of `app` into `area`, a single line below the panes.
 ///
@@ -55,9 +59,14 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         message_line(message, theme)
     } else {
         let mut line = visual_line(app.visual_selection_count(), theme);
+        let actions = if matches!(app.mode(), Mode::InlineEdit(_)) {
+            INLINE_EDIT_HINTS
+        } else {
+            hint_actions(app.context(), app.focus())
+        };
         let hints = hints_line(
             app.keymap(),
-            hint_actions(app.context(), app.focus()),
+            actions,
             usize::from(left_area.width).saturating_sub(line.width()),
             theme,
         );
@@ -355,6 +364,17 @@ mod tests {
                 })
             })
             .filter(|(context, action)| !action.contexts().contains(context))
+            .collect();
+
+        assert_eq!(system_under_test, []);
+    }
+
+    #[test]
+    fn every_inline_edit_hint_is_valid_in_a_text_input() {
+        let system_under_test: Vec<Action> = INLINE_EDIT_HINTS
+            .iter()
+            .copied()
+            .filter(|action| !action.contexts().contains(&Context::Input))
             .collect();
 
         assert_eq!(system_under_test, []);

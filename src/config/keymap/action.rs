@@ -195,6 +195,8 @@ pub enum Action {
     ConfirmNo,
     /// Accept the typed text.
     Submit,
+    /// Accept the typed text of the inline task editor and add another task below it.
+    SubmitAndAddTask,
     /// Discard the typed text or end the selection.
     Cancel,
     /// Select the next candidate of a picker.
@@ -258,6 +260,7 @@ const INPUT_PICKER_AND_VISUAL: &[Context] = &[
     Context::Visual,
     Context::BinVisual,
 ];
+const INPUT: &[Context] = &[Context::Input];
 const INPUT_AND_PICKER: &[Context] = &[Context::Input, Context::Picker];
 const PICKER: &[Context] = &[Context::Picker];
 
@@ -331,6 +334,7 @@ impl Action {
             Self::ConfirmYes => "confirm",
             Self::ConfirmNo => "cancel",
             Self::Submit => "accept the text",
+            Self::SubmitAndAddTask => "accept the text and add another task below it",
             Self::Cancel => "discard the text, or end the selection",
             Self::PickerNext => "select the next match",
             Self::PickerPrevious => "select the previous match",
@@ -403,6 +407,7 @@ impl Action {
             Self::ConfirmYes => "yes",
             Self::ConfirmNo => "no",
             Self::Submit => "accept",
+            Self::SubmitAndAddTask => "next task",
             Self::Cancel => "cancel",
             Self::PickerNext => "next",
             Self::PickerPrevious => "previous",
@@ -474,6 +479,7 @@ impl Action {
             Self::CloseHelp => HELP,
             Self::ConfirmYes | Self::ConfirmNo => DIALOG,
             Self::Submit | Self::Complete => INPUT_AND_PICKER,
+            Self::SubmitAndAddTask => INPUT,
             Self::Cancel => INPUT_PICKER_AND_VISUAL,
             Self::PickerNext | Self::PickerPrevious => PICKER,
         }
@@ -523,6 +529,7 @@ impl Action {
             Self::FoldAll => &["z M"],
             Self::UnfoldAll => &["z R"],
             Self::Open | Self::Submit => &["enter"],
+            Self::SubmitAndAddTask => &["shift-enter", "alt-enter"],
             Self::NewList | Self::NewTaskBelow => &["o"],
             Self::NewFolder | Self::NewTaskAbove => &["O"],
             Self::Rename | Self::SetRecurrence => &["r"],
@@ -631,6 +638,7 @@ mod tests {
     #[case::delete(Action::Delete, &["d d"])]
     #[case::toggle_done(Action::ToggleDone, &["x", "space"])]
     #[case::cancel(Action::Cancel, &["esc", "ctrl-c"])]
+    #[case::submit_and_add_task(Action::SubmitAndAddTask, &["shift-enter", "alt-enter"])]
     #[case::visual_mode(Action::VisualMode, &["v"])]
     #[case::delete_selection(Action::DeleteSelection, &["d"])]
     #[case::yank_selection(Action::YankSelection, &["y"])]
@@ -686,6 +694,7 @@ mod tests {
     #[case::help(Action::CloseHelp, &[Context::Help])]
     #[case::dialog(Action::ConfirmYes, &[Context::Dialog])]
     #[case::input(Action::Submit, &[Context::Input, Context::Picker])]
+    #[case::submit_and_add_task(Action::SubmitAndAddTask, &[Context::Input])]
     #[case::complete(Action::Complete, &[Context::Input, Context::Picker])]
     #[case::picker(Action::PickerNext, &[Context::Picker])]
     #[case::visual_mode(

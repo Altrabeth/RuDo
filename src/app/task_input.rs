@@ -174,12 +174,35 @@ impl App {
     /// selects the task it went into. Empty text changes nothing, and an error message is
     /// shown if the edited task or its list was removed meanwhile.
     pub(super) fn submit_inline_edit(&mut self) -> Vec<Effect> {
+        self.write_inline_edit().0
+    }
+
+    /// Submits the inline editor like [`App::submit_inline_edit`] and opens a new one below
+    /// the task that holds the text, so that the next task gets its parent and depth.
+    ///
+    /// No new editor opens if nothing was written: empty text ends a chain of tasks, and so
+    /// does an edited task or list that was removed meanwhile.
+    pub(super) fn submit_inline_edit_and_add_task(&mut self) -> Vec<Effect> {
+        let (effects, written) = self.write_inline_edit();
+        if let Some((list, id)) = written {
+            self.open_inline_edit(InlineEdit {
+                list,
+                kind: InlineEditKind::New(InsertPosition::Below(id)),
+                input: TextInput::new(),
+            });
+        }
+        effects
+    }
+
+    /// Does the work of [`App::submit_inline_edit`] and also returns the list and the task
+    /// that hold the text, or `None` if the text went nowhere.
+    fn write_inline_edit(&mut self) -> (Vec<Effect>, Option<(ListPath, TaskId)>) {
         let Some(edit) = self.close_inline_edit() else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
         let text = edit.input.value();
         if text.trim().is_empty() {
-            return Vec::new();
+            return (Vec::new(), None);
         }
         let created = self.created_date();
         let fallback_indent = self.config.tasks().indent();
@@ -194,13 +217,24 @@ impl App {
                 }
             }
         });
-        match applied {
-            Applied::Changed(id) => self.select_task(id),
-            Applied::Unchanged => {}
-            Applied::TaskGone => self.show_message(StatusMessage::error(TASK_GONE)),
-            Applied::ListGone => self.show_message(StatusMessage::error(LIST_GONE)),
-        }
-        effects
+        let written = match (applied, edit.kind) {
+            (Applied::Changed(id), _) => {
+                self.select_task(id);
+                Some(id)
+            }
+            // An existing task that already held the text still holds it.
+            (Applied::Unchanged, InlineEditKind::Existing(id)) => Some(id),
+            (Applied::Unchanged, InlineEditKind::New(_)) => None,
+            (Applied::TaskGone, _) => {
+                self.show_message(StatusMessage::error(TASK_GONE));
+                None
+            }
+            (Applied::ListGone, _) => {
+                self.show_message(StatusMessage::error(LIST_GONE));
+                None
+            }
+        };
+        (effects, written.map(|id| (edit.list, id)))
     }
 
     /// Closes the inline editor without changing the document.
@@ -269,6 +303,80 @@ mod tests {
         let system_under_test = app.submit_inline_edit();
 
         assert_eq!(system_under_test, [Effect::Save(list)]);
+    }
+
+    #[test]
+    fn submit_and_add_task_saves_once_and_opens_an_editor_below_the_new_task() {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_with_list(&directory, "- [ ] a\n");
+        let list = only_list_path(&app);
+        app.add_task(InsertPosition::Below);
+        let _effects = app.handle_paste("b");
+
+        let system_under_test = app.submit_inline_edit_and_add_task();
+
+        assert_eq!(system_under_test, [Effect::Save(list)]);
+        assert_eq!(
+            inline_edit_of(&app).kind(),
+            InlineEditKind::New(InsertPosition::Below(
+                *app.task_outline().unwrap().selected().unwrap()
+            ))
+        );
+        assert_eq!(inline_edit_of(&app).input().value(), "");
+    }
+
+    #[test]
+    fn submit_and_add_task_on_an_unchanged_task_opens_an_editor_below_it() {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_with_list(&directory, "- [ ] a\n");
+        let selected = *app.task_outline().unwrap().selected().unwrap();
+        app.edit_task();
+
+        let system_under_test = app.submit_inline_edit_and_add_task();
+
+        assert_eq!(system_under_test, []);
+        assert_eq!(
+            inline_edit_of(&app).kind(),
+            InlineEditKind::New(InsertPosition::Below(selected))
+        );
+    }
+
+    #[rstest]
+    #[case::empty_text("")]
+    #[case::only_blanks("  ")]
+    fn submit_and_add_task_with_empty_text_closes_the_editor(#[case] text: &str) {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_with_list(&directory, "- [ ] a\n");
+        app.add_task(InsertPosition::Below);
+        let _effects = app.handle_paste(text);
+
+        let system_under_test = app.submit_inline_edit_and_add_task();
+
+        assert_eq!(system_under_test, []);
+        assert!(matches!(app.mode(), Mode::Normal));
+    }
+
+    #[test]
+    fn submit_and_add_task_on_a_task_removed_meanwhile_opens_no_editor() {
+        let directory = TempDir::new().unwrap();
+        let mut app = app_with_list(&directory, "- [ ] a\n");
+        let list = only_list_path(&app);
+        let removed = *app.task_outline().unwrap().selected().unwrap();
+        app.edit_task();
+        let _effects = app.handle_paste("b");
+        let _effects = app.edit_list(&list, |document| match document.remove_block(removed) {
+            Some(_) => EditOutcome::Changed,
+            None => EditOutcome::Unchanged,
+        });
+
+        let system_under_test = app.submit_inline_edit_and_add_task();
+
+        assert_eq!(system_under_test, []);
+        assert!(matches!(app.mode(), Mode::Normal));
+        assert_eq!(
+            app.status_message().map(StatusMessage::text),
+            Some(TASK_GONE)
+        );
     }
 
     #[test]

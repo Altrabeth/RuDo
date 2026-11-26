@@ -104,7 +104,8 @@ rudo --root ~/Obsidian/Vault/Todo
 
 1. Press `o` to create your first list and type its name, then `enter`.
 2. Press `enter` (or `l`) to open the list. The tasks pane gets the focus.
-3. Press `o` to add a task, type it, press `enter`. Press `a` to add a subtask.
+3. Press `o` to add a task, type it, press `enter` (`shift-enter` adds the next task right
+   below). Press `a` to add a subtask.
 4. Press `x` to mark the selected task as done, `D` to give it a due date.
 5. Press `?` at any time to see every available key.
 

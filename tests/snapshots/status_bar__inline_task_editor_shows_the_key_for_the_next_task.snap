@@ -1,0 +1,10 @@
+---
+source: tests/status_bar.rs
+expression: system_under_test
+---
+"╭ Lists ───────────────╮╭ groceries  0/1 ──────────────────────────────────────╮"
+"│ • groceries      0/1 ││   [ ] Buy milk                                       │"
+"│                      ││   [ ]                                                │"
+"│                      ││                                                      │"
+"╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
+" enter accept  shift-enter next task  esc cancel                                "

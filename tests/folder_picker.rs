@@ -155,6 +155,7 @@ fn enter_moves_into_the_best_match() {
 }
 
 #[rstest]
+#[case::ctrl_j("ctrl-j")]
 #[case::down("down")]
 #[case::ctrl_n("ctrl-n")]
 fn next_selects_the_following_match(#[case] key: &str) {
@@ -167,6 +168,7 @@ fn next_selects_the_following_match(#[case] key: &str) {
 }
 
 #[rstest]
+#[case::ctrl_k("ctrl-k")]
 #[case::up("up")]
 #[case::ctrl_p("ctrl-p")]
 fn previous_selects_the_match_before(#[case] key: &str) {
@@ -176,6 +178,23 @@ fn previous_selects_the_match_before(#[case] key: &str) {
     let system_under_test = test_app.press("enter");
 
     assert!(exists(system_under_test, "Home/Inbox.md"));
+}
+
+/// `ctrl-k` is bound to `picker-previous`, which takes precedence over the editing key that
+/// deletes to the end; `ctrl-u` still clears the input.
+#[rstest]
+#[case::ctrl_k_keeps_the_text_after_the_cursor("home ctrl-k", "rel")]
+#[case::ctrl_u_still_deletes_to_the_start("ctrl-u", "")]
+fn editing_keys_bound_in_the_picker_select_instead_of_deleting(
+    #[case] keys: &str,
+    #[case] expected: &str,
+) {
+    let mut test_app = TestApp::new(WORKSPACE);
+    test_app.press(MOVE_INBOX).type_text("rel");
+
+    let system_under_test = test_app.press(keys);
+
+    assert_eq!(input_of(system_under_test), expected);
 }
 
 #[test]
@@ -309,7 +328,8 @@ fn bottom_bar_shows_the_keys_of_the_picker() {
     let system_under_test = bottom_row(&test_app.render(80, 24));
 
     assert!(
-        system_under_test.starts_with(" tab complete  enter accept  esc cancel"),
+        system_under_test
+            .starts_with(" enter accept  ctrl-j next  ctrl-k previous  tab complete  esc cancel "),
         "{system_under_test}"
     );
 }

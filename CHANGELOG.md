@@ -39,6 +39,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   completes terms (`due:to` to `due:today`), and the help screen lists them under "Query
   terms". Date expressions everywhere also accept offsets into the past: `-3d`, `-1w`,
   `-1m`, `-1y`.
+- **Vim-style keys in the pickers.** `ctrl-j` selects the next match and `ctrl-k` the
+  previous one in go to anything (`ctrl-p`) and the folder picker (`m`), as in fzf, besides
+  `down`/`ctrl-n` and `up`/`ctrl-p`; the bottom bar shows them while a picker is open. In a
+  picker `ctrl-k` no longer deletes to the end of the input, because keybindings take
+  precedence over the editing keys; the help screen marks it `(not in pickers)`, following the
+  configured `picker-next` and `picker-previous`. Everywhere else `ctrl-k` still deletes to the
+  end. A configuration that binds `ctrl-j` or `ctrl-k` to `submit`, `cancel` or `complete` now
+  reports a conflict in the picker; rebinding `picker-next` or `picker-previous` resolves it.
 
 ### Changed
 

@@ -172,7 +172,13 @@ const fn hint_actions(context: Context, focus: Focus) -> &'static [Action] {
         Context::Help => &[Action::Search],
         Context::Dialog => &[Action::ConfirmYes, Action::ConfirmNo],
         Context::Input => &[Action::Submit, Action::Cancel],
-        Context::Picker => &[Action::Complete, Action::Submit, Action::Cancel],
+        Context::Picker => &[
+            Action::Submit,
+            Action::PickerNext,
+            Action::PickerPrevious,
+            Action::Complete,
+            Action::Cancel,
+        ],
     }
 }
 

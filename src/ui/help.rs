@@ -6,15 +6,16 @@
 //! [`rows`] flattens them for scrolling. The model is pure, so its correctness is tested
 //! without rendering.
 
+use std::borrow::Cow;
 use std::fmt::{self, Display, Formatter, Write};
 
 use strum::IntoEnumIterator;
 
 use crate::app::filter::SmartCaseQuery;
 use crate::app::query::{QUERY_TERMS, TermSyntax};
-use crate::config::keymap::action::Action;
+use crate::config::keymap::action::{Action, Context};
 use crate::config::keymap::key::KeySequence;
-use crate::config::keymap::keymap::Keymap;
+use crate::config::keymap::keymap::{Keymap, Lookup};
 use crate::ui::outline::OutlineItem;
 use crate::ui::text_input::{EDITING_KEYS, EditCommand, EditingKey};
 
@@ -23,6 +24,10 @@ const UNBOUND: &str = "unbound";
 
 /// Separates the key sequences of one entry.
 const KEY_SEPARATOR: &str = ", ";
+
+/// Marks an editing key that a binding of the picker takes over, such as `ctrl-k`, because
+/// bindings are resolved before a key reaches the text input.
+const NOT_IN_PICKERS: &str = " (not in pickers)";
 
 /// A section of the help screen, mirroring the keybinding tables in `docs/keybindings.md`.
 ///
@@ -103,7 +108,7 @@ pub struct HelpEntry {
     subject: HelpSubject,
     /// The keys in compact form, separated by commas; `None` for an unbound action.
     keys: Option<String>,
-    description: &'static str,
+    description: Cow<'static, str>,
 }
 
 impl HelpEntry {
@@ -111,15 +116,23 @@ impl HelpEntry {
         Self {
             subject: HelpSubject::Action(action),
             keys: (!keys.is_empty()).then(|| compact_keys(keys)),
-            description: action.description(),
+            description: Cow::Borrowed(action.description()),
         }
     }
 
-    fn for_editing_key(editing_key: &EditingKey) -> Self {
+    fn for_editing_key(editing_key: &EditingKey, keymap: &Keymap) -> Self {
+        let is_bound_in_pickers = editing_key
+            .chords()
+            .any(|chord| keymap.lookup(Context::Picker, &[chord]) != Lookup::None);
+        let description = if is_bound_in_pickers {
+            Cow::Owned(format!("{}{NOT_IN_PICKERS}", editing_key.description()))
+        } else {
+            Cow::Borrowed(editing_key.description())
+        };
         Self {
             subject: HelpSubject::Edit(editing_key.command()),
             keys: Some(editing_key.keys().join(KEY_SEPARATOR)),
-            description: editing_key.description(),
+            description,
         }
     }
 
@@ -127,7 +140,7 @@ impl HelpEntry {
         Self {
             subject: HelpSubject::QueryTerm(*syntax),
             keys: Some(syntax.examples().join(KEY_SEPARATOR)),
-            description: syntax.description(),
+            description: Cow::Borrowed(syntax.description()),
         }
     }
 
@@ -150,15 +163,16 @@ impl HelpEntry {
         self.keys.is_none()
     }
 
-    /// Returns what the keys do.
+    /// Returns what the keys do; for an editing key that a binding of the picker takes over,
+    /// followed by `(not in pickers)`.
     #[must_use]
-    pub const fn description(&self) -> &'static str {
-        self.description
+    pub fn description(&self) -> &str {
+        &self.description
     }
 
     fn matches(&self, query: &SmartCaseQuery) -> bool {
         query.matches(self.keys())
-            || query.matches(self.description)
+            || query.matches(&self.description)
             || self.subject.name().is_some_and(|name| query.matches(name))
     }
 }
@@ -291,7 +305,7 @@ fn section_entries(heading: HelpHeading, keymap: &Keymap) -> Vec<HelpEntry> {
     match heading {
         HelpHeading::EditingKeys => EDITING_KEYS
             .iter()
-            .map(HelpEntry::for_editing_key)
+            .map(|editing_key| HelpEntry::for_editing_key(editing_key, keymap))
             .collect(),
         HelpHeading::QueryTerms => QUERY_TERMS.iter().map(HelpEntry::for_term_syntax).collect(),
         HelpHeading::Everywhere
@@ -398,6 +412,7 @@ mod tests {
 
     use super::*;
     use crate::config::keymap::keymap::KeyBindings;
+    use crate::user_docs::KEYBINDINGS;
 
     fn keymap(yaml: &str) -> Keymap {
         let overrides: KeyBindings = if yaml.is_empty() {
@@ -553,7 +568,7 @@ mod tests {
 
     #[test]
     fn editing_keys_come_from_the_editing_key_table() {
-        let keymap = keymap("");
+        let keymap = keymap("picker-previous: [up, ctrl-p]");
         let expected: Vec<(HelpSubject, String, &str)> = EDITING_KEYS
             .iter()
             .map(|editing_key| {
@@ -581,6 +596,72 @@ mod tests {
             .collect();
         assert_eq!(section.heading(), HelpHeading::EditingKeys);
         assert_eq!(listed, expected);
+    }
+
+    #[rstest]
+    #[case::ctrl_k_selects_in_pickers(
+        "",
+        EditCommand::DeleteToEnd,
+        "delete to the end (not in pickers)"
+    )]
+    #[case::unbound_in_pickers("", EditCommand::DeleteToStart, "delete to the start")]
+    #[case::ctrl_k_rebound("picker-previous: [up]", EditCommand::DeleteToEnd, "delete to the end")]
+    #[case::other_key_bound(
+        "picker-next: [ctrl-w]",
+        EditCommand::DeleteWordBackward,
+        "delete the word before the cursor (not in pickers)"
+    )]
+    #[case::prefix_of_a_binding(
+        "picker-next: ctrl-w j",
+        EditCommand::DeleteWordBackward,
+        "delete the word before the cursor (not in pickers)"
+    )]
+    fn editing_keys_bound_in_pickers_say_so(
+        #[case] yaml: &str,
+        #[case] command: EditCommand,
+        #[case] expected: &str,
+    ) {
+        let keymap = keymap(yaml);
+
+        let system_under_test = help_sections(&keymap);
+
+        let entry = entries(&system_under_test)
+            .find(|entry| entry.subject() == HelpSubject::Edit(command))
+            .unwrap();
+        assert_eq!(entry.description(), expected);
+    }
+
+    #[test]
+    fn documentation_marks_the_editing_keys_bound_in_pickers() {
+        let sections = help_sections(&keymap(""));
+        let documentation: Vec<&str> = KEYBINDINGS
+            .section("## Help screen, dialogs and text input")
+            .into_iter()
+            .flat_map(str::split_whitespace)
+            .collect();
+        let documentation = documentation.join(" ");
+
+        let system_under_test: Vec<String> = EDITING_KEYS
+            .iter()
+            .filter(|editing_key| {
+                entries(&sections).any(|entry| {
+                    entry.subject() == HelpSubject::Edit(editing_key.command())
+                        && entry.description() != editing_key.description()
+                })
+            })
+            .map(|editing_key| {
+                format!(
+                    "`{}` ({}, not in pickers)",
+                    editing_key.keys().join("` or `"),
+                    editing_key.description()
+                )
+            })
+            .collect();
+
+        assert_ne!(system_under_test, Vec::<String>::new());
+        for phrase in &system_under_test {
+            assert!(documentation.contains(phrase.as_str()), "{phrase}");
+        }
     }
 
     #[test]
@@ -733,7 +814,7 @@ mod tests {
             ("ctrl-p".to_owned(), Some(Action::GoTo.description())),
             ("Picker (go to anything and folders)".to_owned(), None),
             (
-                "up, ctrl-p".to_owned(),
+                "ctrl-k, up, ctrl-p".to_owned(),
                 Some(Action::PickerPrevious.description()),
             ),
         ];

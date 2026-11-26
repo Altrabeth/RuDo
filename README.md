@@ -49,6 +49,7 @@ the same tasks from the terminal and from Obsidian at the same time.
 - **Go to anything** with `ctrl-p`: a fuzzy finder over every folder, list and task of the
   workspace that jumps to the chosen one.
 - **Fuzzy folder picker** like fzf for moving lists and folders (`m`), with `tab` completion.
+  In both pickers `ctrl-j` and `ctrl-k` select the next and previous match.
 - **Undo and redo** for every change to a task, across lists, and for creating, renaming,
   moving and deleting lists and folders.
 - **A bin for deleted lists.** Deleted lists and folders go to `.trash/` in the workspace,

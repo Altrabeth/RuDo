@@ -25,4 +25,4 @@ expression: system_under_test
 "│                      ││                                                      │"
 "│                      ││                                                      │"
 "╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
-" tab complete  enter accept  esc cancel                                         "
+" enter accept  ctrl-j next  ctrl-k previous  tab complete  esc cancel           "

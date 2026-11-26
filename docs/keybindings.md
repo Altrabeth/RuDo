@@ -243,19 +243,21 @@ undone.`); if some cannot be deleted, one message names them.
 
 While typing, these editing keys are fixed: `left`, `right`, `ctrl-left` and `ctrl-right`
 (word), `home` or `ctrl-a`, `end` or `ctrl-e`, `backspace`, `delete`, `ctrl-w` (delete the
-word before the cursor), `ctrl-u` (delete to the start) and `ctrl-k` (delete to the end).
-Pasted text is inserted into an open text input and ignored everywhere else, so it never
-triggers commands.
+word before the cursor), `ctrl-u` (delete to the start) and `ctrl-k` (delete to the end, not in
+pickers). Keybindings are resolved before a key reaches the input, so in a picker `ctrl-k`
+selects the previous match (`picker-previous`), as in fzf; the help screen marks every editing
+key that a binding of the picker takes over. Pasted text is inserted into an open text input
+and ignored everywhere else, so it never triggers commands.
 
 Vim users who expect `esc` to keep the typed text can bind `esc` to `submit` instead.
 
 ## Picker (go to anything and folders)
 
-| Keys             | Action            | Description                                                          |
-| ---------------- | ----------------- | -------------------------------------------------------------------- |
-| `down`, `ctrl-n` | `picker-next`     | select the next match                                                |
-| `up`, `ctrl-p`   | `picker-previous` | select the previous match                                            |
-| `tab`            | `complete`        | complete the text or the word at the cursor; again for the next one  |
+| Keys                       | Action            | Description                                                         |
+| -------------------------- | ----------------- | ------------------------------------------------------------------- |
+| `ctrl-j`, `down`, `ctrl-n` | `picker-next`     | select the next match                                               |
+| `ctrl-k`, `up`, `ctrl-p`   | `picker-previous` | select the previous match                                           |
+| `tab`                      | `complete`        | complete the text or the word at the cursor; again for the next one |
 
 Go to anything (`ctrl-p`, see [above](#everywhere-lists-and-tasks-pane)) uses the same picker
 for folders, lists and tasks. Wherever RuDo asks for a folder (`m`, and `R` in the bin for

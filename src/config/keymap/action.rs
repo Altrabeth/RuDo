@@ -554,8 +554,8 @@ impl Action {
             Self::ConfirmYes => &["y", "enter"],
             Self::ConfirmNo => &["n", "esc"],
             Self::Cancel => &["esc", "ctrl-c"],
-            Self::PickerNext => &["down", "ctrl-n"],
-            Self::PickerPrevious => &["up", "ctrl-p"],
+            Self::PickerNext => &["ctrl-j", "down", "ctrl-n"],
+            Self::PickerPrevious => &["ctrl-k", "up", "ctrl-p"],
         }
     }
 }
@@ -640,8 +640,8 @@ mod tests {
     #[case::restore_from_bin(Action::RestoreFromBin, &["R"])]
     #[case::empty_bin(Action::EmptyBin, &["E"])]
     #[case::close_bin(Action::CloseBin, &["h", "left", "esc"])]
-    #[case::picker_next(Action::PickerNext, &["down", "ctrl-n"])]
-    #[case::picker_previous(Action::PickerPrevious, &["up", "ctrl-p"])]
+    #[case::picker_next(Action::PickerNext, &["ctrl-j", "down", "ctrl-n"])]
+    #[case::picker_previous(Action::PickerPrevious, &["ctrl-k", "up", "ctrl-p"])]
     #[case::complete(Action::Complete, &["tab"])]
     #[case::go_to(Action::GoTo, &["ctrl-p"])]
     #[case::sort_by_open_tasks(Action::SortByOpenTasks, &["s o"])]

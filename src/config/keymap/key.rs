@@ -922,6 +922,18 @@ mod tests {
         assert_eq!(system_under_test, Some(expected));
     }
 
+    /// In raw mode terminals send `ctrl-j` as a line feed, which crossterm reports as `j` with
+    /// the control modifier and not as `enter`, as it does for the kitty keyboard protocol.
+    #[test]
+    fn key_event_and_notation_agree_for_ctrl_j() {
+        let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL);
+        let expected: KeyChord = "ctrl-j".parse().unwrap();
+
+        let system_under_test = KeyChord::from_key_event(event);
+
+        assert_eq!(system_under_test, Some(expected));
+    }
+
     #[test]
     fn key_event_and_notation_agree_for_shifted_tab() {
         let event = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);

@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::ctrl("submit: ctrl-j")]
+    #[case::ctrl("submit: ctrl-o")]
     #[case::alt("submit: alt-a")]
     #[case::named_key("submit: f2")]
     #[case::printable_after_ctrl("submit: ctrl-x a")]

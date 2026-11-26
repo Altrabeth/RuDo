@@ -70,6 +70,15 @@ impl EditingKey {
         self.keys
     }
 
+    /// Returns the key chords of [`keys`](Self::keys).
+    pub fn chords(&self) -> impl Iterator<Item = KeyChord> {
+        // Every notation of the table parses, as `every_editing_key_notation_runs_its_command`
+        // checks, so no error is dropped here.
+        self.keys
+            .iter()
+            .filter_map(|notation| notation.parse::<KeyChord>().ok())
+    }
+
     /// Returns the description shown on the help screen.
     #[must_use]
     pub const fn description(&self) -> &'static str {
@@ -445,12 +454,7 @@ impl Widget for TextInputView<'_> {
 fn edit_command(chord: KeyChord) -> Option<EditCommand> {
     EDITING_KEYS
         .iter()
-        .find(|editing_key| {
-            editing_key
-                .keys
-                .iter()
-                .any(|notation| notation.parse::<KeyChord>().is_ok_and(|key| key == chord))
-        })
+        .find(|editing_key| editing_key.chords().any(|key| key == chord))
         .map(EditingKey::command)
 }
 

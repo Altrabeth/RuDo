@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use insta::assert_snapshot;
 use ratatui::backend::TestBackend;
+use rstest::rstest;
 use rudo::app::go_to::GoToCandidate;
 use rudo::app::lists::EntryKey;
 use rudo::app::picker::{PickerCandidate, PickerPrompt};
@@ -359,6 +360,27 @@ fn esc_closes_without_moving() {
     );
 }
 
+#[rstest]
+#[case::ctrl_j_selects_the_next_match("", "ctrl-j", 1)]
+#[case::ctrl_k_selects_the_previous_match("down down", "ctrl-k", 1)]
+#[case::ctrl_k_keeps_the_query("down home", "ctrl-k", 0)]
+fn ctrl_j_and_ctrl_k_move_the_selection(
+    #[case] before: &str,
+    #[case] key: &str,
+    #[case] expected: usize,
+) {
+    let mut test_app = start();
+    test_app.press("ctrl-p").type_text("o").press(before);
+
+    let system_under_test = test_app.press(key);
+
+    assert_eq!(
+        prompt_of(system_under_test).picker().selected_index(),
+        Some(expected)
+    );
+    assert_eq!(prompt_of(system_under_test).picker().input().value(), "o");
+}
+
 #[test]
 fn ctrl_p_inside_the_finder_selects_the_previous_match() {
     let mut test_app = start();
@@ -446,7 +468,8 @@ fn bottom_bar_shows_the_keys_of_the_picker() {
     let system_under_test = bottom_row(&test_app.render(80, 24));
 
     assert!(
-        system_under_test.starts_with(" tab complete  enter accept  esc cancel"),
+        system_under_test
+            .starts_with(" enter accept  ctrl-j next  ctrl-k previous  tab complete  esc cancel "),
         "{system_under_test}"
     );
 }

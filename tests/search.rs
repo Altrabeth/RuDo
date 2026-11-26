@@ -119,6 +119,19 @@ fn search_prompt_opens_in_the_bottom_bar_with_a_slash() {
     assert!(matches!(test_app.app().mode(), Mode::Search(_)));
 }
 
+/// Outside the pickers `ctrl-k` is not bound, so it still deletes to the end of the input.
+#[test]
+fn ctrl_k_deletes_to_the_end_of_the_search_prompt() {
+    let mut test_app = TestApp::new(TASKS);
+    test_app.press("tab /").type_text("milk").press("left left");
+    let expected = " /mi";
+
+    let system_under_test = test_app.press("ctrl-k").render(80, 12);
+
+    assert!(row(&system_under_test, 11).starts_with(expected));
+    assert!(!row(&system_under_test, 11).starts_with(" /milk"));
+}
+
 #[test]
 fn matches_are_shown_with_their_ancestors() {
     let mut test_app = TestApp::new(TASKS);

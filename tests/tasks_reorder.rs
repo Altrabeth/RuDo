@@ -1,4 +1,4 @@
-//! Reordering and indenting tasks with `J`, `K`, `>` and `<`.
+//! Reordering and indenting tasks with `J`, `K`, `>` and `<`, also on a visual selection.
 
 #[expect(
     dead_code,
@@ -7,12 +7,20 @@
 mod common;
 
 use rstest::rstest;
+use rudo::app::{Mode, StatusMessage};
 use rudo::markdown::document::TaskId;
 
 use crate::common::TestApp;
 
 /// The tasks in display order: `Buy milk` (`Oat milk`), `Bake bread`, `Buy candles`.
 const GROCERIES: &str = "- [ ] Buy milk\n\t- [ ] Oat milk\n- [ ] Bake bread\n- [ ] Buy candles\n";
+
+/// Four sibling tasks without subtasks.
+const SIBLINGS: &str = "- [ ] Buy milk\n- [ ] Bake bread\n- [ ] Buy candles\n- [ ] Call mum\n";
+
+/// [`SIBLINGS`] with every task but the first indented under it.
+const INDENTED_SIBLINGS: &str =
+    "- [ ] Buy milk\n\t- [ ] Bake bread\n\t- [ ] Buy candles\n\t- [ ] Call mum\n";
 
 /// Returns the id of the task described as `description` in `Groceries.md`.
 fn task_id(test_app: &TestApp, description: &str) -> TaskId {
@@ -111,6 +119,110 @@ fn boundaries_leave_the_file_untouched(#[case] keys: &str) {
 
     let system_under_test = test_app.press(keys);
 
+    assert_eq!(system_under_test.read("Groceries.md"), GROCERIES);
+}
+
+#[rstest]
+#[case::indent_three_siblings(SIBLINGS, "2 j v j j >", INDENTED_SIBLINGS)]
+#[case::indent_undone_in_one_step(SIBLINGS, "2 j v j j > u", SIBLINGS)]
+#[case::outdent_them_again(SIBLINGS, "2 j v j j > v j j <", SIBLINGS)]
+#[case::outdent_three_siblings(INDENTED_SIBLINGS, "2 j v j j <", SIBLINGS)]
+#[case::outdent_undone_in_one_step(INDENTED_SIBLINGS, "2 j v j j < u", INDENTED_SIBLINGS)]
+#[case::indent_after_the_last_subtask(
+    GROCERIES,
+    "2 j j v j >",
+    "- [ ] Buy milk\n\t- [ ] Oat milk\n\t- [ ] Bake bread\n\t- [ ] Buy candles\n"
+)]
+#[case::indent_across_depths(
+    GROCERIES,
+    "2 j v j >",
+    "- [ ] Buy milk\n\t- [ ] Oat milk\n\t- [ ] Bake bread\n- [ ] Buy candles\n"
+)]
+#[case::indent_a_task_with_its_selected_subtask(
+    "- [ ] Buy milk\n- [ ] Bake bread\n\t- [ ] Rye\n",
+    "2 j v j >",
+    "- [ ] Buy milk\n\t- [ ] Bake bread\n\t\t- [ ] Rye\n"
+)]
+#[case::outdent_a_folded_task_with_its_subtasks(
+    "- [ ] Buy milk\n\t- [ ] Bake bread\n\t\t- [ ] Rye\n\t- [ ] Buy candles\n",
+    "2 j z a v j <",
+    "- [ ] Buy milk\n- [ ] Bake bread\n\t- [ ] Rye\n- [ ] Buy candles\n"
+)]
+fn keys_restructure_the_visual_selection_and_save_it(
+    #[case] text: &str,
+    #[case] keys: &str,
+    #[case] expected: &str,
+) {
+    let mut test_app = TestApp::new(&[("Groceries.md", text)]);
+
+    let system_under_test = test_app.press(keys);
+
+    assert_eq!(system_under_test.read("Groceries.md"), expected);
+}
+
+#[rstest]
+#[case::indent_the_first_tasks("2 v j >")]
+#[case::outdent_top_level_tasks("2 v G <")]
+fn visual_selection_at_a_boundary_leaves_the_file_untouched(#[case] keys: &str) {
+    let mut test_app = TestApp::new(&[("Groceries.md", GROCERIES)]);
+
+    let system_under_test = test_app.press(keys);
+
+    assert_eq!(system_under_test.read("Groceries.md"), GROCERIES);
+}
+
+#[rstest]
+#[case::indent(">")]
+#[case::outdent("<")]
+fn restructuring_the_selection_ends_visual_mode_on_its_first_task(#[case] key: &str) {
+    let mut test_app = TestApp::new(&[("Groceries.md", INDENTED_SIBLINGS)]);
+    test_app.press("2 j v j").press(key);
+    let expected = task_id(&test_app, "Bake bread");
+
+    let system_under_test = test_app.app();
+
+    assert!(matches!(system_under_test.mode(), Mode::Normal));
+    assert_eq!(selected_task(&test_app), Some(expected));
+}
+
+#[rstest]
+#[case::indent(">")]
+#[case::outdent("<")]
+fn restructuring_the_selection_while_filtered_asks_to_clear_the_filter(#[case] key: &str) {
+    let mut test_app = TestApp::new(&[("Groceries.md", INDENTED_SIBLINGS)]);
+    let expected_message = Some("press esc to clear the filter before moving tasks");
+
+    let system_under_test = test_app
+        .press("2 /")
+        .type_text("bu")
+        .press("enter v j")
+        .press(key);
+
+    assert_eq!(
+        system_under_test
+            .app()
+            .status_message()
+            .map(StatusMessage::text),
+        expected_message
+    );
+    assert_eq!(system_under_test.read("Groceries.md"), INDENTED_SIBLINGS);
+}
+
+#[rstest]
+#[case::indent(">", "only tasks can be indented")]
+#[case::outdent("<", "only tasks can be outdented")]
+fn restructuring_a_selection_of_lists_explains_itself(#[case] key: &str, #[case] expected: &str) {
+    let mut test_app = TestApp::new(&[("Groceries.md", GROCERIES), ("Work.md", SIBLINGS)]);
+
+    let system_under_test = test_app.press("v j").press(key);
+
+    assert_eq!(
+        system_under_test
+            .app()
+            .status_message()
+            .map(StatusMessage::text),
+        Some(expected)
+    );
     assert_eq!(system_under_test.read("Groceries.md"), GROCERIES);
 }
 

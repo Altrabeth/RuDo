@@ -103,7 +103,7 @@ fn bottom_bar_shows_the_mode_the_count_and_the_keys() {
 
     assert_eq!(
         bottom_row(&system_under_test).trim_end(),
-        " -- VISUAL -- 2 selected  d delete  y yank  esc cancel"
+        " -- VISUAL -- 2 selected  d delete  y yank  > indent  < outdent  esc cancel"
     );
 }
 

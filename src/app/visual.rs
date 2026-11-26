@@ -1,5 +1,6 @@
 //! Visual mode ([`Mode::Visual`]): selecting several rows of the focused pane or of the bin
-//! view, like vim's linewise `V`, and deleting, yanking, moving or restoring them in one step.
+//! view, like vim's linewise `V`, and deleting, yanking, moving, indenting or restoring them in
+//! one step.
 //!
 //! The selection lives in the [`Outline`] of the pane or of the bin view as an anchor key, so
 //! it follows edits and reloads like the cursor does. It is resolved against the rows the pane
@@ -185,7 +186,7 @@ impl App {
     /// Ends visual mode, moves the cursor to the first selected task, so that it lands where
     /// the selection began once the tasks are gone, and returns the active list with the
     /// selected tasks; `None` with a message if there are none.
-    fn take_selected_tasks(&mut self) -> Option<(ListPath, Vec<TaskId>)> {
+    pub(super) fn take_selected_tasks(&mut self) -> Option<(ListPath, Vec<TaskId>)> {
         let (list, tasks) = self.selected_tasks().unzip();
         self.end_visual_mode();
         let tasks = self.nonempty_selection(tasks)?;

@@ -152,10 +152,10 @@ impl TodoDocument {
     #[must_use = "the removed blocks are lost if they are not kept"]
     pub fn remove_blocks(&mut self, ids: &HashSet<TaskId>) -> Vec<TaskBlock> {
         let mut blocks: Vec<TaskBlock> = self
-            .outermost_block_ranges(ids)
+            .outermost_blocks(ids)
             .into_iter()
             .rev()
-            .map(|range| {
+            .map(|(_, range)| {
                 TaskBlock::detach(self.remove_lines(range).into_iter().map(|line| line.kind))
             })
             .collect();
@@ -168,28 +168,30 @@ impl TodoDocument {
     /// with that block.
     #[must_use]
     pub fn copy_blocks(&self, ids: &HashSet<TaskId>) -> Vec<TaskBlock> {
-        self.outermost_block_ranges(ids)
+        self.outermost_blocks(ids)
             .into_iter()
-            .map(|range| TaskBlock::detach(self.lines[range].iter().map(|line| line.kind.clone())))
+            .map(|(_, range)| {
+                TaskBlock::detach(self.lines[range].iter().map(|line| line.kind.clone()))
+            })
             .collect()
     }
 
-    /// Returns the line ranges of the blocks of the tasks `ids` that are not inside the block
-    /// of another task of `ids`, in document order, in one pass over the lines.
-    fn outermost_block_ranges(&self, ids: &HashSet<TaskId>) -> Vec<Range<usize>> {
-        let mut ranges = Vec::new();
+    /// Returns the tasks of `ids` that are not inside the block of another task of `ids`, with
+    /// the line ranges of their blocks, in document order, in one pass over the lines.
+    pub(super) fn outermost_blocks(&self, ids: &HashSet<TaskId>) -> Vec<(TaskId, Range<usize>)> {
+        let mut blocks = Vec::new();
         let mut index = 0;
         while index < self.lines.len() {
             match self.lines[index].task() {
                 Some((id, _)) if ids.contains(&id) => {
                     let end = index + self.block_at(index).lines.len();
-                    ranges.push(index..end);
+                    blocks.push((id, index..end));
                     index = end;
                 }
                 Some(_) | None => index += 1,
             }
         }
-        ranges
+        blocks
     }
 
     /// Returns a detached copy of a task with its block, or `None` if `id` is not in this

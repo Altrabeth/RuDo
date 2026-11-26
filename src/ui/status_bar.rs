@@ -155,6 +155,8 @@ const fn hint_actions(context: Context, focus: Focus) -> &'static [Action] {
             Focus::Tasks => &[
                 Action::DeleteSelection,
                 Action::YankSelection,
+                Action::Indent,
+                Action::Outdent,
                 Action::Cancel,
             ],
         },
@@ -412,7 +414,13 @@ mod tests {
     )]
     #[case::tasks(
         Focus::Tasks,
-        &[Action::DeleteSelection, Action::YankSelection, Action::Cancel]
+        &[
+            Action::DeleteSelection,
+            Action::YankSelection,
+            Action::Indent,
+            Action::Outdent,
+            Action::Cancel
+        ]
     )]
     fn visual_hints_act_on_the_selection_of_the_focused_pane(
         #[case] focus: Focus,

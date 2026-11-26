@@ -4,6 +4,7 @@
 //! continuation lines always stay with their task. Lines between two sibling blocks, such as a
 //! heading or a blank line, stay where they are.
 
+use std::collections::HashSet;
 use std::ops::Range;
 
 use crate::config::IndentStyle;
@@ -115,6 +116,64 @@ impl TodoDocument {
             return EditOutcome::Unchanged;
         };
         self.reindent_block(id, &new_indent)
+    }
+
+    /// Indents the tasks `ids` with [`TodoDocument::indent`], keeping their relation to each
+    /// other; a task inside the block of another task of `ids` moves with that block.
+    ///
+    /// The tasks are indented in document order, so consecutive siblings all become subtasks
+    /// of the sibling before the first of them. If the first has no previous sibling, the whole
+    /// run stays where it is instead of becoming subtasks of its first task.
+    ///
+    /// Returns [`EditOutcome::Changed`] if any task moved.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// use rudo::config::IndentStyle;
+    /// use rudo::markdown::document::{EditOutcome, TodoDocument};
+    ///
+    /// let mut document = TodoDocument::parse("- [ ] a\n- [ ] b\n- [ ] c\n");
+    /// let selected: HashSet<_> = document.tasks().skip(1).map(|node| node.id()).collect();
+    ///
+    /// assert_eq!(document.indent_blocks(&selected, IndentStyle::Tab), EditOutcome::Changed);
+    /// assert_eq!(document.to_string(), "- [ ] a\n\t- [ ] b\n\t- [ ] c\n");
+    /// ```
+    pub fn indent_blocks(
+        &mut self,
+        ids: &HashSet<TaskId>,
+        fallback_indent: IndentStyle,
+    ) -> EditOutcome {
+        let mut staying = HashSet::new();
+        let mut outcome = EditOutcome::Unchanged;
+        for (id, _) in self.outermost_blocks(ids) {
+            let follows_a_staying_task = self
+                .previous_sibling(id)
+                .is_some_and(|previous| staying.contains(&previous));
+            if follows_a_staying_task || self.indent(id, fallback_indent) == EditOutcome::Unchanged
+            {
+                staying.insert(id);
+            } else {
+                outcome = EditOutcome::Changed;
+            }
+        }
+        outcome
+    }
+
+    /// Outdents the tasks `ids` with [`TodoDocument::outdent`]; a task inside the block of
+    /// another task of `ids` moves with that block, and top-level tasks stay where they are.
+    ///
+    /// Returns [`EditOutcome::Changed`] if any task moved.
+    pub fn outdent_blocks(&mut self, ids: &HashSet<TaskId>) -> EditOutcome {
+        let mut outcome = EditOutcome::Unchanged;
+        for (id, _) in self.outermost_blocks(ids) {
+            if self.outdent(id) == EditOutcome::Changed {
+                outcome = EditOutcome::Changed;
+            }
+        }
+        outcome
     }
 
     fn previous_sibling(&self, id: TaskId) -> Option<TaskId> {
@@ -508,6 +567,145 @@ mod tests {
 
         assert_eq!(outcome, EditOutcome::Changed);
         assert_eq!(system_under_test, expected);
+    }
+
+    type SelectionOperation = fn(&mut TodoDocument, &HashSet<TaskId>) -> EditOutcome;
+
+    fn indent_blocks_with_three_spaces(
+        document: &mut TodoDocument,
+        ids: &HashSet<TaskId>,
+    ) -> EditOutcome {
+        document.indent_blocks(ids, spaces(3))
+    }
+
+    /// Applies `operation` to the tasks `selected` and returns the outcome and the text.
+    fn apply_to_selection(
+        text: &str,
+        operation: SelectionOperation,
+        selected: &[&str],
+    ) -> (EditOutcome, String) {
+        let mut document = TodoDocument::parse(text);
+        let ids = selected
+            .iter()
+            .map(|description| id_of(&document, description))
+            .collect();
+        let outcome = operation(&mut document, &ids);
+        (outcome, document.to_string())
+    }
+
+    #[rstest]
+    #[case::siblings_under_the_task_above(
+        "- [ ] p\n- [ ] a\n- [ ] b\n- [ ] c\n",
+        &["a", "b", "c"],
+        "- [ ] p\n   - [ ] a\n   - [ ] b\n   - [ ] c\n"
+    )]
+    #[case::after_the_last_subtask(
+        "- [ ] p\n\t- [ ] x\n- [ ] a\n- [ ] b\n",
+        &["a", "b"],
+        "- [ ] p\n\t- [ ] x\n\t- [ ] a\n\t- [ ] b\n"
+    )]
+    #[case::first_run_stays_and_a_later_task_moves(
+        "- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n",
+        &["a", "b", "d"],
+        "- [ ] a\n- [ ] b\n- [ ] c\n   - [ ] d\n"
+    )]
+    #[case::separate_tasks_under_their_own_siblings(
+        "- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n",
+        &["b", "d"],
+        "- [ ] a\n   - [ ] b\n- [ ] c\n   - [ ] d\n"
+    )]
+    #[case::nested_selection_moves_the_block_once(
+        "- [ ] p\n- [ ] a\n  - [ ] a1\n- [ ] b\n",
+        &["a", "a1", "b"],
+        "- [ ] p\n  - [ ] a\n    - [ ] a1\n  - [ ] b\n"
+    )]
+    #[case::selection_across_depths(
+        "- [ ] p\n  - [ ] x\n  - [ ] a\n- [ ] q\n",
+        &["a", "q"],
+        "- [ ] p\n  - [ ] x\n    - [ ] a\n  - [ ] q\n"
+    )]
+    fn indent_blocks_keeps_the_relation_of_the_selected_tasks(
+        #[case] text: &str,
+        #[case] selected: &[&str],
+        #[case] expected: &str,
+    ) {
+        let system_under_test = apply_to_selection(text, indent_blocks_with_three_spaces, selected);
+
+        assert_eq!(
+            system_under_test,
+            (EditOutcome::Changed, expected.to_owned())
+        );
+    }
+
+    /// The expected texts are what vim's `<` makes of the selected lines in linewise visual
+    /// mode, except that the subtasks of a selected task always move with it.
+    #[rstest]
+    #[case::siblings(
+        "- [ ] a\n  - [ ] b\n  - [ ] c\n",
+        &["b", "c"],
+        "- [ ] a\n- [ ] b\n- [ ] c\n"
+    )]
+    #[case::later_sibling_becomes_a_subtask(
+        "- [ ] a\n  - [ ] b\n  - [ ] c\n  - [ ] d\n",
+        &["b", "c"],
+        "- [ ] a\n- [ ] b\n- [ ] c\n  - [ ] d\n"
+    )]
+    #[case::unselected_subtask_moves_with_its_parent(
+        "- [ ] a\n  - [ ] b\n    - [ ] c\n  - [ ] d\n",
+        &["b", "d"],
+        "- [ ] a\n- [ ] b\n  - [ ] c\n- [ ] d\n"
+    )]
+    #[case::nested_selection_moves_the_block_once(
+        "- [ ] a\n  - [ ] b\n    - [ ] c\n",
+        &["b", "c"],
+        "- [ ] a\n- [ ] b\n  - [ ] c\n"
+    )]
+    #[case::top_level_task_stays(
+        "- [ ] a\n  - [ ] b\n- [ ] c\n",
+        &["b", "c"],
+        "- [ ] a\n- [ ] b\n- [ ] c\n"
+    )]
+    fn outdent_blocks_shifts_every_selected_block(
+        #[case] text: &str,
+        #[case] selected: &[&str],
+        #[case] expected: &str,
+    ) {
+        let system_under_test = apply_to_selection(text, TodoDocument::outdent_blocks, selected);
+
+        assert_eq!(
+            system_under_test,
+            (EditOutcome::Changed, expected.to_owned())
+        );
+    }
+
+    #[rstest]
+    #[case::indent_nothing(indent_blocks_with_three_spaces, &[])]
+    #[case::indent_the_first_run(indent_blocks_with_three_spaces, &["a", "e"])]
+    #[case::indent_first_subtasks(indent_blocks_with_three_spaces, &["b", "d"])]
+    #[case::indent_a_parent_with_its_subtasks(indent_blocks_with_three_spaces, &["a", "b", "c"])]
+    #[case::outdent_nothing(TodoDocument::outdent_blocks, &[])]
+    #[case::outdent_top_level_tasks(TodoDocument::outdent_blocks, &["a", "e", "f"])]
+    #[case::outdent_a_parent_with_its_subtasks(TodoDocument::outdent_blocks, &["a", "b", "d"])]
+    fn selection_at_the_edge_of_siblings_is_unchanged(
+        #[case] operation: SelectionOperation,
+        #[case] selected: &[&str],
+    ) {
+        let system_under_test = apply_to_selection(TREE, operation, selected);
+
+        assert_eq!(system_under_test, (EditOutcome::Unchanged, TREE.to_owned()));
+    }
+
+    #[rstest]
+    #[case::indent(indent_blocks_with_three_spaces)]
+    #[case::outdent(TodoDocument::outdent_blocks)]
+    fn unknown_selection_is_unchanged(#[case] operation: SelectionOperation) {
+        let mut document = TodoDocument::parse(TREE);
+        let ids = HashSet::from([UNKNOWN]);
+
+        let system_under_test = operation(&mut document, &ids);
+
+        assert_eq!(system_under_test, EditOutcome::Unchanged);
+        assert_eq!(document.to_string(), TREE);
     }
 
     #[test]

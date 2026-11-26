@@ -13,4 +13,4 @@ expression: system_under_test
 "│                      ││                                                      │"
 "│                      ││                                                      │"
 "╰──────────────────────╯╰──────────────────────────────────────────────────────╯"
-" -- VISUAL -- 3 selected  d delete  y yank  esc cancel                          "
+" -- VISUAL -- 3 selected  d delete  y yank  > indent  < outdent  esc cancel     "

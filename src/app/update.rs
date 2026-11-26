@@ -111,9 +111,13 @@ impl App {
             Action::CloseBin => self.close_bin(),
             Action::ConfirmYes => return self.confirm(),
             Action::ConfirmNo => self.close_confirm(),
+            Action::Indent if matches!(self.mode, Mode::Visual) => return self.indent_selection(),
             Action::Indent => return self.indent_task(),
             Action::MoveTaskDown => return self.move_task_down(),
             Action::MoveTaskUp => return self.move_task_up(),
+            Action::Outdent if matches!(self.mode, Mode::Visual) => {
+                return self.outdent_selection();
+            }
             Action::Outdent => return self.outdent_task(),
             Action::PriorityDown => return self.lower_priority(),
             Action::PriorityUp => return self.raise_priority(),

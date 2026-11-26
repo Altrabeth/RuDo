@@ -47,6 +47,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   configured `picker-next` and `picker-previous`. Everywhere else `ctrl-k` still deletes to the
   end. A configuration that binds `ctrl-j` or `ctrl-k` to `submit`, `cancel` or `complete` now
   reports a conflict in the picker; rebinding `picker-next` or `picker-previous` resolves it.
+- **Indenting a selection.** `>` and `<` (`indent`, `outdent`) also work in visual mode: every
+  selected task moves one level deeper or up with its subtasks, in one step that `u` undoes.
+  The selected tasks keep their relation to each other, so `v j j >` makes three siblings
+  subtasks of the task above them. The bottom bar of visual mode shows both keys.
 
 ### Changed
 

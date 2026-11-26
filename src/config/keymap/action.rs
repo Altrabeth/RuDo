@@ -240,6 +240,7 @@ const BIN_AND_VISUAL: &[Context] = &[Context::Bin, Context::BinVisual];
 const LISTS: &[Context] = &[Context::Lists];
 const LISTS_AND_VISUAL: &[Context] = &[Context::Lists, Context::Visual];
 const TASKS: &[Context] = &[Context::Tasks];
+const TASKS_AND_VISUAL: &[Context] = &[Context::Tasks, Context::Visual];
 const VISUAL_TOGGLE: &[Context] = &[
     Context::Lists,
     Context::Tasks,
@@ -458,14 +459,13 @@ impl Action {
             | Self::PasteAbove
             | Self::MoveTaskDown
             | Self::MoveTaskUp
-            | Self::Indent
-            | Self::Outdent
             | Self::PriorityUp
             | Self::PriorityDown
             | Self::SetDueDate
             | Self::SetRecurrence
             | Self::SortByStatus
             | Self::ToggleCompleted => TASKS,
+            Self::Indent | Self::Outdent => TASKS_AND_VISUAL,
             Self::VisualMode => VISUAL_TOGGLE,
             Self::DeleteSelection => ALL_VISUAL,
             Self::YankSelection => VISUAL,
@@ -676,6 +676,8 @@ mod tests {
     #[case::restore(Action::RestoreFromBin, &[Context::Bin, Context::BinVisual])]
     #[case::lists(Action::NewList, &[Context::Lists])]
     #[case::tasks(Action::NewTaskBelow, &[Context::Tasks])]
+    #[case::indent(Action::Indent, &[Context::Tasks, Context::Visual])]
+    #[case::outdent(Action::Outdent, &[Context::Tasks, Context::Visual])]
     #[case::toggle_completed(Action::ToggleCompleted, &[Context::Tasks])]
     #[case::toggle_hidden(Action::ToggleHidden, &[Context::Lists])]
     #[case::sort_both_panes(Action::SortByDueDate, &[Context::Lists, Context::Tasks])]

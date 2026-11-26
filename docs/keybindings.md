@@ -176,6 +176,8 @@ folders and a visual selection stay with their entries when the order changes.
 | `v`   | `visual-mode`      | select several rows from here on, or stop selecting |
 | `d`   | `delete-selection` | delete the selected tasks, lists or folders         |
 | `y`   | `yank-selection`   | copy the selected tasks and their subtasks          |
+| `>`   | `indent`           | make the selected tasks subtasks of the task above  |
+| `<`   | `outdent`          | move the selected tasks one level up                |
 | `m`   | `move-to-folder`   | move the selected lists and folders into a folder   |
 
 `v` starts selecting at the selected row, like vim's `V`. The keys of moving around (`j`, `k`,
@@ -190,6 +192,12 @@ undoes, after asking if more than one task is selected, and puts them into the r
 another list and `p` moves tasks between lists. A folded task is selected with its hidden
 subtasks. While a search filter is active only the shown matches are selected, not the tasks
 hidden between them or the parents shown for context.
+
+`>` and `<` indent and outdent the selected tasks with their subtasks in one step that `u`
+undoes, like vim's `>` and `<` on selected lines. Selected tasks keep their relation to each
+other: `>` makes consecutive selected siblings subtasks of the task above the first of them,
+and leaves them as they are if there is none. A selected subtask of a selected task moves with
+its parent. Both are refused while a search filter is active, as for a single task.
 
 In the lists pane `d` moves the selected lists and folders to the bin after asking, and `m`
 moves them into a folder; `u` undoes either in one step. If some files cannot be deleted or
